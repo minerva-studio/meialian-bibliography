@@ -57,12 +57,12 @@ namespace Amlos.Container
                     id = container._id;
                     if (id == 0UL) return;           // already unregistered / never registered
                     if (!_table.Remove(id)) return;   // not found -> treat as done
-                    _freed.Enqueue(id);               // recycle id now (parent id，与子无关)
-                    container._id = 0UL;              // mark as unregistered (幂等保护)
+                    _freed.Enqueue(id);               // recycle id now
+                    container._id = 0UL;              // mark as unregistered
                 }
 
                 // 2) Without holding the lock, walk each ref field and recurse immediately.
-                //    No snapshot, no allocations. Assumes callers不会在此期间修改这些ref字段。
+                //    No snapshot, no allocations. Assumes callers do not modify these fields
                 foreach (var field in container.Schema.Fields)
                 {
                     if (!field.IsRef) continue;
