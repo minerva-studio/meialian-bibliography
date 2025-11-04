@@ -92,7 +92,7 @@ namespace Amlos.Container.Tests
             var childField = root.GetField("child"); // reference field
 
             // Initially null: GetObject() returns default (IsNull == true); TryGetObject returns false
-            var maybeChild = childField.GetObject();
+            var maybeChild = childField.GetObjectNoAllocate();
             Assert.That(maybeChild.IsNull, Is.True);
 
             Assert.That(childField.TryGetObject(out var childSO), Is.False);
@@ -101,7 +101,7 @@ namespace Amlos.Container.Tests
             childField.CreateObject(_leafSchema);
 
             // Now the object should be non-null
-            maybeChild = childField.GetObject();
+            maybeChild = childField.GetObjectNoAllocate();
             Assert.That(maybeChild.IsNull, Is.False);
 
             // Write/read on the child
@@ -121,7 +121,7 @@ namespace Amlos.Container.Tests
             StorageObject child = default;
             try
             {
-                child = root.GetObject("child");
+                child = root.GetObjectNoAllocate("child");
             }
             catch (InvalidOperationException)
             {
@@ -141,7 +141,7 @@ namespace Amlos.Container.Tests
             // Create a child and write a value
             var childField = root.GetField("child");
             childField.CreateObject(_leafSchema);
-            var child = childField.GetObject();
+            var child = childField.GetObjectNoAllocate();
             child.Write<int>("hp", 7);
             var childId = child.ID;
 
@@ -162,7 +162,7 @@ namespace Amlos.Container.Tests
             var childField = root.GetField("child");
 
             // Expected: when slot is empty, GetObjectOrNew creates a new child and returns a non-null object.
-            var obj = childField.GetObjectOrNew();
+            var obj = childField.GetObject();
             Assert.That(obj.IsNull, Is.False, "Expected GetObjectOrNew to create a new child when slot is empty.");
         }
     }

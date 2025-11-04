@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 
 namespace Amlos.Container
 {
-    public enum PrimType : byte
+    public enum ValueType : byte
     {
         Unknown = 0,
         Bool = 1,   // 1B
@@ -30,40 +30,40 @@ namespace Amlos.Container
         private const byte PRIM_FIELD = (byte)(PRIM_MASK << PRIM_SHIFT);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte Pack(PrimType prim, bool isArray)
-            => (byte)((isArray ? IS_ARRAY_MASK : 0) | (((byte)prim & PRIM_MASK) << PRIM_SHIFT));
+        public static byte Pack(ValueType valueType, bool isArray)
+            => (byte)((isArray ? IS_ARRAY_MASK : 0) | (((byte)valueType & PRIM_MASK) << PRIM_SHIFT));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsArray(byte hint) => (hint & IS_ARRAY_MASK) != 0;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static PrimType Prim(byte hint)
-            => (PrimType)((hint >> PRIM_SHIFT) & PRIM_MASK);
+        public static ValueType ValueType(byte hint)
+            => (ValueType)((hint >> PRIM_SHIFT) & PRIM_MASK);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte WithArray(byte hint, bool isArray)
             => isArray ? (byte)(hint | IS_ARRAY_MASK) : (byte)(hint & ~IS_ARRAY_MASK);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte WithPrim(byte hint, PrimType prim)
-            => (byte)((hint & ~PRIM_FIELD) | (((byte)prim & PRIM_MASK) << PRIM_SHIFT));
+        public static byte WithPrim(byte hint, ValueType valueType)
+            => (byte)((hint & ~PRIM_FIELD) | (((byte)valueType & PRIM_MASK) << PRIM_SHIFT));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static PrimType PrimOf<T>() where T : unmanaged
+        public static ValueType PrimOf<T>() where T : unmanaged
         {
-            if (typeof(T) == typeof(bool)) return PrimType.Bool;
-            if (typeof(T) == typeof(sbyte)) return PrimType.Int8;
-            if (typeof(T) == typeof(byte)) return PrimType.UInt8;
-            if (typeof(T) == typeof(char)) return PrimType.Char16; // UTF-16 code unit
-            if (typeof(T) == typeof(short)) return PrimType.Int16;
-            if (typeof(T) == typeof(ushort)) return PrimType.UInt16;
-            if (typeof(T) == typeof(int)) return PrimType.Int32;
-            if (typeof(T) == typeof(uint)) return PrimType.UInt32;
-            if (typeof(T) == typeof(long)) return PrimType.Int64;
-            if (typeof(T) == typeof(ulong)) return PrimType.UInt64;
-            if (typeof(T) == typeof(float)) return PrimType.Float32;
-            if (typeof(T) == typeof(double)) return PrimType.Float64;
-            return PrimType.Unknown;
+            if (typeof(T) == typeof(bool)) return Amlos.Container.ValueType.Bool;
+            if (typeof(T) == typeof(sbyte)) return Amlos.Container.ValueType.Int8;
+            if (typeof(T) == typeof(byte)) return Amlos.Container.ValueType.UInt8;
+            if (typeof(T) == typeof(char)) return Amlos.Container.ValueType.Char16; // UTF-16 code unit
+            if (typeof(T) == typeof(short)) return Amlos.Container.ValueType.Int16;
+            if (typeof(T) == typeof(ushort)) return Amlos.Container.ValueType.UInt16;
+            if (typeof(T) == typeof(int)) return Amlos.Container.ValueType.Int32;
+            if (typeof(T) == typeof(uint)) return Amlos.Container.ValueType.UInt32;
+            if (typeof(T) == typeof(long)) return Amlos.Container.ValueType.Int64;
+            if (typeof(T) == typeof(ulong)) return Amlos.Container.ValueType.UInt64;
+            if (typeof(T) == typeof(float)) return Amlos.Container.ValueType.Float32;
+            if (typeof(T) == typeof(double)) return Amlos.Container.ValueType.Float64;
+            return Amlos.Container.ValueType.Unknown;
         }
     }
 

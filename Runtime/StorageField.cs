@@ -1,6 +1,4 @@
 using System;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace Amlos.Container
 {
@@ -41,6 +39,24 @@ namespace Amlos.Container
             }
         }
 
+        /// <summary>
+        /// Get Object from this reference field.
+        /// </summary>
+        public StorageObject Object
+        {
+            get
+            {
+                if (!_field.IsRef || _field.RefCount != 1)
+                    throw new InvalidOperationException($"Field '{Name}' is not a single reference slot.");
+                return GetObject();
+            }
+        }
+
+
+
+
+
+
         // -------------------------
         // Value-field helpers
         // -------------------------
@@ -48,31 +64,26 @@ namespace Amlos.Container
         {
             if (_field.IsRef)
                 throw new InvalidOperationException($"Field '{Name}' is a reference field; use ref APIs.");
-            int sz = Unsafe.SizeOf<T>();
-            if (sz > _field.AbsLength)
-                throw new ArgumentException($"Type {typeof(T).Name} ({sz}B) > field '{Name}' ({_field.AbsLength}B).");
 
-            var span = _container.GetSpan(_field);
-            if (sz < _field.AbsLength) span.Clear();
-            MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
+            _container.WriteNoRescheme(_field, value);
         }
 
         public T Read<T>() where T : unmanaged
         {
             if (_field.IsRef)
                 throw new InvalidOperationException($"Field '{Name}' is a reference field; use ref APIs.");
-            int sz = Unsafe.SizeOf<T>();
-            if (sz > _field.AbsLength)
-                throw new ArgumentException($"Type {typeof(T).Name} ({sz}B) > field '{Name}' ({_field.AbsLength}B).");
 
-            return MemoryMarshal.Read<T>(_container.GetReadOnlySpan(_field));
+            return _container.Read<T>(_field);
         }
 
-        public Span<byte> AsBytes() => _container.GetSpan(_field);
 
-        public ReadOnlySpan<byte> AsReadOnlyBytes() => _container.GetReadOnlySpan(_field);
 
-        public Span<T> AsSpan<T>() where T : unmanaged
+
+        internal Span<byte> AsBytes() => _container.GetSpan(_field);
+
+        internal ReadOnlySpan<byte> AsReadOnlyBytes() => _container.GetReadOnlySpan(_field);
+
+        internal Span<T> AsSpan<T>() where T : unmanaged
         {
             if (_field.IsRef)
                 throw new InvalidOperationException($"Field '{Name}' is a reference field; use AsObjectArray().");
@@ -89,9 +100,19 @@ namespace Amlos.Container
 
 
 
+        /// <summary>
+        /// Read as a string (UTF-16)
+        /// </summary>
+        /// <returns></returns>
+        public string ReadString() => new(AsSpan<char>());
+
+
+
+
         // -------------------------
         // Reference-field helpers
         // -------------------------
+
         internal ulong GetId() => Position;
 
         internal void SetId(ulong id) => Position = id;
@@ -109,12 +130,17 @@ namespace Amlos.Container
         /// Return a null-representable StorageObject.
         /// Returns default(StorageObject) when the slot is empty or the id is missing.
         /// </summary>
-        public StorageObject GetObject() => StorageObject.Get(Position);
+        public StorageObject GetObjectNoAllocate() => StorageFactory.GetNoAllocate(Position);
 
         /// <summary>
         /// Get the object, if is currently null, return a new object based on given schema (or default schema if null schema is given)
         /// </summary>
-        public StorageObject GetObjectOrNew(Schema defaultSchema = null) => StorageObject.GetOrNew(ref Position, defaultSchema);
+        public StorageObject GetObject() => StorageFactory.Get(ref Position, Schema.Empty);
+
+        /// <summary>
+        /// Get the object, if is currently null, return a new object based on given schema (or default schema if null schema is given)
+        /// </summary>
+        public StorageObject GetObject(Schema defaultSchema = null) => StorageFactory.Get(ref Position, defaultSchema);
 
 
         public bool TryGetObject(out StorageObject obj)
@@ -122,16 +148,7 @@ namespace Amlos.Container
             obj = default;
             if (!_field.IsRef || _field.RefCount != 1) return false;
             var id = _container.GetRef(_field);
-            return StorageObject.TryGet(id, out obj);
-        }
-
-        internal void SetObject(Container container)
-        {
-            if (container is null) throw new ArgumentNullException(nameof(container));
-            if (!_field.IsRef || _field.RefCount != 1)
-                throw new InvalidOperationException($"Field '{Name}' is not a single reference slot.");
-            ref ulong slot = ref _container.GetRef(_field);
-            slot = container.ID;
+            return StorageFactory.TryGet(id, out obj);
         }
 
         // Value-array view (T[] packed as bytes)

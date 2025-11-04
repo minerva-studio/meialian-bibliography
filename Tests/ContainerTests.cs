@@ -42,8 +42,8 @@ namespace Amlos.Container.Tests
             var s = MakeSchema(true, ("hp", 4), ("spd", 4));
             using var c = Container.CreateWild(s);
 
-            c.Write<int>("hp", 123456789);
-            c.Write<float>("spd", 3.5f);
+            c.WriteNoRescheme<int>("hp", 123456789);
+            c.WriteNoRescheme<float>("spd", 3.5f);
 
             Assert.That(c.Read<int>("hp"), Is.EqualTo(123456789));
             Assert.That(c.Read<float>("spd"), Is.EqualTo(3.5f).Within(1e-6));
@@ -54,7 +54,7 @@ namespace Amlos.Container.Tests
         {
             var s = MakeSchema(true, ("tiny", 2));
             using var c = Container.CreateWild(s);
-            Assert.That(() => c.Write<int>("tiny", 42),
+            Assert.That(() => c.WriteNoRescheme<int>("tiny", 42),
                 Throws.TypeOf<ArgumentException>().With.Message.Contains("exceeds field length"));
         }
 
@@ -67,7 +67,7 @@ namespace Amlos.Container.Tests
             var fa = s.GetField("a");
             Assert.That(c.TryWrite<int>(fa, 7), Is.False); // sizeof(int) > 2 -> false
 
-            c.Write<int>("b", 99);
+            c.WriteNoRescheme<int>("b", 99);
             Assert.That(c.TryRead<int>("b", out var v), Is.True);
             Assert.That(v, Is.EqualTo(99));
 
@@ -101,7 +101,7 @@ namespace Amlos.Container.Tests
             var s = MakeSchema(true, ("word", 4));
             using var c = Container.CreateWild(s);
 
-            c.Write<short>("word", unchecked((short)0xABCD)); // little-endian: [CD AB 00 00]
+            c.WriteNoRescheme<short>("word", unchecked((short)0xABCD)); // little-endian: [CD AB 00 00]
             int val = c.Read<int>("word");
             Assert.That(val, Is.EqualTo(0x0000ABCD));
         }
@@ -111,14 +111,14 @@ namespace Amlos.Container.Tests
         {
             var s = MakeSchema(true, ("hp", 4), ("mp", 4));
             using var c1 = Container.CreateWild(s);
-            c1.Write<int>("hp", 10);
-            c1.Write<int>("mp", 5);
+            c1.WriteNoRescheme<int>("hp", 10);
+            c1.WriteNoRescheme<int>("mp", 5);
 
             using var c2 = c1.Clone();
             Assert.That(c2.Read<int>("hp"), Is.EqualTo(10));
             Assert.That(c2.Read<int>("mp"), Is.EqualTo(5));
 
-            c1.Write<int>("hp", 77);
+            c1.WriteNoRescheme<int>("hp", 77);
             Assert.That(c1.Read<int>("hp"), Is.EqualTo(77));
             Assert.That(c2.Read<int>("hp"), Is.EqualTo(10)); // <-- fixed here
         }

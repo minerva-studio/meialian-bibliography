@@ -1,4 +1,5 @@
 using System;
+using static Amlos.Container.StorageFactory;
 
 namespace Amlos.Container
 {
@@ -12,6 +13,17 @@ namespace Amlos.Container
     {
         private readonly Span<ulong> _ids;
 
+        /// <summary>Number of child reference slots.</summary>
+        public int Count => _ids.Length;
+
+        /// <summary>Direct access to the underlying ID span (use with care).</summary>
+        internal Span<ulong> Ids => _ids;
+
+        public StorageObjectArrayElement this[int index] => new(this, index);
+
+
+
+
         internal StorageObjectArray(Container container, FieldDescriptor field)
         {
             if (!field.IsRef)
@@ -19,21 +31,13 @@ namespace Amlos.Container
             _ids = container.GetRefSpan(field);
         }
 
-        /// <summary>Number of child reference slots.</summary>
-        public int Count => _ids.Length;
-
-        /// <summary>Direct access to the underlying ID span (use with care).</summary>
-        internal Span<ulong> Ids => _ids;
-
-
-        public StorageObjectArrayElement this[int index] => new(this, index);
 
 
         /// <summary>Get a child as a StorageObject (throws if not found).</summary>
-        public StorageObject Get(int index) => StorageObject.Get(Ids[index]);
+        public StorageObject Get(int index) => GetNoAllocate(Ids[index]);
 
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
-        public bool TryGet(int index, out StorageObject child) => StorageObject.TryGet(_ids[index], out child);
+        public bool TryGet(int index, out StorageObject child) => StorageFactory.TryGet(_ids[index], out child);
 
         /// <summary>Assign a raw ID into the slot.</summary>
         public void SetId(int index, ulong id) => _ids[index] = id;
@@ -57,13 +61,21 @@ namespace Amlos.Container
         }
 
         /// <summary>
+        /// Is a null slot (ID == 0)
+        /// </summary>
+        public bool IsNull => Position == 0UL;
+
+        /// <summary>
         /// Single-ref field ref ref
         /// </summary>
         private ref ulong Position => ref _array.Ids[_index];
 
-        public StorageObject AsObject() => StorageObject.Get(Position);
+        public StorageObject AsObject() => GetNoAllocate(Position);
 
-        public StorageObject AsObjectOrNew(Schema schema) => StorageObject.GetOrNew(ref Position, schema);
+        public StorageObject AsObjectOrNew(Schema schema) => Get(ref Position, schema);
+
+
+        public static implicit operator StorageObject(StorageObjectArrayElement element) => element.AsObject();
     }
 }
 

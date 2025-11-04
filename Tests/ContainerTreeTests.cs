@@ -45,9 +45,9 @@ namespace Amlos.Container.Tests
             var grand = Container.CreateAt(ref ids[2], _nodeSchema_1Child);
 
             // write root.hp, child.hp, grand.hp
-            root.Write<int>("hp", 10);
-            child.Write<int>("hp", 20);
-            grand.Write<int>("hp", 30);
+            root.WriteNoRescheme<int>("hp", 10);
+            child.WriteNoRescheme<int>("hp", 20);
+            grand.WriteNoRescheme<int>("hp", 30);
 
             // chain child links
             root.WriteObject("child", child);
@@ -101,10 +101,10 @@ namespace Amlos.Container.Tests
             var c2 = Container.CreateAt(ref ids[3], _nodeSchema_1Child);
 
             // set hp
-            root.Write<int>("hp", 1);
-            c0.Write<int>("hp", 10);
-            c1.Write<int>("hp", 20);
-            c2.Write<int>("hp", 30);
+            root.WriteNoRescheme<int>("hp", 1);
+            c0.WriteNoRescheme<int>("hp", 10);
+            c1.WriteNoRescheme<int>("hp", 20);
+            c2.WriteNoRescheme<int>("hp", 30);
 
             // link children
             root.WriteObject("c0", c0);
@@ -120,9 +120,9 @@ namespace Amlos.Container.Tests
             // quick readback via StorageObject
             var soRoot = new StorageObject(root);
             Assert.That(soRoot.Read<int>("hp"), Is.EqualTo(1));
-            Assert.That(new StorageObject(reg.GetContainer(root.GetRef("c0"))).Read<int>("hp"), Is.EqualTo(10));
-            Assert.That(new StorageObject(reg.GetContainer(root.GetRef("c1"))).Read<int>("hp"), Is.EqualTo(20));
-            Assert.That(new StorageObject(reg.GetContainer(root.GetRef("c2"))).Read<int>("hp"), Is.EqualTo(30));
+            Assert.That(new StorageObject(reg.GetContainer(root.GetRefNoRescheme("c0"))).Read<int>("hp"), Is.EqualTo(10));
+            Assert.That(new StorageObject(reg.GetContainer(root.GetRefNoRescheme("c1"))).Read<int>("hp"), Is.EqualTo(20));
+            Assert.That(new StorageObject(reg.GetContainer(root.GetRefNoRescheme("c2"))).Read<int>("hp"), Is.EqualTo(30));
 
             // Act
             reg.Unregister(root);

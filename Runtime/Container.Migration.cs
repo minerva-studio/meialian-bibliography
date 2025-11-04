@@ -97,5 +97,16 @@ namespace Amlos.Container
             EnsureNotDisposed();
             RebuildSchema(Schema.Variate(edit));  // zero-init by default
         }
+
+        public FieldDescriptor GetFieldDescriptorOrRescheme<T>(string fieldName) where T : unmanaged
+        {
+            if (!_schema.TryGetField(fieldName, out var f))
+            {
+                Rescheme(b => b.AddFieldOf<T>(fieldName));
+                f = _schema.GetField(fieldName);
+            }
+
+            return f;
+        }
     }
 }

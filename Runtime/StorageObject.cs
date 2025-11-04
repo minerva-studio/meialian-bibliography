@@ -9,6 +9,12 @@ namespace Amlos.Container
     public readonly ref struct StorageObject
     {
         private readonly Container _container;
+        public readonly Schema Schema => _container.Schema;
+        public ulong ID => _container.ID;
+        public bool IsNull => _container == null || _container._id == 0;
+        public ReadOnlySpan<byte> HeaderHints => _container.HeaderHints;
+        public StorageField this[string name] => GetField(name);
+
 
 
         internal StorageObject(Container container)
@@ -16,18 +22,12 @@ namespace Amlos.Container
             _container = container;
         }
 
-        public readonly Schema Schema => _container.Schema;
-        public ulong ID => _container.ID;
-        public bool IsNull => _container == null || _container._id == 0;
-
-
 
         private void EnsureNotNull()
         {
             if (_container is null)
                 throw new InvalidOperationException("This StorageObject is null.");
         }
-
 
 
 
@@ -39,17 +39,7 @@ namespace Amlos.Container
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
-        public void Write<T>(string fieldName, in T value) where T : unmanaged
-        {
-            EnsureNotNull();
-            // if field not exists, add it
-            if (!Schema.TryGetField(fieldName, out var field))
-            {
-                _container.Rescheme(b => b.AddFieldOf<T>(fieldName));
-                field = _container.Schema.GetField(fieldName);
-            }
-            _container.Write(field, value);
-        }
+        public void Write<T>(string fieldName, in T value) where T : unmanaged => _container.Write(fieldName, value);
 
         /// <summary>
         /// Write a value to an existing field without rescheming, if the field does not exist, an exception is thrown.
@@ -57,23 +47,16 @@ namespace Amlos.Container
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
-        public void WriteNoRescheme<T>(string fieldName, in T value) where T : unmanaged
-        {
-            EnsureNotNull();
-            _container.Write(fieldName, value);
-        }
+        public void WriteNoRescheme<T>(string fieldName, in T value) where T : unmanaged => _container.WriteNoRescheme(fieldName, value);
 
-        public T Read<T>(string fieldName) where T : unmanaged
-        {
-            EnsureNotNull();
-            return _container.Read<T>(fieldName);
-        }
+        public T Read<T>(string fieldName) where T : unmanaged => _container.Read<T>(fieldName);
 
-        public bool TryRead<T>(string fieldName, out T value) where T : unmanaged
-        {
-            EnsureNotNull();
-            return _container.TryRead(fieldName, out value);
-        }
+        public bool TryRead<T>(string fieldName, out T value) where T : unmanaged => _container.TryRead(fieldName, out value);
+
+        public T ReadOrDefault<T>(string fieldName) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : default;
+
+        public T ReadOrDefault<T>(string fieldName, T defaultValue) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : defaultValue;
+
 
         /// <summary>
         /// Delete a field from this object. Returns true if the field was found and deleted, false otherwise.
@@ -82,7 +65,6 @@ namespace Amlos.Container
         /// <returns></returns>
         public bool Delete(string fieldName)
         {
-            EnsureNotNull();
             bool result = false;
             _container.Rescheme(b => result = b.RemoveField(fieldName));
             return result;
@@ -99,6 +81,37 @@ namespace Amlos.Container
             int result = 0;
             _container.Rescheme(b => result = b.RemoveFields(names));
             return result;
+        }
+
+
+
+        // Child navigation by reference field (single)
+        public StorageObject GetObject(string fieldName, bool reschemeOnMissing, bool allocateOnNull)
+        {
+            ref ulong idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
+            return allocateOnNull ? StorageFactory.Get(ref idRef, Schema.Empty) : StorageFactory.GetNoAllocate(idRef);
+        }
+
+        // Child navigation by reference field (single)
+        public StorageObject GetObject(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, allocateOnNull: true);
+
+        // Child navigation by reference field (single)
+        public StorageObject GetObjectNoAllocate(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, allocateOnNull: false);
+
+        /// <summary>
+        /// Get a stack-only view over a value array field T[].
+        /// Field must be non-ref and length divisible by sizeof(T).
+        /// </summary>
+        public StorageArray<T> GetArray<T>(string fieldName) where T : unmanaged => StorageArray<T>.CreateView(_container, fieldName);
+
+        /// <summary>
+        /// Get a stack-only view over a child reference array (IDs).
+        /// Field must be a ref field.
+        /// </summary>
+        public StorageObjectArray GetObjectArray(string fieldName)
+        {
+            var f = _container.Schema.GetField(fieldName);
+            return new StorageObjectArray(_container, f);
         }
 
 
@@ -124,66 +137,7 @@ namespace Amlos.Container
             return false;
         }
 
-        // Child navigation by reference field (single)
-        public StorageObject GetObject(string fieldName)
-        {
-            ulong id = _container.GetRef(fieldName);
-            return Get(id);
-        }
 
-        /// <summary>
-        /// Get a stack-only view over a value array field T[].
-        /// Field must be non-ref and length divisible by sizeof(T).
-        /// </summary>
-        public StorageArray<T> GetArray<T>(string fieldName) where T : unmanaged => StorageArray<T>.CreateView(_container, fieldName);
-
-        /// <summary>
-        /// Get a stack-only view over a child reference array (IDs).
-        /// Field must be a ref field.
-        /// </summary>
-        public StorageObjectArray GetObjectArray(string fieldName)
-        {
-            var f = _container.Schema.GetField(fieldName);
-            return new StorageObjectArray(_container, f);
-        }
-
-
-
-
-
-        internal static StorageObject Get(ulong position)
-        {
-            var id = position;
-            if (id == 0UL) return default; // null-like
-
-            var child = Container.Registry.Shared.GetContainer(id);
-            if (child is null) return default; // dangling -> treat as null
-
-            return new StorageObject(child);
-        }
-
-        internal static StorageObject GetOrNew(ref ulong position, Schema schema)
-        {
-            ref var id = ref position;
-            var child = Container.Registry.Shared.GetContainer(id);
-            if (child is null)
-            {
-                Container.CreateAt(ref position, schema ?? Schema.Empty);
-                child = Container.Registry.Shared.GetContainer(id);
-            }
-            return new StorageObject(child);
-        }
-
-        internal static bool TryGet(ulong position, out StorageObject obj)
-        {
-            obj = default;
-
-            if (position == 0UL) return false;
-            var c = Container.Registry.Shared.GetContainer(position);
-            if (c == null) return false;
-            obj = new StorageObject(c);
-            return true;
-        }
 
 
 

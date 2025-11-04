@@ -23,7 +23,7 @@ namespace Amlos.Container
         public Span<byte> Span { get { EnsureNotDisposed(); return span; } }
 
         /// <summary>Per-container 1B-per-field type hints stored at the header.</summary>
-        private Span<byte> HeaderHints => _buffer.AsSpan()[.._schema.HeaderSize];
+        public Span<byte> HeaderHints => span[.._schema.HeaderSize];
 
         /// <summary> Shortcut </summary>
         private Span<byte> span => _buffer;
@@ -90,6 +90,7 @@ namespace Amlos.Container
         {
             if (_disposed) throw new ObjectDisposedException(nameof(Container));
         }
+
 
 
         #region Byte-span accessors
@@ -162,17 +163,23 @@ namespace Amlos.Container
         #endregion
 
 
-        #region Blittable T read/write (unmanaged)
+        #region Blittable T read/write (unmanaged) 
 
-        public void Write<T>(string fieldName, in T value) where T : unmanaged => Write(_schema.GetField(fieldName), value);
+        public void Write<T>(string fieldName, in T value) where T : unmanaged
+        {
+            FieldDescriptor f = GetFieldDescriptorOrRescheme<T>(fieldName);
+            WriteNoRescheme(f, value);
+        }
 
-        public void Write<T>(in FieldDescriptor f, T value) where T : unmanaged
+        public void WriteNoRescheme<T>(string fieldName, in T value) where T : unmanaged => WriteNoRescheme(_schema.GetField(fieldName), value);
+
+        public void WriteNoRescheme<T>(in FieldDescriptor f, T value) where T : unmanaged
         {
             int sz = Unsafe.SizeOf<T>();
             if (sz > f.Length)
                 throw new ArgumentException($"Type {typeof(T).Name} size {sz} exceeds field length {f.Length}.", nameof(value));
 
-            Write_Internal(f, value, sz);
+            WriteNoRescheme_Internal(f, value, sz);
         }
 
         public bool TryWrite<T>(string fieldName, in T value) where T : unmanaged
@@ -185,11 +192,11 @@ namespace Amlos.Container
         {
             int sz = Unsafe.SizeOf<T>();
             if (sz > field.Length) return false;
-            Write_Internal(field, value, sz);
+            WriteNoRescheme_Internal(field, value, sz);
             return true;
         }
 
-        private void Write_Internal<T>(FieldDescriptor f, T value, int sz) where T : unmanaged
+        private void WriteNoRescheme_Internal<T>(FieldDescriptor f, T value, int sz) where T : unmanaged
         {
             var span = GetSpan(in f);
             if (sz < f.Length) span.Clear(); // avoid stale trailing bytes
@@ -198,6 +205,13 @@ namespace Amlos.Container
             int idx = _schema.IndexOf(f.Name);
             if (idx >= 0) SetScalarHint<T>(idx);
         }
+
+
+
+
+
+
+
 
 
 
@@ -227,7 +241,13 @@ namespace Amlos.Container
 
         #region Object
 
-        public ref ulong GetRef(string fieldName) => ref GetRef(_schema.GetField(fieldName));
+        public ref ulong GetRef(string fieldName)
+        {
+            var f = GetFieldDescriptorOrRescheme<ulong>(fieldName);
+            return ref GetRef(f);
+        }
+
+        public ref ulong GetRefNoRescheme(string fieldName) => ref GetRef(_schema.GetField(fieldName));
 
         public ref ulong GetRef(FieldDescriptor f)
         {
@@ -247,14 +267,9 @@ namespace Amlos.Container
             return MemoryMarshal.Cast<byte, ulong>(GetSpan(f));
         }
 
-        public Container ReadObject(string fieldName)
-        {
-            return Registry.Shared.GetContainer(GetRef(fieldName));
-        }
-
         public void WriteObject(string fieldName, Container container)
         {
-            GetRef(fieldName) = container.ID;
+            GetRefNoRescheme(fieldName) = container.ID;
         }
 
         #endregion
@@ -276,7 +291,7 @@ namespace Amlos.Container
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void SetRefHint(int fieldIndex, bool isArray)
-            => HintRef(fieldIndex) = TypeHintUtil.Pack(PrimType.Ref, isArray);
+            => HintRef(fieldIndex) = TypeHintUtil.Pack(ValueType.Ref, isArray);
 
         #endregion
 

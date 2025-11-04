@@ -66,7 +66,7 @@ namespace Amlos.Container.Tests
             var root = storage.Root;
 
             // Fill child and children[0..1]
-            var direct = root.GetField("child").GetObjectOrNew(_childSchema);
+            var direct = root.GetField("child").GetObject(_childSchema);
             var arr = root.GetObjectArray("children");
             var a0 = arr[0].AsObjectOrNew(_childSchema);
             var a1 = arr[1].AsObjectOrNew(_childSchema);
@@ -124,7 +124,7 @@ namespace Amlos.Container.Tests
             var root = storage.Root;
 
             // Create direct child and children
-            var direct = root.GetField("child").GetObjectOrNew(_childSchema);
+            var direct = root.GetField("child").GetObject(_childSchema);
             var arr = root.GetObjectArray("children");
             var a0 = arr[0].AsObjectOrNew(_childSchema);
             var a1 = arr[1].AsObjectOrNew(_childSchema);
@@ -177,7 +177,7 @@ namespace Amlos.Container.Tests
         {
             var storage = new Storage(_rootSchema);
             var root = storage.Root;
-            var child = root.GetField("child").GetObjectOrNew(_childSchema);
+            var child = root.GetField("child").GetObject(_childSchema);
             var id = child.ID;
 
             storage.Dispose();
