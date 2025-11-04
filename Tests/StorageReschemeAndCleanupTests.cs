@@ -35,20 +35,20 @@ namespace Amlos.Container.Tests
             var root = storage.Root;
             var arr = root.GetObjectArray("children");
 
-            var c0 = arr[0].AsObjectOrNew(_childSchema);
-            var c1 = arr[1].AsObjectOrNew(_childSchema);
+            var c0 = arr[0].GetObject(_childSchema);
+            var c1 = arr[1].GetObject(_childSchema);
             var id0 = c0.ID;
             var id1 = c1.ID;
 
             // Replace slot 0 with a new child
-            var c0b = arr[0].AsObjectOrNew(_childSchema);
+            var c0b = arr[0].GetObject(_childSchema);
             var id0b = c0b.ID;
 
             // If AsObjectOrNew returns existing when present, do an explicit Clear + New to force replacement
             if (id0b == id0)
             {
                 arr.ClearAt(0);
-                c0b = arr[0].AsObjectOrNew(_childSchema);
+                c0b = arr[0].GetObject(_childSchema);
                 id0b = c0b.ID;
             }
 
@@ -66,10 +66,10 @@ namespace Amlos.Container.Tests
             var root = storage.Root;
 
             // Fill child and children[0..1]
-            var direct = root.GetField("child").GetObject(_childSchema);
+            var direct = root.GetObject("child", false, _childSchema);
             var arr = root.GetObjectArray("children");
-            var a0 = arr[0].AsObjectOrNew(_childSchema);
-            var a1 = arr[1].AsObjectOrNew(_childSchema);
+            var a0 = arr[0].GetObject(_childSchema);
+            var a1 = arr[1].GetObject(_childSchema);
 
             var ids = new List<ulong> { direct.ID, a0.ID, a1.ID };
 
@@ -112,7 +112,7 @@ namespace Amlos.Container.Tests
             Assert.That(root.Read<int>("hp"), Is.EqualTo(77));
 
             // Accessing 'speeds' as field should now fail (TryGetField returns false)
-            var ok = root.TryGetField("speeds", out _);
+            var ok = root.HasField("speeds");
             Assert.That(ok, Is.False);
         }
 
@@ -124,10 +124,10 @@ namespace Amlos.Container.Tests
             var root = storage.Root;
 
             // Create direct child and children
-            var direct = root.GetField("child").GetObject(_childSchema);
+            var direct = root.GetObject("child", false, _childSchema);
             var arr = root.GetObjectArray("children");
-            var a0 = arr[0].AsObjectOrNew(_childSchema);
-            var a1 = arr[1].AsObjectOrNew(_childSchema);
+            var a0 = arr[0].GetObject(_childSchema);
+            var a1 = arr[1].GetObject(_childSchema);
 
             var ids = new[] { direct.ID, a0.ID, a1.ID };
 
@@ -151,8 +151,8 @@ namespace Amlos.Container.Tests
             // Initialize tree
             root.Write<int>("hp", 5);
             var arr = root.GetObjectArray("children");
-            var a0 = arr[0].AsObjectOrNew(_childSchema);
-            var a1 = arr[1].AsObjectOrNew(_childSchema);
+            var a0 = arr[0].GetObject(_childSchema);
+            var a1 = arr[1].GetObject(_childSchema);
             var ids = new[] { a0.ID, a1.ID };
 
             // Delete children (ref-array) + speeds (value)
@@ -167,8 +167,8 @@ namespace Amlos.Container.Tests
             Assert.That(Container.Registry.Shared.GetContainer(ids[1]), Is.Null);
 
             // Verify fields gone
-            Assert.That(root.TryGetField("children", out _), Is.False);
-            Assert.That(root.TryGetField("speeds", out _), Is.False);
+            Assert.That(root.HasField("children"), Is.False);
+            Assert.That(root.HasField("speeds"), Is.False);
         }
 
         // --- Cleanup safety: disposing an already-disposed Storage is safe ---
@@ -177,7 +177,7 @@ namespace Amlos.Container.Tests
         {
             var storage = new Storage(_rootSchema);
             var root = storage.Root;
-            var child = root.GetField("child").GetObject(_childSchema);
+            var child = root.GetObject("child", false, _childSchema);
             var id = child.ID;
 
             storage.Dispose();

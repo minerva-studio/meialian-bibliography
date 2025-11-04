@@ -13,7 +13,6 @@ namespace Amlos.Container
         public ulong ID => _container.ID;
         public bool IsNull => _container == null || _container._id == 0;
         public ReadOnlySpan<byte> HeaderHints => _container.HeaderHints;
-        public StorageField this[string name] => GetField(name);
 
 
 
@@ -21,6 +20,7 @@ namespace Amlos.Container
         {
             _container = container;
         }
+
 
 
         private void EnsureNotNull()
@@ -49,6 +49,7 @@ namespace Amlos.Container
         /// <param name="value"></param>
         public void WriteNoRescheme<T>(string fieldName, in T value) where T : unmanaged => _container.WriteNoRescheme(fieldName, value);
 
+
         public T Read<T>(string fieldName) where T : unmanaged => _container.Read<T>(fieldName);
 
         public bool TryRead<T>(string fieldName, out T value) where T : unmanaged => _container.TryRead(fieldName, out value);
@@ -56,6 +57,7 @@ namespace Amlos.Container
         public T ReadOrDefault<T>(string fieldName) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : default;
 
         public T ReadOrDefault<T>(string fieldName, T defaultValue) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : defaultValue;
+
 
 
         /// <summary>
@@ -85,18 +87,28 @@ namespace Amlos.Container
 
 
 
+        /// <summary>
+        /// Read as a string (UTF-16)
+        /// </summary>
+        /// <returns></returns>
+        public string ReadString(string fieldName) => new(_container.GetReadOnlySpan<char>(fieldName));
+
+
+
+
         // Child navigation by reference field (single)
-        public StorageObject GetObject(string fieldName, bool reschemeOnMissing, bool allocateOnNull)
+        public StorageObject GetObject(string fieldName, bool reschemeOnMissing, Schema newSchema)
         {
             ref ulong idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
-            return allocateOnNull ? StorageFactory.Get(ref idRef, Schema.Empty) : StorageFactory.GetNoAllocate(idRef);
+            return newSchema != null ? StorageFactory.Get(ref idRef, newSchema) : StorageFactory.GetNoAllocate(idRef);
         }
 
         // Child navigation by reference field (single)
-        public StorageObject GetObject(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, allocateOnNull: true);
+        public StorageObject GetObject(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, newSchema: Schema.Empty);
+        public StorageObject GetObject(string fieldName, Schema schema = null) => GetObject(fieldName, reschemeOnMissing: true, newSchema: schema ?? Schema.Empty);
 
         // Child navigation by reference field (single)
-        public StorageObject GetObjectNoAllocate(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, allocateOnNull: false);
+        public StorageObject GetObjectNoAllocate(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, newSchema: null);
 
         /// <summary>
         /// Get a stack-only view over a value array field T[].
@@ -118,24 +130,9 @@ namespace Amlos.Container
 
 
 
-        /// <summary>Get a field view by name.</summary>
-        public StorageField GetField(string fieldName)
-        {
-            var f = _container.Schema.GetField(fieldName);
-            return new StorageField(_container, f);
-        }
 
-        /// <summary>Try get a field view by name.</summary>
-        public bool TryGetField(string fieldName, out StorageField field)
-        {
-            if (_container.Schema.TryGetField(fieldName, out var f))
-            {
-                field = new StorageField(_container, f);
-                return true;
-            }
-            field = default;
-            return false;
-        }
+        /// <summary>Check a field exist.</summary>
+        public bool HasField(string fieldName) => _container.Schema.IndexOf(fieldName) >= 0;
 
 
 

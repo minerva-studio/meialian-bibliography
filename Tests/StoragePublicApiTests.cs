@@ -59,55 +59,6 @@ namespace Amlos.Container.Tests
             Assert.That(threw, Is.True, "Expected InvalidOperationException was not thrown.");
         }
 
-        // 2) StorageField: value-field read/write + array/span views
-        [Test]
-        public void StorageField_ValueField_ReadWrite_And_ArraySpan()
-        {
-            using var storage = new Storage(_rootSchema);
-            var root = storage.Root;
-
-            // Value field via StorageField
-            var hp = root.GetField("hp");
-            hp.Write(999);
-            Assert.That(hp.Read<int>(), Is.EqualTo(999));
-
-            // Float array (packed in bytes): speeds has 4 elements
-            var speeds = root.GetField("speeds").AsArray<float>();
-            Assert.That(speeds.Count, Is.EqualTo(4));
-            for (int i = 0; i < speeds.Count; i++)
-                speeds[i] = i * 0.5f;
-
-            // Read back via read-only span
-            var speedsRo = root.GetField("speeds").AsReadOnlySpan<float>();
-            CollectionAssert.AreEqual(new[] { 0f, 0.5f, 1.0f, 1.5f }, speedsRo.ToArray());
-        }
-
-        // 3) StorageField: single-slot ref field null semantics and Try pattern
-        [Test]
-        public void StorageField_Ref_SingleSlot_NullSemantics_And_TryGet()
-        {
-            using var storage = new Storage(_rootSchema);
-            var root = storage.Root;
-
-            var childField = root.GetField("child"); // reference field
-
-            // Initially null: GetObject() returns default (IsNull == true); TryGetObject returns false
-            var maybeChild = childField.GetObjectNoAllocate();
-            Assert.That(maybeChild.IsNull, Is.True);
-
-            Assert.That(childField.TryGetObject(out var childSO), Is.False);
-
-            // Create a child via the field API and bind its ID into the slot
-            childField.CreateObject(_leafSchema);
-
-            // Now the object should be non-null
-            maybeChild = childField.GetObjectNoAllocate();
-            Assert.That(maybeChild.IsNull, Is.False);
-
-            // Write/read on the child
-            maybeChild.Write<int>("hp", 42);
-            Assert.That(maybeChild.Read<int>("hp"), Is.EqualTo(42));
-        }
 
         // 4) StorageObject: strong navigation throws if child is null
         [Test]
@@ -139,9 +90,7 @@ namespace Amlos.Container.Tests
             var root = storage.Root;
 
             // Create a child and write a value
-            var childField = root.GetField("child");
-            childField.CreateObject(_leafSchema);
-            var child = childField.GetObjectNoAllocate();
+            var child = root.GetObject("child", false, _leafSchema);
             child.Write<int>("hp", 7);
             var childId = child.ID;
 
@@ -153,17 +102,66 @@ namespace Amlos.Container.Tests
             Assert.That(reg.GetContainer(childId), Is.Null);
         }
 
-        [Test]
-        public void StorageField_GetObjectOrNew_Should_Create_When_Null()
-        {
-            using var storage = new Storage(_rootSchema);
-            var root = storage.Root;
+        //// 2) StorageField: value-field read/write + array/span views
+        //[Test]
+        //public void StorageField_ValueField_ReadWrite_And_ArraySpan()
+        //{
+        //    using var storage = new Storage(_rootSchema);
+        //    var root = storage.Root;
 
-            var childField = root.GetField("child");
+        //    // Value field via StorageField
+        //    var hp = root.GetField("hp");
+        //    hp.Write(999);
+        //    Assert.That(hp.Read<int>(), Is.EqualTo(999));
 
-            // Expected: when slot is empty, GetObjectOrNew creates a new child and returns a non-null object.
-            var obj = childField.GetObject();
-            Assert.That(obj.IsNull, Is.False, "Expected GetObjectOrNew to create a new child when slot is empty.");
-        }
+        //    // Float array (packed in bytes): speeds has 4 elements
+        //    var speeds = root.GetField("speeds").AsArray<float>();
+        //    Assert.That(speeds.Count, Is.EqualTo(4));
+        //    for (int i = 0; i < speeds.Count; i++)
+        //        speeds[i] = i * 0.5f;
+
+        //    // Read back via read-only span
+        //    var speedsRo = root.GetField("speeds").AsReadOnlySpan<float>();
+        //    CollectionAssert.AreEqual(new[] { 0f, 0.5f, 1.0f, 1.5f }, speedsRo.ToArray());
+        //}
+
+        //// 3) StorageField: single-slot ref field null semantics and Try pattern
+        //[Test]
+        //public void StorageField_Ref_SingleSlot_NullSemantics_And_TryGet()
+        //{
+        //    using var storage = new Storage(_rootSchema);
+        //    var root = storage.Root;
+
+        //    var childField = root.GetField("child"); // reference field
+
+        //    // Initially null: GetObject() returns default (IsNull == true); TryGetObject returns false
+        //    var maybeChild = childField.GetObjectNoAllocate();
+        //    Assert.That(maybeChild.IsNull, Is.True);
+
+        //    Assert.That(childField.TryGetObject(out var childSO), Is.False);
+
+        //    // Create a child via the field API and bind its ID into the slot
+        //    childField.CreateObject(_leafSchema);
+
+        //    // Now the object should be non-null
+        //    maybeChild = childField.GetObjectNoAllocate();
+        //    Assert.That(maybeChild.IsNull, Is.False);
+
+        //    // Write/read on the child
+        //    maybeChild.Write<int>("hp", 42);
+        //    Assert.That(maybeChild.Read<int>("hp"), Is.EqualTo(42));
+        //}
+        //[Test]
+        //public void StorageField_GetObjectOrNew_Should_Create_When_Null()
+        //{
+        //    using var storage = new Storage(_rootSchema);
+        //    var root = storage.Root;
+
+        //    var childField = root.GetField("child");
+
+        //    // Expected: when slot is empty, GetObjectOrNew creates a new child and returns a non-null object.
+        //    var obj = childField.GetObject();
+        //    Assert.That(obj.IsNull, Is.False, "Expected GetObjectOrNew to create a new child when slot is empty.");
+        //}
     }
 }

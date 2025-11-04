@@ -2,13 +2,13 @@ namespace Amlos.Container
 {
     internal static class StorageFactory
     {
-        internal static StorageObject Get(ref ulong position, Schema schema)
+        internal static StorageObject Get(ref ulong position, Schema defaultSchema)
         {
             ref var id = ref position;
             var child = Container.Registry.Shared.GetContainer(id);
             if (child is null)
             {
-                Container.CreateAt(ref position, schema ?? Schema.Empty);
+                Container.CreateAt(ref position, defaultSchema ?? Schema.Empty);
                 child = Container.Registry.Shared.GetContainer(id);
             }
             return new StorageObject(child);

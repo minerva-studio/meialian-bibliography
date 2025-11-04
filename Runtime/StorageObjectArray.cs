@@ -64,18 +64,20 @@ namespace Amlos.Container
         /// Is a null slot (ID == 0)
         /// </summary>
         public bool IsNull => Position == 0UL;
+        public StorageObject Object => Get(ref Position, Schema.Empty);
+
 
         /// <summary>
         /// Single-ref field ref ref
         /// </summary>
         private ref ulong Position => ref _array.Ids[_index];
 
-        public StorageObject AsObject() => GetNoAllocate(Position);
+        public StorageObject GetObjectNoAllocate() => GetNoAllocate(Position);
 
-        public StorageObject AsObjectOrNew(Schema schema) => Get(ref Position, schema);
+        public StorageObject GetObject(Schema schema) => Get(ref Position, schema);
 
 
-        public static implicit operator StorageObject(StorageObjectArrayElement element) => element.AsObject();
+        public static implicit operator StorageObject(StorageObjectArrayElement element) => element.GetObjectNoAllocate();
     }
 }
 

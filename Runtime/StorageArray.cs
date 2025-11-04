@@ -47,6 +47,7 @@ namespace Amlos.Container
             container.SetArrayHint<T>(index);
             return storageArray;
         }
+
+        public T[] ToArray() => _span.ToArray();
     }
 }
-
