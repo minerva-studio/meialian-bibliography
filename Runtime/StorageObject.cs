@@ -135,11 +135,7 @@ namespace Amlos.Container
         /// Get a stack-only view over a value array field T[].
         /// Field must be non-ref and length divisible by sizeof(T).
         /// </summary>
-        public StorageArray<T> GetArray<T>(string fieldName) where T : unmanaged
-        {
-            var f = _container.Schema.GetField(fieldName);
-            return new StorageArray<T>(_container, f);
-        }
+        public StorageArray<T> GetArray<T>(string fieldName) where T : unmanaged => StorageArray<T>.CreateView(_container, fieldName);
 
         /// <summary>
         /// Get a stack-only view over a child reference array (IDs).

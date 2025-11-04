@@ -1,7 +1,7 @@
-// SchemaTests.cs
 using NUnit.Framework;
 using System;
 using System.Linq;
+using static Amlos.Container.Tests.SchemaTestUtils;
 
 namespace Amlos.Container.Tests
 {
@@ -12,21 +12,17 @@ namespace Amlos.Container.Tests
         public void Build_AutoAlignment_Int_Byte_Double()
         {
             var b = new SchemaBuilder(canonicalizeByName: false);
-            b.AddFieldOf<int>("i")   // len=4 -> align 4
-             .AddFieldFixed("b", 1)  // len=1 -> align 1
-             .AddFieldOf<double>("d"); // len=8 -> align 8
+            b.AddFieldOf<int>("i")
+             .AddFieldFixed("b", 1)
+             .AddFieldOf<double>("d");
 
             var s = b.Build();
 
-            // Expected:
-            // offset 0: i (4 bytes, align 4)
-            // offset 4: b (1 byte, align 1)
-            // next for d: need align 8 from offset 5 -> pad 3 -> 8
-            // offset 8: d (8 bytes)
-            Assert.That(s.GetField("i").Offset, Is.EqualTo(0));
-            Assert.That(s.GetField("b").Offset, Is.EqualTo(4));
-            Assert.That(s.GetField("d").Offset, Is.EqualTo(8));
-            Assert.That(s.Stride, Is.EqualTo(16));
+            // Data-relative expectations: i@0(4), b@4(1), d@8(8), end=16.
+            AssertFieldAt(s, "i", 0, 4);
+            AssertFieldAt(s, "b", 4, 1);
+            AssertFieldAt(s, "d", 8, 8);
+            AssertStride(s, expectedRelativeBytesEnd: 16);
         }
 
         [Test]
@@ -114,23 +110,26 @@ namespace Amlos.Container.Tests
         [Test]
         public void WithoutCanonicalization_InsertionOrderChangesLayoutAndSchemaInequality()
         {
-            var b1 = new SchemaBuilder(canonicalizeByName: false);
+            var b1 = new SchemaBuilder(false);
             b1.AddFieldFixed("a", 4).AddFieldFixed("b", 4);
             var s1 = b1.Build();
 
-            var b2 = new SchemaBuilder(canonicalizeByName: false);
+            var b2 = new SchemaBuilder(false);
             b2.AddFieldFixed("b", 4).AddFieldFixed("a", 4);
             var s2 = b2.Build();
 
-            // Offsets differ
-            Assert.That(s1.GetField("a").Offset, Is.EqualTo(0));
-            Assert.That(s1.GetField("b").Offset, Is.EqualTo(4));
-            Assert.That(s2.GetField("b").Offset, Is.EqualTo(0));
-            Assert.That(s2.GetField("a").Offset, Is.EqualTo(4));
+            // In s1: a@0, b@4 (relative)
+            AssertFieldAt(s1, "a", 0, 4);
+            AssertFieldAt(s1, "b", 4, 4);
 
-            // Therefore schemas are not equal
+            // In s2: b@0, a@4 (relative)
+            AssertFieldAt(s2, "b", 0, 4);
+            AssertFieldAt(s2, "a", 4, 4);
+
+            // Layout differs ¡ú schemas are not equal.
             Assert.That(s1.Equals(s2), Is.False);
         }
+
 
         [Test]
         public void FromSchema_RebuildsEquivalentSchema()

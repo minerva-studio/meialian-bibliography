@@ -1,5 +1,5 @@
-// SchemaRefTests.cs
 using NUnit.Framework;
+using static Amlos.Container.Tests.SchemaTestUtils;
 
 namespace Amlos.Container.Tests
 {
@@ -31,43 +31,28 @@ namespace Amlos.Container.Tests
         [Test]
         public void Build_With_Mixed_Ref_And_Value_AlignsAndOffsets_Deterministically()
         {
-            // Names chosen so that alphabetical order == insertion order (for clarity)
             var b = new SchemaBuilder(canonicalizeByName: true);
-            b.AddFieldOf<int>("a_val");        // 4 bytes, align 4
-            b.AddRef("b_child");                // 8 bytes (ref), align 8
-            b.AddFieldFixed("c_blob", 16);      // 16 bytes, align (capped at 8)
+            b.AddFieldOf<int>("a_val");
+            b.AddRef("b_child");
+            b.AddFieldFixed("c_blob", 16);
 
             var s = b.Build();
 
-            // Basic sanity
             Assert.That(s.Fields.Count, Is.EqualTo(3));
-            var a = s.GetField("a_val");
-            var bchild = s.GetField("b_child");
-            var cblob = s.GetField("c_blob");
 
-            // a_val at offset 0 with 4 bytes
-            Assert.That(a.Offset, Is.EqualTo(0));
-            Assert.That(a.AbsLength, Is.EqualTo(4));
-            // b_child aligned to 8: previous end = 4 -> pad 4 -> offset 8
-            Assert.That(bchild.Offset % 8, Is.EqualTo(0));
-            Assert.That(bchild.Offset, Is.EqualTo(8));
-            Assert.That(bchild.AbsLength, Is.EqualTo(8));
-            Assert.That(bchild.IsRef, Is.True);
+            AssertFieldAt(s, "a_val", 0, 4);   // relative 0
+            AssertFieldAt(s, "b_child", 8, 8);   // aligned to 8 relative
+            AssertFieldAt(s, "c_blob", 16, 16);  // relative 16
 
-            // c_blob align 8, previous end = 16 -> already aligned -> offset 16
-            Assert.That(cblob.Offset, Is.EqualTo(16));
-            Assert.That(cblob.AbsLength, Is.EqualTo(16));
-
-            // Stride: 0..4 (a) + pad4 + 8 (b) + 16 (c) => end at 32
-            Assert.That(s.Stride, Is.EqualTo(32));
+            AssertStride(s, expectedRelativeBytesEnd: 32);
         }
 
         [Test]
         public void Build_With_RefArray_Computes_Count_And_Offsets()
         {
             var b = new SchemaBuilder(canonicalizeByName: true);
-            b.AddRefArray("children", 3);      // 24 bytes, align 8
-            b.AddFieldOf<short>("flag");       // 2 bytes, align 2
+            b.AddRefArray("children", 3);      // 24 bytes, align 8 (relative 0)
+            b.AddFieldOf<short>("flag");       // 2 bytes, align 2 (relative 24)
 
             var s = b.Build();
 
@@ -79,9 +64,12 @@ namespace Amlos.Container.Tests
             Assert.That(fChildren.AbsLength, Is.EqualTo(24));
             Assert.That(fChildren.Offset % 8, Is.EqualTo(0));
 
-            // After children (24 @ align 8) -> next offset 24; flag align=2 -> (24 already aligned for 2)
-            Assert.That(fFlag.Offset, Is.EqualTo(24));
-            Assert.That(s.Stride, Is.EqualTo(24 + 2)); // note: no tail pad added by builder
+            // children@0(rel), flag@24(rel)
+            AssertFieldAt(s, "children", 0, 24);
+            AssertFieldAt(s, "flag", 24, 2);
+
+            // Stride = AlignUp(DB + 26, 8)
+            AssertStride(s, expectedRelativeBytesEnd: 26);
         }
 
         [Test]
@@ -110,24 +98,27 @@ namespace Amlos.Container.Tests
         [Test]
         public void NonCanonical_Order_Matters()
         {
-            var s1 = new SchemaBuilder(canonicalizeByName: false)
+            var s1 = new SchemaBuilder(false)
                 .AddFieldOf<int>("hp")
                 .AddRef("child")
                 .Build();
 
-            var s2 = new SchemaBuilder(canonicalizeByName: false)
+            var s2 = new SchemaBuilder(false)
                 .AddRef("child")
                 .AddFieldOf<int>("hp")
                 .Build();
 
-            // Layout differs (offsets swapped)
-            Assert.That(s1.Equals(s2), Is.False);
-            Assert.That(s1.GetField("hp").Offset, Is.EqualTo(0));
+            // In s1, relative: hp@0, child after hp
+            AssertFieldAt(s1, "hp", 0, 4);
             Assert.That(s1.GetField("child").Offset, Is.GreaterThan(s1.GetField("hp").Offset));
 
-            Assert.That(s2.GetField("child").Offset, Is.EqualTo(0));
+            // In s2, relative: child@0, hp after child
+            AssertFieldAt(s2, "child", 0, 8);
             Assert.That(s2.GetField("hp").Offset, Is.GreaterThan(s2.GetField("child").Offset));
+
+            Assert.That(s1.Equals(s2), Is.False);
         }
+
 
         [Test]
         public void FromSchema_Rebuild_Equivalent_When_Canonicalization_Matches()
@@ -178,6 +169,8 @@ namespace Amlos.Container.Tests
                 .AddFieldOf<int>("hp")       // 4 @ 4
                 .AddFieldFixed("blob", 12)   // 12 @ 8
                 .Build();
+
+            Assert.That(s.Fields[0].Offset, Is.EqualTo(s.DataBase));
 
             // Simple overlap check: for each field pair, their [offset, offset+len) ranges don't intersect
             for (int i = 0; i < s.Fields.Count; i++)

@@ -20,10 +20,16 @@ namespace Amlos.Container
         public int Length => Schema.Stride;
 
         /// <summary>Logical memory slice [0..Stride).</summary>
-        public Memory<byte> Data { get { EnsureNotDisposed(); return _memory; } }
+        public Span<byte> Span { get { EnsureNotDisposed(); return span; } }
+
+        /// <summary>Per-container 1B-per-field type hints stored at the header.</summary>
+        private Span<byte> HeaderHints => _buffer.AsSpan()[.._schema.HeaderSize];
 
         /// <summary> Shortcut </summary>
-        private Memory<byte> _memory => _buffer;
+        private Span<byte> span => _buffer;
+
+
+
 
         /// <summary>
         /// Create a container 
@@ -41,6 +47,13 @@ namespace Amlos.Container
             {
                 _buffer = _schema.Pool.Rent(zeroInit);
             }
+
+            for (int i = 0; i < schema.Fields.Count; i++)
+            {
+                var field = schema.Fields[i];
+                if (field.IsRef)
+                    SetRefHint(i, field.RefCount > 1);
+            }
         }
 
         /// <summary>
@@ -56,7 +69,7 @@ namespace Amlos.Container
         {
             if (source.Length != Length)
                 throw new ArgumentException($"Source length {source.Length} must equal schema stride {Length}.", nameof(source));
-            source.CopyTo(_memory.Span);
+            source.CopyTo(span);
         }
 
         public void Dispose()
@@ -82,7 +95,7 @@ namespace Amlos.Container
         #region Byte-span accessors
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private Span<byte> GetSpan(int offset, int length) => _memory.Span.Slice(offset, length);
+        private Span<byte> GetSpan(int offset, int length) => span.Slice(offset, length);
 
         /// <summary>Returns a writable span for the given field.</summary>
         public Span<byte> GetSpan(in FieldDescriptor field)
@@ -159,9 +172,7 @@ namespace Amlos.Container
             if (sz > f.Length)
                 throw new ArgumentException($"Type {typeof(T).Name} size {sz} exceeds field length {f.Length}.", nameof(value));
 
-            var span = GetSpan(in f);
-            if (sz < f.Length) span.Clear(); // avoid stale trailing bytes
-            MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
+            Write_Internal(f, value, sz);
         }
 
         public bool TryWrite<T>(string fieldName, in T value) where T : unmanaged
@@ -174,10 +185,18 @@ namespace Amlos.Container
         {
             int sz = Unsafe.SizeOf<T>();
             if (sz > field.Length) return false;
-            var span = GetSpan(field);
-            if (sz < field.Length) span.Clear();
-            MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
+            Write_Internal(field, value, sz);
             return true;
+        }
+
+        private void Write_Internal<T>(FieldDescriptor f, T value, int sz) where T : unmanaged
+        {
+            var span = GetSpan(in f);
+            if (sz < f.Length) span.Clear(); // avoid stale trailing bytes
+            MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
+
+            int idx = _schema.IndexOf(f.Name);
+            if (idx >= 0) SetScalarHint<T>(idx);
         }
 
 
@@ -228,19 +247,36 @@ namespace Amlos.Container
             return MemoryMarshal.Cast<byte, ulong>(GetSpan(f));
         }
 
-
-
         public Container ReadObject(string fieldName)
         {
             return Registry.Shared.GetContainer(GetRef(fieldName));
         }
-
 
         public void WriteObject(string fieldName, Container container)
         {
             GetRef(fieldName) = container.ID;
         }
 
+        #endregion
+
+
+
+        #region Type Hint
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private ref byte HintRef(int fieldIndex) => ref HeaderHints[fieldIndex];
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal void SetScalarHint<T>(int fieldIndex) where T : unmanaged
+            => HintRef(fieldIndex) = TypeHintUtil.Pack(TypeHintUtil.PrimOf<T>(), isArray: false);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal void SetArrayHint<T>(int fieldIndex) where T : unmanaged
+            => HintRef(fieldIndex) = TypeHintUtil.Pack(TypeHintUtil.PrimOf<T>(), isArray: true);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void SetRefHint(int fieldIndex, bool isArray)
+            => HintRef(fieldIndex) = TypeHintUtil.Pack(PrimType.Ref, isArray);
 
         #endregion
 
@@ -250,14 +286,14 @@ namespace Amlos.Container
         public void Clear()
         {
             EnsureNotDisposed();
-            _memory.Span.Clear();
+            span.Clear();
         }
 
         public Container Clone()
         {
             EnsureNotDisposed();
             var c = new Container(_schema, zeroInit: false);
-            _memory.Span.CopyTo(c._memory.Span);
+            span.CopyTo(c.span);
             return c;
         }
 
@@ -268,7 +304,7 @@ namespace Amlos.Container
             if (!ReferenceEquals(_schema, other._schema) && !_schema.Equals(other._schema))
                 throw new ArgumentException("Schema mismatch. Copy requires identical schema.", nameof(other));
 
-            other._memory.Span.CopyTo(_memory.Span);
+            other.span.CopyTo(span);
         }
 
         public void CopyTo(Span<byte> destination)
@@ -276,11 +312,10 @@ namespace Amlos.Container
             EnsureNotDisposed();
             if (destination.Length != Length)
                 throw new ArgumentException($"Destination length {destination.Length} must equal {Length}.", nameof(destination));
-            _memory.Span.CopyTo(destination);
+            span.CopyTo(destination);
         }
 
         #endregion
-
 
 
         #region Create

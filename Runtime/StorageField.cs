@@ -138,7 +138,7 @@ namespace Amlos.Container
         public StorageArray<T> AsArray<T>() where T : unmanaged
         {
             if (_field.IsRef) throw new InvalidOperationException($"Field '{Name}' is a reference field.");
-            return new StorageArray<T>(_container, _field);
+            return StorageArray<T>.CreateView(_container, _field.Name);
         }
 
         // Ref-array view

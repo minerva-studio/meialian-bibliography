@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using static Amlos.Container.Schema;
 
 namespace Amlos.Container
 {
@@ -142,27 +143,37 @@ namespace Amlos.Container
         public Schema Build()
         {
             if (_pending.Count == 0)
-                return SchemaPool.Shared.Intern(Schema.Empty);
+                return new Schema(Array.Empty<FieldDescriptor>(), stride: AlignUp(0, Schema.ALIGN));
 
-            // Prepare a working list so the builder can be reused after Build().
-            var work = _pending.ToArray();
+            var fields = _pending.ToArray();
 
-            // Optional canonicalization by name (maximizes schema reuse across insertion orders).
             if (_canonicalizeByName)
-                Array.Sort(work, (a, b) => StringComparer.Ordinal.Compare(a.Name, b.Name));
+                Array.Sort(fields, (a, b) => StringComparer.Ordinal.Compare(a.Name, b.Name));
 
-            int stride = 0;
-            for (int i = 0; i < work.Length; i++)
+            // 1) Pack in data-relative coordinates (offsets start at 0).
+            int relative = 0;
+            for (int i = 0; i < fields.Length; i++)
             {
-                ref var p = ref work[i];
-                int absLength = p.AbsLength;
-                int align = p.IsRef ? FieldDescriptor.REF_SIZE : AutoAlign(absLength);
-                stride += AlignPad(stride, align);
-                p = p.WithOffset(stride);
-                stride += absLength;
+                ref var f = ref fields[i];
+                int absLen = f.AbsLength;
+                int align = f.IsRef ? FieldDescriptor.REF_SIZE : AutoAlign(absLen);
+                relative = AlignUp(relative, align);
+                f = f.WithOffset(relative);   // relative to data base 0
+                relative += absLen;
             }
 
-            return SchemaPool.Shared.Intern(work, stride);
+            // 2) Shift to absolute offsets by DataBase, which is AlignUp(N, ALIGN).
+            int headerSize = fields.Length;
+            int dataBase = AlignUp(headerSize, Schema.ALIGN);
+
+            for (int i = 0; i < fields.Length; i++)
+                fields[i] = fields[i].WithOffset(fields[i].Offset + dataBase);
+
+            // 3) Compute stride: AlignUp(dataBase + totalRelativeBytes, ALIGN).
+            int stride = AlignUp(dataBase + relative, Schema.ALIGN);
+
+            // 4) Produce immutable schema (absolute offsets already set). 
+            return SchemaPool.Shared.Intern(fields, stride);
         }
 
         /// <summary>

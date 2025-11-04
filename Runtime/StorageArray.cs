@@ -13,7 +13,7 @@ namespace Amlos.Container
     {
         private readonly Span<T> _span;
 
-        internal StorageArray(Container container, FieldDescriptor field)
+        private StorageArray(Container container, FieldDescriptor field)
         {
             if (field.IsRef)
                 throw new ArgumentException($"Field '{field.Name}' is a reference field; use StorageObjectArray instead.");
@@ -34,6 +34,19 @@ namespace Amlos.Container
 
         /// <summary>Clear all bytes (zero-fill).</summary>
         public void Clear() => _span.Clear();
+
+
+
+        internal static StorageArray<T> CreateView(Container container, string fieldName)
+        {
+            var index = container.Schema.IndexOf(fieldName);
+            if (index < 0)
+                throw new ArgumentException($"Field '{fieldName}' does not exist in schema.");
+            var field = container.Schema.Fields[index];
+            StorageArray<T> storageArray = new(container, field);
+            container.SetArrayHint<T>(index);
+            return storageArray;
+        }
     }
 }
 

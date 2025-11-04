@@ -21,8 +21,8 @@ namespace Amlos.Container.Tests
             using var c = Container.CreateWild(s); // default zero-init
 
             Assert.That(c.Length, Is.EqualTo(s.Stride));
-            Assert.That(c.Data.Length, Is.EqualTo(s.Stride));
-            Assert.That(c.Data.Span.ToArray().All(b => b == 0), Is.True);
+            Assert.That(c.Span.Length, Is.EqualTo(s.Stride));
+            Assert.That(c.Span.ToArray().All(b => b == 0), Is.True);
         }
 
         [Test]
@@ -33,7 +33,7 @@ namespace Amlos.Container.Tests
             for (int i = 0; i < src.Length; i++) src[i] = (byte)(i + 1);
 
             using var c = Container.CreateWild(s, src);
-            Assert.That(c.Data.Span.SequenceEqual(src), Is.True);
+            Assert.That(c.Span.SequenceEqual(src), Is.True);
         }
 
         [Test]
@@ -142,7 +142,7 @@ namespace Amlos.Container.Tests
             var c = Container.CreateWild(s);
             c.Dispose();
 
-            Assert.That(() => { var _ = c.Data; }, Throws.TypeOf<ObjectDisposedException>());
+            Assert.That(() => { var _ = c.Span; }, Throws.TypeOf<ObjectDisposedException>());
             Assert.That(() => c.Clear(), Throws.TypeOf<ObjectDisposedException>());
         }
 
@@ -152,7 +152,7 @@ namespace Amlos.Container.Tests
             var empty = Schema.Empty;
             using var c = Container.CreateWild(empty);
             Assert.That(c.Length, Is.EqualTo(0));
-            Assert.That(c.Data.Length, Is.EqualTo(0));
+            Assert.That(c.Span.Length, Is.EqualTo(0));
         }
 
         [Test]
