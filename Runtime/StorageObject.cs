@@ -9,11 +9,18 @@ namespace Amlos.Container
     public readonly ref struct StorageObject
     {
         private readonly Container _container;
+
+
         public readonly Schema Schema => _container.Schema;
         public ulong ID => _container.ID;
-        public bool IsNull => _container == null || _container._id == 0;
         public ReadOnlySpan<byte> HeaderHints => _container.HeaderHints;
 
+        public bool IsNull => _container == null || _container._id == 0;
+
+        /// <summary>
+        /// True if this StorageObject represents a single string field, then this container is really just a string.
+        /// </summary>
+        public bool IsString => Schema.Fields.Count == 1 && !Schema.Fields[0].IsRef && TypeHintUtil.ValueType(HeaderHints[0]) == ValueType.Char16;
 
 
         internal StorageObject(Container container)
@@ -87,11 +94,33 @@ namespace Amlos.Container
 
 
 
+
+
+        public void WriteString(string fieldName, ReadOnlySpan<char> value) => GetObject(fieldName).WriteString(value);
+
+        public void WriteString(ReadOnlySpan<char> value)
+        {
+            Rescheme(SchemaBuilder.BuildString(value.Length));
+            value.CopyTo(_container.GetSpan<char>(_container.Schema.Fields[0]));
+        }
+
         /// <summary>
         /// Read as a string (UTF-16)
         /// </summary>
         /// <returns></returns>
         public string ReadString(string fieldName) => new(_container.GetReadOnlySpan<char>(fieldName));
+
+        /// <summary>
+        /// Read entire container as a string (UTF-16)
+        /// </summary>
+        /// <returns></returns>
+        public string ReadString()
+        {
+            if (!IsString)
+                throw new InvalidOperationException("This StorageObject does not represent a single string field.");
+
+            return new(_container.GetReadOnlySpan<char>(Schema.Fields[0]));
+        }
 
 
 
@@ -134,6 +163,11 @@ namespace Amlos.Container
         /// <summary>Check a field exist.</summary>
         public bool HasField(string fieldName) => _container.Schema.IndexOf(fieldName) >= 0;
 
+        /// <summary>
+        /// Rescheme the container to match the target schema.
+        /// </summary>
+        /// <param name="target"></param>
+        public void Rescheme(Schema target) => _container.Rescheme(target);
 
 
 

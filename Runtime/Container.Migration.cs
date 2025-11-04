@@ -15,7 +15,7 @@ namespace Amlos.Container
         ///  - Container identity (ID) is preserved.
         ///  - New buffer is always zero-initialized by default.
         /// </summary>
-        public void RebuildSchema(Schema newSchema)
+        public void Rescheme(Schema newSchema)
         {
             RebuildSchema(newSchema, zeroInitNewBuffer: true);
         }
@@ -93,9 +93,8 @@ namespace Amlos.Container
         /// </summary>
         public void Rescheme(Action<SchemaBuilder> edit)
         {
-            if (edit is null) throw new ArgumentNullException(nameof(edit));
             EnsureNotDisposed();
-            RebuildSchema(Schema.Variate(edit));  // zero-init by default
+            Rescheme(Schema.Variate(edit));  // zero-init by default
         }
 
         public FieldDescriptor GetFieldDescriptorOrRescheme<T>(string fieldName) where T : unmanaged

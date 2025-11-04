@@ -27,6 +27,10 @@ namespace Amlos.Container
             _canonicalizeByName = canonicalizeByName;
         }
 
+
+
+        public SchemaBuilder AddField(FieldDescriptor field) => AddFieldFixed(field.Name, field.Length);
+
         /// <summary>
         /// Add a field with a fixed byte length.
         /// Alignment is automatically chosen from the length (no custom override).
@@ -216,6 +220,21 @@ namespace Amlos.Container
             foreach (var f in schema.Fields)
                 b.AddFieldFixed(f.Name, f.Length);
             return b;
+        }
+
+        public static Schema BuildString(int length)
+        {
+            return new SchemaBuilder().AddFieldFixed("value", length * sizeof(char)).Build();
+        }
+
+        public static Schema FromFields(IEnumerable<FieldDescriptor> newFields)
+        {
+            var schema = new SchemaBuilder();
+            foreach (var item in newFields)
+            {
+                schema.AddFieldFixed(item.Name, item.Length);
+            }
+            return schema.Build();
         }
     }
 }

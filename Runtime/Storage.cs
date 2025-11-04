@@ -13,6 +13,9 @@ namespace Amlos.Container
 
         public StorageObject Root => new StorageObject(_root);
 
+
+        public Storage() : this(Schema.Empty) { }
+
         public Storage(Schema rootSchema)
         {
             _root = Container.CreateAt(ref _id, rootSchema);

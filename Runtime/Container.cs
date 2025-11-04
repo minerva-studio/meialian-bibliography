@@ -22,6 +22,9 @@ namespace Amlos.Container
         /// <summary>Logical memory slice [0..Stride).</summary>
         public Span<byte> Span { get { EnsureNotDisposed(); return span; } }
 
+        /// <summary>Data slice [DataBase..Stride).</summary>
+        public Span<byte> Data { get { EnsureNotDisposed(); return span[_schema.DataBase..]; } }
+
         /// <summary>Per-container 1B-per-field type hints stored at the header.</summary>
         public Span<byte> HeaderHints => span[.._schema.HeaderSize];
 
