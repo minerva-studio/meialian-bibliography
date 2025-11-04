@@ -10,9 +10,9 @@ namespace Amlos.Container
         /// <summary> object id </summary>
         internal ulong ID => _id;
 
-        internal class ContainerRegistry
+        internal class Registry
         {
-            public static ContainerRegistry Shared { get; } = new ContainerRegistry();
+            public static Registry Shared { get; } = new Registry();
 
             private ulong _next = 1; // 0 reserved for "null"
             private readonly Queue<ulong> _freed = new();
@@ -31,6 +31,19 @@ namespace Amlos.Container
                     container._id = id;
                     _table[id] = container;
                 }
+            }
+
+            public void Unregister(ref ulong idRef)
+            {
+                // already unregistered or is null
+                if (idRef == 0UL) return;
+
+                var container = GetContainer(idRef);
+                if (container != null)
+                {
+                    Unregister(container);
+                }
+                idRef = 0UL; // mark as unregistered
             }
 
             public void Unregister(Container container)

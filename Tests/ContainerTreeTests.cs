@@ -25,10 +25,6 @@ namespace Amlos.Container.Tests
                 .AddRef("c1")
                 .AddRef("c2")
                 .Build();
-
-            // Safety: schemas are interned; not strictly required for tests
-            _nodeSchema_1Child = SchemaPool.Shared.Intern(_nodeSchema_1Child);
-            _nodeSchema_3Children = SchemaPool.Shared.Intern(_nodeSchema_3Children);
         }
 
         [TearDown]
@@ -41,7 +37,7 @@ namespace Amlos.Container.Tests
         public void Build_SingleChild_Tree_And_Unregister_Recursively()
         {
             // root -> child -> grandchild (linked via "child" ref slot)
-            var reg = Container.ContainerRegistry.Shared;
+            var reg = Container.Registry.Shared;
             Span<ulong> ids = stackalloc ulong[3];
 
             var root = Container.CreateAt(ref ids[0], _nodeSchema_1Child);
@@ -96,7 +92,7 @@ namespace Amlos.Container.Tests
         public void Build_MultiChildren_Tree_And_Unregister_Recursively()
         {
             // root has three children via ("c0","c1","c2")
-            var reg = Container.ContainerRegistry.Shared;
+            var reg = Container.Registry.Shared;
             Span<ulong> ids = stackalloc ulong[4];
 
             var root = Container.CreateAt(ref ids[0], _nodeSchema_3Children);
@@ -141,7 +137,7 @@ namespace Amlos.Container.Tests
         [Test]
         public void Unregister_Ignores_Zero_Slots_And_Partial_Missing()
         {
-            var reg = Container.ContainerRegistry.Shared;
+            var reg = Container.Registry.Shared;
             Span<ulong> ids = stackalloc ulong[2];
 
             var root = Container.CreateAt(ref ids[0], _nodeSchema_3Children);
@@ -168,7 +164,7 @@ namespace Amlos.Container.Tests
         [Test]
         public void Deep_Chain_And_Unregister_Does_Not_Loop_Or_Leak()
         {
-            var reg = Container.ContainerRegistry.Shared;
+            var reg = Container.Registry.Shared;
             const int depth = 64; // reasonable depth to avoid stack concerns in test runner
 
             Span<ulong> ids = stackalloc ulong[depth];

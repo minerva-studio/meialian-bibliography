@@ -24,9 +24,6 @@ namespace Amlos.Container.Tests
             _childSchema = new SchemaBuilder(canonicalizeByName: true)
                 .AddFieldOf<int>("hp")
                 .Build();
-
-            _rootSchema = SchemaPool.Shared.Intern(_rootSchema);
-            _childSchema = SchemaPool.Shared.Intern(_childSchema);
         }
 
         [Test]
@@ -195,7 +192,7 @@ namespace Amlos.Container.Tests
 
             storage.Dispose();
 
-            var reg = Container.ContainerRegistry.Shared;
+            var reg = Container.Registry.Shared;
             for (int i = 0; i < ids.Length; i++)
                 Assert.That(reg.GetContainer(ids[i]), Is.Null, $"Child {i} should be unregistered.");
         }
@@ -247,6 +244,50 @@ namespace Amlos.Container.Tests
             var hpField2 = root.GetField("hp");
             Assert.That(hpField == hpField2, Is.True);
             Assert.That(hpField != hpField2, Is.False);
+        }
+
+        // --- Object Array: index out of range throws IndexOutOfRangeException ---
+        [Test]
+        public void ObjectArray_Index_OutOfRange_Throws_IndexOutOfRangeException()
+        {
+            using var storage = new Storage(_rootSchema);
+            var root = storage.Root;
+
+            var arr = root.GetObjectArray("children");
+            bool threw = false;
+            try
+            {
+                // Indexer yields element; actual out-of-range is thrown when element accesses the span
+                var el = arr[arr.Count];
+                el.AsObject(); // triggers span index
+            }
+            catch (IndexOutOfRangeException)
+            {
+                threw = true;
+            }
+            Assert.That(threw, Is.True, "Expected IndexOutOfRangeException was not thrown.");
+        }
+
+        // --- Object Array: AsField view == Object view (consistency) ---
+        [Test]
+        public void ObjectArray_FieldView_And_ObjectView_Stay_Consistent()
+        {
+            using var storage = new Storage(_rootSchema);
+            var root = storage.Root;
+
+            var field = root.GetField("children");              //  :contentReference[oaicite:6]{index=6}
+            var arrField = field.AsObjectArray();               //  :contentReference[oaicite:7]{index=7}
+            Assert.That(arrField.Count, Is.EqualTo(3));
+
+            for (int i = 0; i < arrField.Count; i++)
+            {
+                var child = arrField[i].AsObjectOrNew(_childSchema);
+                child.Write<int>("hp", 100 + i);
+            }
+
+            var arr = root.GetObjectArray("children");
+            for (int i = 0; i < arr.Count; i++)
+                Assert.That(arr.Get(i).Read<int>("hp"), Is.EqualTo(100 + i));
         }
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace Amlos.Container
 {
@@ -26,19 +27,6 @@ namespace Amlos.Container
         }
 
         /// <summary>
-        /// Create a builder pre-populated from an existing schema (names+lengths only).
-        /// Offsets are not copied; Build() recomputes offsets using the same alignment rule,
-        /// so the result is equivalent if canonicalization flag matches.
-        /// </summary>
-        public static SchemaBuilder FromSchema(Schema schema, bool canonicalizeByName = true)
-        {
-            var b = new SchemaBuilder(canonicalizeByName);
-            foreach (var f in schema.Fields)
-                b.AddFieldFixed(f.Name, f.Length);
-            return b;
-        }
-
-        /// <summary>
         /// Add a field with a fixed byte length.
         /// Alignment is automatically chosen from the length (no custom override).
         /// </summary>
@@ -53,8 +41,19 @@ namespace Amlos.Container
         /// <summary>
         /// Add a field using sizeof(T). Alignment is auto-selected from the size.
         /// </summary>
-        public unsafe SchemaBuilder AddFieldOf<T>(string name) where T : unmanaged => AddFieldFixed(name, sizeof(T));
+        public SchemaBuilder AddFieldOf<T>(string name) where T : unmanaged => AddFieldFixed(name, Unsafe.SizeOf<T>());
 
+        /// <summary>
+        /// Add a field using sizeof(T). Alignment is auto-selected from the size.
+        /// </summary>
+        public SchemaBuilder AddArrayOf<T>(string name, int count) where T : unmanaged => AddFieldFixed(name, Unsafe.SizeOf<T>() * count);
+
+        /// <summary>
+        /// Add a reference field (8-byte slot).
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentException"></exception>
         public SchemaBuilder AddRef(string name)
         {
             if (string.IsNullOrEmpty(name)) throw new ArgumentException(nameof(name));
@@ -62,6 +61,14 @@ namespace Amlos.Container
             return AddFieldFixed_Internal(name, -FieldDescriptor.REF_SIZE);
         }
 
+        /// <summary>
+        /// Add a reference array field (count * 8-byte slots).
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="count"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentException"></exception>
+        /// <exception cref="ArgumentOutOfRangeException"></exception>
         public SchemaBuilder AddRefArray(string name, int count)
         {
             if (string.IsNullOrEmpty(name)) throw new ArgumentException(nameof(name));
@@ -70,7 +77,6 @@ namespace Amlos.Container
             if (total > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(count), "Total byte length too large.");
             return AddFieldFixed_Internal(name, -(int)total);
         }
-
 
         private SchemaBuilder AddFieldFixed_Internal(string name, int length)
         {
@@ -81,6 +87,51 @@ namespace Amlos.Container
             _pending.Add(fd);
             return this;
         }
+
+
+
+
+        /// <summary>Remove a field by exact name (Ordinal). Returns true if removed.</summary>
+        public bool RemoveField(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            for (int i = 0; i < _pending.Count; i++)
+            {
+                if (string.Equals(_pending[i].Name, name, StringComparison.Ordinal))
+                {
+                    _pending.RemoveAt(i);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Remove multiple fields by exact names (Ordinal). Returns number removed.</summary>
+        public int RemoveFields(params string[] names)
+        {
+            if (names == null || names.Length == 0) return 0;
+            int removed = 0;
+            foreach (var n in names)
+                if (RemoveField(n)) removed++;
+            return removed;
+        }
+
+        /// <summary>Remove all fields matching a predicate. Returns number removed.</summary>
+        public int RemoveWhere(Func<FieldDescriptor, bool> predicate)
+        {
+            if (predicate is null) return 0;
+            int removed = 0;
+            for (int i = _pending.Count - 1; i >= 0; i--)
+            {
+                if (predicate(_pending[i]))
+                {
+                    _pending.RemoveAt(i);
+                    removed++;
+                }
+            }
+            return removed;
+        }
+
 
 
 
@@ -138,6 +189,22 @@ namespace Amlos.Container
             if (align <= 1) return 0;
             int mod = offset % align;
             return mod == 0 ? 0 : (align - mod);
+        }
+
+
+
+
+        /// <summary>
+        /// Create a builder pre-populated from an existing schema (names+lengths only).
+        /// Offsets are not copied; Build() recomputes offsets using the same alignment rule,
+        /// so the result is equivalent if canonicalization flag matches.
+        /// </summary>
+        public static SchemaBuilder FromSchema(Schema schema, bool canonicalizeByName = true)
+        {
+            var b = new SchemaBuilder(canonicalizeByName);
+            foreach (var f in schema.Fields)
+                b.AddFieldFixed(f.Name, f.Length);
+            return b;
         }
     }
 }

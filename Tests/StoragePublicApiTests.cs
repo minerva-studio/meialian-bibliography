@@ -24,10 +24,6 @@ namespace Amlos.Container.Tests
             _leafSchema = new SchemaBuilder(canonicalizeByName: true)
                 .AddFieldOf<int>("hp")
                 .Build();
-
-            // Optional: intern to deduplicate schemas
-            _rootSchema = SchemaPool.Shared.Intern(_rootSchema);
-            _leafSchema = SchemaPool.Shared.Intern(_leafSchema);
         }
 
         [TearDown]
@@ -153,7 +149,7 @@ namespace Amlos.Container.Tests
             storage.Dispose();
 
             // Registry should not resolve the child ID anymore
-            var reg = Container.ContainerRegistry.Shared;
+            var reg = Container.Registry.Shared;
             Assert.That(reg.GetContainer(childId), Is.Null);
         }
 

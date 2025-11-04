@@ -39,7 +39,7 @@ namespace Amlos.Container
         public void SetId(int index, ulong id) => _ids[index] = id;
 
         /// <summary>Clear the slot (set ID to 0).</summary>
-        public void ClearAt(int index) => _ids[index] = 0UL;
+        public void ClearAt(int index) => Container.Registry.Shared.Unregister(ref _ids[index]);
 
         /// <summary>Clear all slots (set all IDs to 0).</summary>
         public void ClearAll() => _ids.Clear();

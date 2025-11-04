@@ -35,7 +35,7 @@ namespace Amlos.Container
             if (_root != null)
             {
                 // This will recursively unregister children and dispose containers
-                Container.ContainerRegistry.Shared.Unregister(_root);
+                Container.Registry.Shared.Unregister(_root);
                 _root = null;
             }
         }

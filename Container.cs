@@ -10,7 +10,7 @@ namespace Amlos.Container
     /// </summary>
     internal sealed partial class Container : IDisposable
     {
-        private readonly Schema _schema;
+        private Schema _schema;
         private byte[] _buffer;        // exact size == _schema.Stride (or Array.Empty for 0)
         private bool _disposed;
 
@@ -85,7 +85,7 @@ namespace Amlos.Container
         private Span<byte> GetSpan(int offset, int length) => _memory.Span.Slice(offset, length);
 
         /// <summary>Returns a writable span for the given field.</summary>
-        public Span<byte> GetSpan(FieldDescriptor field)
+        public Span<byte> GetSpan(in FieldDescriptor field)
         {
             EnsureNotDisposed();
             return GetSpan(field.Offset, field.AbsLength);
@@ -151,29 +151,26 @@ namespace Amlos.Container
 
         #region Blittable T read/write (unmanaged)
 
-        public void Write<T>(string fieldName, in T value) where T : unmanaged
+        public void Write<T>(string fieldName, in T value) where T : unmanaged => Write(_schema.GetField(fieldName), value);
+
+        public void Write<T>(in FieldDescriptor f, T value) where T : unmanaged
         {
-            var f = _schema.GetField(fieldName);
             int sz = Unsafe.SizeOf<T>();
             if (sz > f.Length)
                 throw new ArgumentException($"Type {typeof(T).Name} size {sz} exceeds field length {f.Length}.", nameof(value));
 
-            var span = GetSpan(f);
+            var span = GetSpan(in f);
             if (sz < f.Length) span.Clear(); // avoid stale trailing bytes
             MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
         }
 
-        public T Read<T>(string fieldName) where T : unmanaged
+        public bool TryWrite<T>(string fieldName, in T value) where T : unmanaged
         {
-            var f = _schema.GetField(fieldName);
-            int sz = Unsafe.SizeOf<T>();
-            if (sz > f.Length)
-                throw new ArgumentException($"Type {typeof(T).Name} size {sz} exceeds field length {f.Length}.", nameof(fieldName));
-
-            return MemoryMarshal.Read<T>(GetReadOnlySpan(f));
+            if (!_schema.TryGetField(fieldName, out var f)) return false;
+            return TryWrite(f, value);
         }
 
-        public bool TryWrite<T>(FieldDescriptor field, in T value) where T : unmanaged
+        public bool TryWrite<T>(in FieldDescriptor field, in T value) where T : unmanaged
         {
             int sz = Unsafe.SizeOf<T>();
             if (sz > field.Length) return false;
@@ -181,6 +178,19 @@ namespace Amlos.Container
             if (sz < field.Length) span.Clear();
             MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
             return true;
+        }
+
+
+
+        public T Read<T>(string fieldName) where T : unmanaged => Read<T>(_schema.GetField(fieldName));
+
+        public T Read<T>(in FieldDescriptor f) where T : unmanaged
+        {
+            int sz = Unsafe.SizeOf<T>();
+            if (sz > f.Length)
+                throw new ArgumentException($"Type {typeof(T).Name} size {sz} exceeds field length {f.Length}.", f.Name);
+
+            return MemoryMarshal.Read<T>(GetReadOnlySpan(f));
         }
 
         public bool TryRead<T>(string fieldName, out T value) where T : unmanaged
@@ -194,6 +204,7 @@ namespace Amlos.Container
         }
 
         #endregion
+
 
         #region Object
 
@@ -221,7 +232,7 @@ namespace Amlos.Container
 
         public Container ReadObject(string fieldName)
         {
-            return ContainerRegistry.Shared.GetContainer(GetRef(fieldName));
+            return Registry.Shared.GetContainer(GetRef(fieldName));
         }
 
 
@@ -279,13 +290,13 @@ namespace Amlos.Container
             if (schema is null) throw new ArgumentNullException(nameof(schema));
 
             // 1) If an old tracked container exists in the slot, unregister it first.
-            var old = ContainerRegistry.Shared.GetContainer(position);
+            var old = Registry.Shared.GetContainer(position);
             if (old != null)
-                ContainerRegistry.Shared.Unregister(old);
+                Registry.Shared.Unregister(old);
 
             // 2) Create a new container and register it (assign a unique tracked ID).
             var created = new Container(schema);
-            ContainerRegistry.Shared.Register(created);
+            Registry.Shared.Register(created);
 
             // 3) Bind atomically: write ID into the slot.
             position = created.ID;
@@ -303,13 +314,13 @@ namespace Amlos.Container
             if (schema is null) throw new ArgumentNullException(nameof(schema));
 
             // 1) If an old tracked container exists in the slot, unregister it first.
-            var old = ContainerRegistry.Shared.GetContainer(position);
+            var old = Registry.Shared.GetContainer(position);
             if (old != null)
-                ContainerRegistry.Shared.Unregister(old);
+                Registry.Shared.Unregister(old);
 
             // 2) Create a new container and register it (assign a unique tracked ID).
             var created = new Container(schema, span);
-            ContainerRegistry.Shared.Register(created);
+            Registry.Shared.Register(created);
 
             // 3) Bind atomically: write ID into the slot.
             position = created.ID;

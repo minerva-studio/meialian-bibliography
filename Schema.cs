@@ -45,6 +45,13 @@ namespace Amlos.Container
             }
         }
 
+        /// <summary>
+        /// Try to determine whether a field exists by name (O(1)).
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        public bool ContainsField(string name) => _indexByName.ContainsKey(name);
+
         /// <summary>Try to find a field by name (O(1)).</summary>
         public bool TryGetField(string name, out FieldDescriptor field)
         {
@@ -64,6 +71,8 @@ namespace Amlos.Container
                 throw new KeyNotFoundException($"Field '{name}' not found in schema.");
             return fd;
         }
+
+
 
         #region Equality / Hashing
         public bool Equals(Schema other)
