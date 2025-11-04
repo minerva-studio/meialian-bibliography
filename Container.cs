@@ -1,0 +1,350 @@
+using System;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+namespace Amlos.Container
+{
+    /// <summary>
+    /// A fixed-layout byte container defined by a Schema.
+    /// Backing buffer is rented from the per-Schema FixedBytePool and returned on Dispose().
+    /// </summary>
+    internal sealed partial class Container : IDisposable
+    {
+        private readonly Schema _schema;
+        private byte[] _buffer;        // exact size == _schema.Stride (or Array.Empty for 0)
+        private bool _disposed;
+
+        public Schema Schema => _schema;
+
+        /// <summary>Logical length in bytes (== Schema.Stride).</summary>
+        public int Length => Schema.Stride;
+
+        /// <summary>Logical memory slice [0..Stride).</summary>
+        public Memory<byte> Data { get { EnsureNotDisposed(); return _memory; } }
+
+        /// <summary> Shortcut </summary>
+        private Memory<byte> _memory => _buffer;
+
+        /// <summary>
+        /// Create a container 
+        /// </summary> 
+        private Container(Schema schema, bool zeroInit = true)
+        {
+            _schema = schema ?? throw new ArgumentNullException(nameof(schema));
+
+            if (schema.Stride == 0)
+            {
+                // Zero-length buffers still get a valid object id and registry entry.
+                _buffer = Array.Empty<byte>();
+            }
+            else
+            {
+                _buffer = _schema.Pool.Rent(zeroInit);
+            }
+        }
+
+        /// <summary>
+        /// Create a container; rent from schema's pool
+        /// </summary>
+        private Container(Schema schema) : this(schema, zeroInit: true) { }
+
+        /// <summary>
+        /// Create a container initialized with provided bytes (length must equal stride).
+        /// </summary>
+        private Container(Schema schema, ReadOnlySpan<byte> source)
+            : this(schema, zeroInit: false)
+        {
+            if (source.Length != Length)
+                throw new ArgumentException($"Source length {source.Length} must equal schema stride {Length}.", nameof(source));
+            source.CopyTo(_memory.Span);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            if (_buffer.Length != 0 && !ReferenceEquals(_buffer, Array.Empty<byte>()))
+            {
+                // Clear only the logical slice (avoid clearing entire array for perf)
+                _schema.Pool.Return(_buffer);
+            }
+
+            _buffer = Array.Empty<byte>();
+        }
+
+        private void EnsureNotDisposed()
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(Container));
+        }
+
+
+        #region Byte-span accessors
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private Span<byte> GetSpan(int offset, int length) => _memory.Span.Slice(offset, length);
+
+        /// <summary>Returns a writable span for the given field.</summary>
+        public Span<byte> GetSpan(FieldDescriptor field)
+        {
+            EnsureNotDisposed();
+            return GetSpan(field.Offset, field.AbsLength);
+        }
+
+        /// <summary>Returns a read-only span for the given field.</summary>
+        public ReadOnlySpan<byte> GetReadOnlySpan(FieldDescriptor field) => GetSpan(field);
+
+        /// <summary>Returns a read-only span for the given field.</summary>
+        public Span<T> GetSpan<T>(FieldDescriptor field) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetSpan(field));
+
+        /// <summary>Returns a read-only span for the given field.</summary>
+        public ReadOnlySpan<T> GetReadOnlySpan<T>(FieldDescriptor field) where T : unmanaged => GetSpan<T>(field);
+
+        public Span<byte> GetSpan(string fieldName) => GetSpan(_schema.GetField(fieldName));
+
+        public ReadOnlySpan<byte> GetReadOnlySpan(string fieldName) => GetReadOnlySpan(_schema.GetField(fieldName));
+
+        /// <summary>Returns a read-only span for the given field.</summary>
+        public Span<T> GetSpan<T>(string fieldName) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetSpan(fieldName));
+
+        /// <summary>Returns a read-only span for the given field.</summary>
+        public ReadOnlySpan<T> GetReadOnlySpan<T>(string fieldName) where T : unmanaged => GetSpan<T>(fieldName);
+        #endregion
+
+
+        #region Raw byte read/write by name
+
+        public void WriteBytes(string fieldName, ReadOnlySpan<byte> src)
+        {
+            var f = _schema.GetField(fieldName);
+            if (src.Length != f.AbsLength)
+                throw new ArgumentException($"Source length {src.Length} must equal field length {f.Length}.", nameof(src));
+            src.CopyTo(GetSpan(f));
+        }
+
+        public void ReadBytes(string fieldName, Span<byte> dst)
+        {
+            var f = _schema.GetField(fieldName);
+            if (dst.Length != f.AbsLength)
+                throw new ArgumentException($"Destination length {dst.Length} must equal field length {f.Length}.", nameof(dst));
+            GetReadOnlySpan(f).CopyTo(dst);
+        }
+
+        public bool TryWriteBytes(string fieldName, ReadOnlySpan<byte> src)
+        {
+            if (!_schema.TryGetField(fieldName, out var f)) return false;
+            if (src.Length != f.AbsLength) return false;
+            src.CopyTo(GetSpan(f));
+            return true;
+        }
+
+        public bool TryReadBytes(string fieldName, Span<byte> dst)
+        {
+            if (!_schema.TryGetField(fieldName, out var f)) return false;
+            if (dst.Length != f.AbsLength) return false;
+            GetReadOnlySpan(f).CopyTo(dst);
+            return true;
+        }
+
+        #endregion
+
+
+        #region Blittable T read/write (unmanaged)
+
+        public void Write<T>(string fieldName, in T value) where T : unmanaged
+        {
+            var f = _schema.GetField(fieldName);
+            int sz = Unsafe.SizeOf<T>();
+            if (sz > f.Length)
+                throw new ArgumentException($"Type {typeof(T).Name} size {sz} exceeds field length {f.Length}.", nameof(value));
+
+            var span = GetSpan(f);
+            if (sz < f.Length) span.Clear(); // avoid stale trailing bytes
+            MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
+        }
+
+        public T Read<T>(string fieldName) where T : unmanaged
+        {
+            var f = _schema.GetField(fieldName);
+            int sz = Unsafe.SizeOf<T>();
+            if (sz > f.Length)
+                throw new ArgumentException($"Type {typeof(T).Name} size {sz} exceeds field length {f.Length}.", nameof(fieldName));
+
+            return MemoryMarshal.Read<T>(GetReadOnlySpan(f));
+        }
+
+        public bool TryWrite<T>(FieldDescriptor field, in T value) where T : unmanaged
+        {
+            int sz = Unsafe.SizeOf<T>();
+            if (sz > field.Length) return false;
+            var span = GetSpan(field);
+            if (sz < field.Length) span.Clear();
+            MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
+            return true;
+        }
+
+        public bool TryRead<T>(string fieldName, out T value) where T : unmanaged
+        {
+            value = default;
+            if (!_schema.TryGetField(fieldName, out var f)) return false;
+            int sz = Unsafe.SizeOf<T>();
+            if (sz > f.Length) return false;
+            value = MemoryMarshal.Read<T>(GetReadOnlySpan(f));
+            return true;
+        }
+
+        #endregion
+
+        #region Object
+
+        public ref ulong GetRef(string fieldName) => ref GetRef(_schema.GetField(fieldName));
+
+        public ref ulong GetRef(FieldDescriptor f)
+        {
+            if (!f.IsRef || f.RefCount != 1)
+                throw new ArgumentException($"Field '{f.Name}' is not a single ref slot.");
+            var span = GetSpan(f.Offset, FieldDescriptor.REF_SIZE);
+            return ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, ulong>(span));
+        }
+
+        public Span<ulong> GetRefSpan(string fieldName) => GetRefSpan(_schema.GetField(fieldName));
+
+        public Span<ulong> GetRefSpan(FieldDescriptor f)
+        {
+            if (!f.IsRef) throw new ArgumentException($"Field '{f.Name}' is not a ref field.");
+            if (f.AbsLength % FieldDescriptor.REF_SIZE != 0)
+                throw new ArgumentException($"Field '{f.Name}' byte length is not multiple of {FieldDescriptor.REF_SIZE}.");
+            return MemoryMarshal.Cast<byte, ulong>(GetSpan(f));
+        }
+
+
+
+        public Container ReadObject(string fieldName)
+        {
+            return ContainerRegistry.Shared.GetContainer(GetRef(fieldName));
+        }
+
+
+        public void WriteObject(string fieldName, Container container)
+        {
+            GetRef(fieldName) = container.ID;
+        }
+
+
+        #endregion
+
+
+        #region Whole-record helpers
+
+        public void Clear()
+        {
+            EnsureNotDisposed();
+            _memory.Span.Clear();
+        }
+
+        public Container Clone()
+        {
+            EnsureNotDisposed();
+            var c = new Container(_schema, zeroInit: false);
+            _memory.Span.CopyTo(c._memory.Span);
+            return c;
+        }
+
+        public void CopyFrom(Container other)
+        {
+            EnsureNotDisposed();
+            if (other is null) throw new ArgumentNullException(nameof(other));
+            if (!ReferenceEquals(_schema, other._schema) && !_schema.Equals(other._schema))
+                throw new ArgumentException("Schema mismatch. Copy requires identical schema.", nameof(other));
+
+            other._memory.Span.CopyTo(_memory.Span);
+        }
+
+        public void CopyTo(Span<byte> destination)
+        {
+            EnsureNotDisposed();
+            if (destination.Length != Length)
+                throw new ArgumentException($"Destination length {destination.Length} must equal {Length}.", nameof(destination));
+            _memory.Span.CopyTo(destination);
+        }
+
+        #endregion
+
+
+
+        #region Create
+
+        public static Container CreateAt(ref ulong position, Schema schema)
+        {
+            if (schema is null) throw new ArgumentNullException(nameof(schema));
+
+            // 1) If an old tracked container exists in the slot, unregister it first.
+            var old = ContainerRegistry.Shared.GetContainer(position);
+            if (old != null)
+                ContainerRegistry.Shared.Unregister(old);
+
+            // 2) Create a new container and register it (assign a unique tracked ID).
+            var created = new Container(schema);
+            ContainerRegistry.Shared.Register(created);
+
+            // 3) Bind atomically: write ID into the slot.
+            position = created.ID;
+            return created;
+        }
+
+        /// <summary>
+        /// Create a wild container, which means that container is not tracked by anything
+        /// </summary>
+        /// <param name="position"></param>
+        /// <param name="schema"></param>
+        /// <exception cref="ArgumentNullException"></exception>
+        public static Container CreateAt(ref ulong position, Schema schema, ReadOnlySpan<byte> span)
+        {
+            if (schema is null) throw new ArgumentNullException(nameof(schema));
+
+            // 1) If an old tracked container exists in the slot, unregister it first.
+            var old = ContainerRegistry.Shared.GetContainer(position);
+            if (old != null)
+                ContainerRegistry.Shared.Unregister(old);
+
+            // 2) Create a new container and register it (assign a unique tracked ID).
+            var created = new Container(schema, span);
+            ContainerRegistry.Shared.Register(created);
+
+            // 3) Bind atomically: write ID into the slot.
+            position = created.ID;
+            return created;
+        }
+
+        /// <summary>
+        /// Create a wild container, which means that container is not tracked by anything
+        /// </summary>
+        /// <param name="position"></param>
+        /// <param name="schema"></param>
+        /// <exception cref="ArgumentNullException"></exception>
+        public static Container CreateWild(Schema schema)
+        {
+            if (schema is null) throw new ArgumentNullException(nameof(schema));
+            Container newContainer = new(schema);
+            newContainer._id = ulong.MaxValue;
+            return newContainer;
+        }
+
+        /// <summary>
+        /// Create a wild container, which means that container is not tracked by anything
+        /// </summary>
+        /// <param name="position"></param>
+        /// <param name="schema"></param>
+        /// <exception cref="ArgumentNullException"></exception>
+        public static Container CreateWild(Schema schema, ReadOnlySpan<byte> span)
+        {
+            if (schema is null) throw new ArgumentNullException(nameof(schema));
+            Container newContainer = new(schema, span);
+            newContainer._id = ulong.MaxValue;
+            return newContainer;
+        }
+
+        #endregion
+
+    }
+}
