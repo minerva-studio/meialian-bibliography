@@ -218,19 +218,20 @@ namespace Amlos.Container
 
 
 
-        public T Read<T>(string fieldName) where T : unmanaged => Read<T>(_schema.GetField(fieldName));
-
-        public T Read<T>(in FieldDescriptor f) where T : unmanaged
+        public T Read<T>(string fieldName) where T : unmanaged
         {
-            int sz = Unsafe.SizeOf<T>();
-            if (sz > f.Length)
-                throw new ArgumentException($"Type {typeof(T).Name} size {sz} exceeds field length {f.Length}.", f.Name);
+            EnsureNotDisposed();
+            EnsureFieldForRead<T>(fieldName);
 
+            var f = _schema.GetField(fieldName);
             return MemoryMarshal.Read<T>(GetReadOnlySpan(f));
         }
 
         public bool TryRead<T>(string fieldName, out T value) where T : unmanaged
         {
+            EnsureNotDisposed();
+            EnsureFieldForRead<T>(fieldName);
+
             value = default;
             if (!_schema.TryGetField(fieldName, out var f)) return false;
             int sz = Unsafe.SizeOf<T>();

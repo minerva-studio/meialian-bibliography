@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Unity.Serialization.Json;
+using static Amlos.Container.TypeHintUtil;
 
 namespace Amlos.Container.Serialization
 {
@@ -23,6 +24,7 @@ namespace Amlos.Container.Serialization
 
             // rebuild scehema
             List<FieldDescriptor> newFields = new();
+            Dictionary<string, byte> types = new();
             foreach (var member in obj)
             {
                 var name = member.Name().ToString();
@@ -31,11 +33,17 @@ namespace Amlos.Container.Serialization
                 // 1) If field missing ¡ú infer FieldDescriptor and rebuild schema, then continue.
                 if (!target.HasField(name))
                 {
-                    var fd = InferField(name, val);
+                    InferField(name, val, out var hint, out FieldDescriptor fd);
                     newFields.Add(fd);
+                    types.Add(name, hint);
                 }
             }
-            target.Rescheme(SchemaBuilder.FromFields(newFields));
+            Schema schema = SchemaBuilder.FromFields(newFields);
+            target.Rescheme(schema);
+            foreach (var (name, t) in types)
+            {
+                target.HeaderHints[schema.IndexOf(name)] = t;
+            }
 
 
             foreach (var member in obj)
@@ -76,22 +84,26 @@ namespace Amlos.Container.Serialization
             }
         }
 
-        private FieldDescriptor InferField(string name, SerializedValueView tok)
+        private void InferField(string name, SerializedValueView tok, out byte hint, out FieldDescriptor fieldDescriptor)
         {
             switch (tok.Type)
             {
                 case TokenType.Object:
                     // Single ref (8B)
-                    return FieldDescriptor.Reference(name);
-
+                    hint = Pack(ValueType.Ref, false);
+                    fieldDescriptor = FieldDescriptor.Reference(name);
+                    return;
                 case TokenType.Array:
                     {
                         var arr = tok.AsArrayView();
                         int n = arr.Count();
 
                         // empty array ¡ú zero-length fixed field
-                        if (n == 0) return FieldDescriptor.Fixed(name, 0);
-
+                        if (n == 0)
+                        {
+                            hint = 0;
+                            fieldDescriptor = FieldDescriptor.Fixed(name, 0);
+                        }
                         // Find first non-null element
                         SerializedValueView first = default;
                         bool found = false;
@@ -100,13 +112,17 @@ namespace Amlos.Container.Serialization
                         if (!found)
                         {
                             // all nulls ¡ú ref-array of size n
-                            return FieldDescriptor.ReferenceArray(name, n);
+                            hint = Pack(ValueType.Ref, true);
+                            fieldDescriptor = FieldDescriptor.ReferenceArray(name, n);
+                            return;
                         }
 
                         if (first.Type == TokenType.Object)
                         {
                             // ref-array
-                            return FieldDescriptor.ReferenceArray(name, n);
+                            hint = Pack(ValueType.Ref, true);
+                            fieldDescriptor = FieldDescriptor.ReferenceArray(name, n);
+                            return;
                         }
 
                         // value array : must be homogeneous primitive/bool
@@ -131,35 +147,71 @@ namespace Amlos.Container.Serialization
                             throw new InvalidOperationException($"Mixed types in array for field '{name}' are not supported.");
 
                         if (allBool)
-                            return FieldDescriptor.Fixed(name, sizeof(bool) * n);
+                        {
+                            hint = Pack(ValueType.Bool, true);
+                            fieldDescriptor = FieldDescriptor.Fixed(name, sizeof(bool) * n);
+                            return;
+                        }
 
                         if (anyFloat)
-                            return FieldDescriptor.Fixed(name, sizeof(double) * n); // conservative Float64
+                        {
+                            hint = Pack(ValueType.Float64, true);
+                            fieldDescriptor = FieldDescriptor.Fixed(name, sizeof(double) * n); // conservative Float64
+                            return;
+                        }
 
                         // integers only
-                        return FieldDescriptor.Fixed(name, sizeof(long) * n);       // conservative Int64
+                        hint = Pack(ValueType.Int64, true);
+                        fieldDescriptor = FieldDescriptor.Fixed(name, sizeof(long) * n); // conservative Float64
+                        return;
                     }
 
                 case TokenType.String:
                     {
                         var s = tok.AsStringView().ToString();
                         if (s.Length == 1)
-                            return FieldDescriptor.Type<char>(name);        // Char16 scalar (2B)
-                        return FieldDescriptor.Fixed(name, sizeof(char) * s.Length); // Char16 array
+                        {
+                            // Char16 scalar (2B)
+                            hint = Pack(ValueType.Char16, true);
+                            fieldDescriptor = FieldDescriptor.Type<char>(name); // conservative Float64
+                            return;
+                        }
+
+                        hint = Pack(ValueType.Char16, true);
+                        fieldDescriptor = FieldDescriptor.ArrayOf<char>(name, s.Length); // Char16 array
+                        return;
                     }
 
                 case TokenType.Primitive:
                     {
                         var pv = tok.AsPrimitiveView();
-                        if (pv.IsBoolean()) return FieldDescriptor.Type<bool>(name);
-                        if (pv.IsDecimal()) return FieldDescriptor.Type<double>(name);
-                        if (pv.IsIntegral()) return FieldDescriptor.Type<long>(name);
+                        if (pv.IsBoolean())
+                        {
+                            hint = Pack(ValueType.Bool, false);
+                            fieldDescriptor = FieldDescriptor.Type<bool>(name);
+                            return;
+                        }
+                        else
+                        if (pv.IsDecimal())
+                        {
+                            hint = Pack(ValueType.Float64, false);
+                            fieldDescriptor = FieldDescriptor.Type<double>(name);
+                            return;
+                        }
+                        else if (pv.IsIntegral())
+                        {
+                            hint = Pack(ValueType.Int64, false);
+                            fieldDescriptor = FieldDescriptor.Type<long>(name);
+                            return;
+                        }
                         break;
                     }
             }
 
             // Fallback: unknown/unsupported ¡ú zero-length field (safe no-op)
-            return FieldDescriptor.Fixed(name, 0);
+            hint = 0;
+            fieldDescriptor = FieldDescriptor.Fixed(name, 0);
+            return;
         }
 
 
@@ -342,7 +394,7 @@ namespace Amlos.Container.Serialization
                 var fieldName = field.Name;
 
                 byte hint = value.HeaderHints[i];
-                var vt = TypeHintUtil.ValueType(hint);
+                var vt = TypeHintUtil.Prim(hint);
                 bool isArray = TypeHintUtil.IsArray(hint);
 
                 // Always write the key for now (no omit-default policy here)

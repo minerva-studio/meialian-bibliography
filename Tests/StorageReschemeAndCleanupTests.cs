@@ -104,7 +104,7 @@ namespace Amlos.Container.Tests
 
             root.Write<int>("hp", 77);
             var speeds = root.GetArray<float>("speeds");     // 4 floats
-            for (int i = 0; i < speeds.Count; i++) speeds[i] = i + 0.25f;
+            for (int i = 0; i < speeds.Length; i++) speeds[i] = i + 0.25f;
 
             // Delete "speeds"
             var deleted = root.Delete("speeds");             //  :contentReference[oaicite:10]{index=10}

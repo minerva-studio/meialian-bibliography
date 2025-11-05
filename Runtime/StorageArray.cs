@@ -24,7 +24,7 @@ namespace Amlos.Container
         }
 
         /// <summary>Number of T elements.</summary>
-        public int Count => _span.Length;
+        public int Length => _span.Length;
 
         /// <summary>Get a ref to element at index.</summary>
         public ref T this[int index] => ref _span[index];
@@ -39,13 +39,17 @@ namespace Amlos.Container
 
         internal static StorageArray<T> CreateView(Container container, string fieldName)
         {
+            // Ensure the field exists and matches an array of T (self-heal if needed)
+            //container.EnsureArrayFor<T>(fieldName);
+            container.EnsureFieldForRead<T>(fieldName);
+
             var index = container.Schema.IndexOf(fieldName);
-            if (index < 0)
-                throw new ArgumentException($"Field '{fieldName}' does not exist in schema.");
             var field = container.Schema.Fields[index];
-            StorageArray<T> storageArray = new(container, field);
-            container.SetArrayHint<T>(index);
-            return storageArray;
+
+            // produce view and mark array hint
+            StorageArray<T> view = new(container, field);
+            container.SetArrayHint<T>(index); // your existing API to set Pack(PrimOf<T>(), isArray:true)
+            return view;
         }
 
         public T[] ToArray() => _span.ToArray();

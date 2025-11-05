@@ -37,7 +37,7 @@ namespace Amlos.Container
         public static bool IsArray(byte hint) => (hint & IS_ARRAY_MASK) != 0;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ValueType ValueType(byte hint)
+        public static ValueType Prim(byte hint)
             => (ValueType)((hint >> PRIM_SHIFT) & PRIM_MASK);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -65,6 +65,43 @@ namespace Amlos.Container
             if (typeof(T) == typeof(double)) return Amlos.Container.ValueType.Float64;
             return Amlos.Container.ValueType.Unknown;
         }
-    }
 
+        // Map ValueType to element byte size; Unknown returns 1 for raw byte copy fallback.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ElemSize(ValueType vt) => vt switch
+        {
+            ValueType.Bool => 1,
+            ValueType.Int8 => 1,
+            ValueType.UInt8 => 1,
+            ValueType.Char16 => 2,
+            ValueType.Int16 => 2,
+            ValueType.UInt16 => 2,
+            ValueType.Int32 => 4,
+            ValueType.UInt32 => 4,
+            ValueType.Float32 => 4,
+            ValueType.Int64 => 8,
+            ValueType.UInt64 => 8,
+            ValueType.Float64 => 8,
+            ValueType.Ref => 8,
+            _ => 1
+        };
+
+        // Replace with your actual source of recommended hint for a new field.
+        // For now: Unknown (0) to be safe, or map by newField.IsRef/AbsLength if you maintain that metadata.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte RecommendedHintOf(FieldDescriptor nf)
+        {
+            // If you already keep a recommended ValueType per field, convert here.
+            // As a safe default, say Unknown scalar/array based on nf:
+            bool isArray = !nf.IsRef && nf.AbsLength > 0 && nf.AbsLength % 8 != 0 && nf.AbsLength > ElemSize(ValueType.Int64);
+            // Better: if you store per-field expected PrimType, use that.
+            return Pack(ValueType.Unknown, isArray);
+        }
+
+        public static string ToString(byte s)
+        {
+            var baseType = Prim(s).ToString();
+            return TypeHintUtil.IsArray(s) ? baseType + "[]" : baseType;
+        }
+    }
 }

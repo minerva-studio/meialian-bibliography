@@ -13,14 +13,14 @@ namespace Amlos.Container
 
         public readonly Schema Schema => _container.Schema;
         public ulong ID => _container.ID;
-        public ReadOnlySpan<byte> HeaderHints => _container.HeaderHints;
+        internal Span<byte> HeaderHints => _container.HeaderHints;
 
         public bool IsNull => _container == null || _container._id == 0;
 
         /// <summary>
         /// True if this StorageObject represents a single string field, then this container is really just a string.
         /// </summary>
-        public bool IsString => Schema.Fields.Count == 1 && !Schema.Fields[0].IsRef && TypeHintUtil.ValueType(HeaderHints[0]) == ValueType.Char16;
+        public bool IsString => Schema.Fields.Count == 1 && !Schema.Fields[0].IsRef && TypeHintUtil.Prim(HeaderHints[0]) == ValueType.Char16;
 
 
         internal StorageObject(Container container)

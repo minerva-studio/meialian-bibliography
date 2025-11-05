@@ -48,6 +48,16 @@ namespace Amlos.Container
         /// <summary>Create a copy with offset of 0 (base info only).</summary>
         public FieldDescriptor WithBaseInfo() => new FieldDescriptor(Name, Length, 0);
 
+        public int GetElementCount<T>() where T : unmanaged
+        {
+            var size = Unsafe.SizeOf<T>();
+            return Length / size;
+        }
+
+
+
+
+
         public bool Equals(FieldDescriptor other)
             => Length == other.Length && Offset == other.Offset &&
                string.Equals(Name, other.Name, StringComparison.Ordinal);
