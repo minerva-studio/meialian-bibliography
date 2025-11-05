@@ -195,10 +195,10 @@ namespace Amlos.Container
                 case ValueType.UInt16: BinaryPrimitives.WriteUInt16LittleEndian(dst, (ushort)v); return;
                 case ValueType.UInt32: BinaryPrimitives.WriteUInt32LittleEndian(dst, (uint)v); return;
                 case ValueType.UInt64: BinaryPrimitives.WriteUInt64LittleEndian(dst, v); return;
-                case ValueType.Int8: dst[0] = unchecked((byte)(sbyte)v); return;
-                case ValueType.Int16: BinaryPrimitives.WriteInt16LittleEndian(dst, unchecked((short)v)); return;
-                case ValueType.Int32: BinaryPrimitives.WriteInt32LittleEndian(dst, unchecked((int)v)); return;
-                case ValueType.Int64: BinaryPrimitives.WriteInt64LittleEndian(dst, unchecked((long)v)); return;
+                case ValueType.Int8: dst[0] = ((byte)(sbyte)v); return;
+                case ValueType.Int16: BinaryPrimitives.WriteInt16LittleEndian(dst, ((short)v)); return;
+                case ValueType.Int32: BinaryPrimitives.WriteInt32LittleEndian(dst, ((int)v)); return;
+                case ValueType.Int64: BinaryPrimitives.WriteInt64LittleEndian(dst, ((long)v)); return;
                 case ValueType.Char16: BinaryPrimitives.WriteUInt16LittleEndian(dst, (ushort)v); return;
                 case ValueType.Float32:
                     {
@@ -221,15 +221,15 @@ namespace Amlos.Container
         {
             switch (to)
             {
-                case ValueType.Int8: dst[0] = unchecked((byte)(sbyte)v); return;
-                case ValueType.Int16: BinaryPrimitives.WriteInt16LittleEndian(dst, unchecked((short)v)); return;
-                case ValueType.Int32: BinaryPrimitives.WriteInt32LittleEndian(dst, unchecked((int)v)); return;
+                case ValueType.Int8: dst[0] = ((byte)(sbyte)v); return;
+                case ValueType.Int16: BinaryPrimitives.WriteInt16LittleEndian(dst, ((short)v)); return;
+                case ValueType.Int32: BinaryPrimitives.WriteInt32LittleEndian(dst, ((int)v)); return;
                 case ValueType.Int64: BinaryPrimitives.WriteInt64LittleEndian(dst, v); return;
-                case ValueType.UInt8: dst[0] = unchecked((byte)v); return;
-                case ValueType.UInt16: BinaryPrimitives.WriteUInt16LittleEndian(dst, unchecked((ushort)v)); return;
-                case ValueType.UInt32: BinaryPrimitives.WriteUInt32LittleEndian(dst, unchecked((uint)v)); return;
-                case ValueType.UInt64: BinaryPrimitives.WriteUInt64LittleEndian(dst, unchecked((ulong)v)); return;
-                case ValueType.Char16: BinaryPrimitives.WriteUInt16LittleEndian(dst, unchecked((ushort)v)); return;
+                case ValueType.UInt8: dst[0] = ((byte)v); return;
+                case ValueType.UInt16: BinaryPrimitives.WriteUInt16LittleEndian(dst, ((ushort)v)); return;
+                case ValueType.UInt32: BinaryPrimitives.WriteUInt32LittleEndian(dst, ((uint)v)); return;
+                case ValueType.UInt64: BinaryPrimitives.WriteUInt64LittleEndian(dst, ((ulong)v)); return;
+                case ValueType.Char16: BinaryPrimitives.WriteUInt16LittleEndian(dst, ((ushort)v)); return;
                 case ValueType.Float32:
                     {
                         float f = (float)v;

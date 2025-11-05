@@ -175,61 +175,89 @@ namespace Amlos.Container
 
         #region Blittable T read/write (unmanaged) 
 
-        public void Write<T>(string fieldName, in T value) where T : unmanaged
+        public void Write<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged
         {
             EnsureNotDisposed();
 
-            int index = GetFieldIndexOrRescheme<T>(fieldName);
-            if (TryWriteScalarImplicit(index, value))
-                return;
-
-            // currently can't contain the value, rescheme
-            index = ReschemeFor<T>(fieldName);
-            WriteNoRescheme_Internal(index, value, Unsafe.SizeOf<T>());
+            // nonexist
+            var index = _schema.IndexOf(fieldName);
+            if (index < 0)
+            {
+                if (allowRescheme)
+                    index = GetFieldIndexOrRescheme<T>(fieldName);
+                else
+                    throw new ArgumentException($"{fieldName} does not exist in object.", nameof(value));
+            }
+            Write_Internal(index, value, allowRescheme);
         }
 
-        public void WriteNoRescheme<T>(string fieldName, in T value) where T : unmanaged => WriteNoRescheme(_schema.IndexOf(fieldName), value);
-
-        public void WriteNoRescheme<T>(int index, T value) where T : unmanaged
+        public bool TryWrite<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged
         {
-            int sz = Unsafe.SizeOf<T>();
-            var f = Schema.Fields[index];
-            if (sz > f.Length)
-                throw new ArgumentException($"Type {typeof(T).Name} size {sz} exceeds field length {f.Length}.", nameof(value));
-
-            WriteNoRescheme_Internal(index, value, sz);
-        }
-
-        public bool TryWrite<T>(string fieldName, in T value) where T : unmanaged
-        {
+            // nonexist
             var index = _schema.IndexOf(fieldName);
             if (index < 0) return false;
-            var f = Schema.Fields[index];
-            int sz = Unsafe.SizeOf<T>();
-            if (sz > f.Length) return false;
-
-            if (TryWriteScalarImplicit(index, value))
-                return true;
-
-            // currently can't contain the value, rescheme
-            index = ReschemeFor<T>(fieldName);
-            WriteNoRescheme_Internal(index, value, sz);
-            return true;
+            return TryWrite_Internal(index, value, allowRescheme) == 0;
         }
 
-        private void WriteNoRescheme_Internal<T>(int index, T value, int sz) where T : unmanaged
+
+        private void Write_Internal<T>(int index, T value, bool allowRescheme = true) where T : unmanaged
         {
             var f = Schema.Fields[index];
+            switch (TryWrite_Internal(index, value, allowRescheme))
+            {
+                case 0:
+                    return;
+                case 1:
+                    throw new ArgumentException($"Type {typeof(T).Name} cannot cast to {TypeUtil.PrimOf(HeaderSegment[index])}.", nameof(value));
+                case 2:
+                    throw new ArgumentException($"Type {typeof(T).Name} exceeds field length and cannot write into {f.Name} without rescheme.", nameof(value));
+                default:
+                    throw new ArgumentException($"Type {typeof(T).Name} cannot write to {TypeUtil.PrimOf(HeaderSegment[index])}.", nameof(value));
+            }
+        }
+        private int TryWrite_Internal<T>(int index, T value, bool allowRescheme = true) where T : unmanaged
+        {
+            if (TryWriteScalarImplicit(index, value))
+                return 0;
 
+            int sz = Unsafe.SizeOf<T>();
+            var f = Schema.Fields[index];
+            // same size, override 
+            if (f.Length == sz)
+            {
+                Write_Override(index, value);
+                return 0;
+            }
+            // too small? rescheme
+            if (f.Length < sz)
+            {
+                if (!allowRescheme) return 2;
+                // currently can't contain the value, rescheme
+                ReschemeAndWrite(index, value);
+                return 0;
+            }
+            // too large? explicit cast
+            else
+            {
+                return TryWriteScalarExplicit(index, value) ? 0 : 1;
+            }
+        }
+        private void ReschemeAndWrite<T>(int index, T value) where T : unmanaged
+        {
+            var f = Schema.Fields[index];
+            index = ReschemeFor<T>(f.Name);
+
+            // update to new field
+            Write_Override(index, value);
+        }
+        private void Write_Override<T>(int index, T value) where T : unmanaged
+        {
+            var f = Schema.Fields[index];
             var span = GetSpan(in f);
-            if (sz < f.Length) span.Clear(); // avoid stale trailing bytes
+            if (Unsafe.SizeOf<T>() < f.Length) span.Clear(); // avoid stale trailing bytes
             MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
-
             SetScalarType<T>(index);
         }
-
-
-
 
 
 
@@ -249,19 +277,6 @@ namespace Amlos.Container
             throw new InvalidOperationException();
         }
 
-        public T Read<T>(string fieldName, bool explicitCast) where T : unmanaged
-        {
-            EnsureNotDisposed();
-
-            int index = GetFieldIndexOrRescheme<T>(fieldName);
-
-            if (explicitCast ? TryReadScalarExplicit(index, out T result) : TryReadScalarImplicit(index, out result))
-                return result;
-
-            EnsureFieldForRead<T>(index);
-            return Read_Unsafe<T>(index);
-        }
-
         public bool TryRead<T>(string fieldName, out T value) where T : unmanaged
         {
             EnsureNotDisposed();
@@ -276,9 +291,7 @@ namespace Amlos.Container
             if (TryReadScalarExplicit(index, out value))
                 return true;
 
-            EnsureFieldForRead<T>(index);
-            value = Read_Unsafe<T>(index);
-            return true;
+            return false;
         }
 
         public T Read_Unsafe<T>(string fieldName) where T : unmanaged
@@ -286,7 +299,7 @@ namespace Amlos.Container
             return Read_Unsafe<T>(_schema.IndexOf(fieldName));
         }
 
-        public T Read_Unsafe<T>(int index) where T : unmanaged
+        private T Read_Unsafe<T>(int index) where T : unmanaged
         {
             var f = _schema.Fields[index];
             return MemoryMarshal.Read<T>(GetReadOnlySpan(f));

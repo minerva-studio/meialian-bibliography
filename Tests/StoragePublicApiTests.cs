@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using System;
+using UnityEngine;
 
 namespace Amlos.Container.Tests
 {
@@ -100,6 +101,125 @@ namespace Amlos.Container.Tests
             // Registry should not resolve the child ID anymore
             var reg = Container.Registry.Shared;
             Assert.That(reg.GetContainer(childId), Is.Null);
+        }
+
+        [Test]
+        public void Storage_FieldAutoExpand()
+        {
+            using var storage = new Storage(_rootSchema);
+            var root = storage.Root;
+            root.Write<byte>("v", 1);
+            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(1));
+
+            root.Write<int>("v", 1);
+            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(4));
+        }
+
+        [Test]
+        public void Storage_FieldTwoWay()
+        {
+            /// <remarks>
+            /// - If implicit conversion is possible, write the converted code without changing the type.
+            /// - If implicit conversion is not possible:
+            /// <ul>
+            /// <li> If the current size is the same, change the type. </li>
+            /// <li> If is too small, rescheme. </li>
+            /// <li> If is too large, explicit conversion. </li>
+            /// </ul>
+            /// </remarks>
+
+            using var storage = new Storage(_rootSchema);
+            var root = storage.Root;
+            const string f1 = "f1";
+            root.Write<int>(f1, 1);
+            Assert.That(root.Schema.GetField(f1).Length, Is.EqualTo(4));
+            root.Write<float>(f1, 1f);
+            Assert.That(root.Schema.GetField(f1).Length, Is.EqualTo(4));
+            Assert.That(root.GetValueView(f1).Type, Is.EqualTo(ValueType.Float32)); // same size, change type
+
+            const string f2 = "f2";
+            root.Write<float>(f2, 1f);
+            Assert.That(root.Schema.GetField(f2).Length, Is.EqualTo(4));
+            root.Write<int>(f2, 1);
+            Assert.That(root.Schema.GetField(f2).Length, Is.EqualTo(4));
+            Assert.That(root.GetValueView(f2).Type, Is.EqualTo(ValueType.Float32)); // int can implicit to float
+        }
+
+        [Test]
+        public void Storage_WriteNoRescheme_FieldNoExpand_WillThrow()
+        {
+            using var storage = new Storage(_rootSchema);
+            var root = storage.Root;
+            root.Write<byte>("v", 1);
+            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(1));
+
+            bool threw = false;
+            try
+            {
+                root.WriteNoRescheme<int>("v", 1);
+            }
+            catch (ArgumentException)
+            {
+                threw = true;
+            }
+            Assert.That(threw, Is.True);
+
+
+            root.Write<float>("v", 1000.0f);
+            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(4));
+            threw = false;
+            try
+            {
+                root.WriteNoRescheme<double>("v", 1000.0);
+            }
+            catch (ArgumentException)
+            {
+                threw = true;
+            }
+            Assert.That(threw, Is.True);
+        }
+
+        [Test]
+        public void Storage_WriteNoRescheme_FieldNoExpand_FieldTypeConstant()
+        {
+            using var storage = new Storage(_rootSchema);
+            var root = storage.Root;
+
+            root.Write<double>("v", 1000.0);
+            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(8));
+            var threw = false;
+            try
+            {
+                root.WriteNoRescheme<int>("v", 1000);
+            }
+            catch (ArgumentException)
+            {
+                threw = true;
+            }
+            Assert.That(threw, Is.False);
+            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(8));
+            var view = root.GetValueView("v");
+            Assert.That(view.Type, Is.EqualTo(ValueType.Float64));
+        }
+
+        [Test]
+        public void Storage_WriteNoRescheme_FieldNoExpand_Safe()
+        {
+            using var storage = new Storage(_rootSchema);
+            var root = storage.Root;
+            root.Write<int>("v", 1);
+            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(4));
+
+            bool threw = false;
+            try
+            {
+                root.WriteNoRescheme<byte>("v", 1);
+            }
+            catch (ArgumentException)
+            {
+                threw = true;
+            }
+            Assert.That(threw, Is.False);
         }
 
         //// 2) StorageField: value-field read/write + array/span views

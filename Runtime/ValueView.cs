@@ -12,11 +12,103 @@ namespace Amlos.Container
         public ReadOnlySpan<byte> Bytes { get; }
 
 
+
+        public bool IsNaN
+        {
+            get
+            {
+                if (Type == ValueType.Float32)
+                {
+                    // read 4 bytes little-endian as int bits -> float -> IsNaN
+                    int bits = BinaryPrimitives.ReadInt32LittleEndian(Bytes);
+                    float f = BitConverter.Int32BitsToSingle(bits);
+                    return float.IsNaN(f);
+                }
+                if (Type == ValueType.Float64)
+                {
+                    long bits = BinaryPrimitives.ReadInt64LittleEndian(Bytes);
+                    double d = BitConverter.Int64BitsToDouble(bits);
+                    return double.IsNaN(d);
+                }
+                return false; // not a float type -> cannot be NaN
+            }
+        }
+
+        public bool IsPositiveInfinity
+        {
+            get
+            {
+                if (Type == ValueType.Float32)
+                {
+                    int bits = BinaryPrimitives.ReadInt32LittleEndian(Bytes);
+                    float f = BitConverter.Int32BitsToSingle(bits);
+                    return float.IsPositiveInfinity(f);
+                }
+                if (Type == ValueType.Float64)
+                {
+                    long bits = BinaryPrimitives.ReadInt64LittleEndian(Bytes);
+                    double d = BitConverter.Int64BitsToDouble(bits);
+                    return double.IsPositiveInfinity(d);
+                }
+                return false;
+            }
+        }
+
+        public bool IsNegativeInfinity
+        {
+            get
+            {
+                if (Type == ValueType.Float32)
+                {
+                    int bits = BinaryPrimitives.ReadInt32LittleEndian(Bytes);
+                    float f = BitConverter.Int32BitsToSingle(bits);
+                    return float.IsNegativeInfinity(f);
+                }
+                if (Type == ValueType.Float64)
+                {
+                    long bits = BinaryPrimitives.ReadInt64LittleEndian(Bytes);
+                    double d = BitConverter.Int64BitsToDouble(bits);
+                    return double.IsNegativeInfinity(d);
+                }
+                return false;
+            }
+        }
+
+        public bool IsInfinity => IsPositiveInfinity || IsNegativeInfinity;
+
+        public bool IsFinite
+        {
+            get
+            {
+                if (Type == ValueType.Float32)
+                {
+                    int bits = BinaryPrimitives.ReadInt32LittleEndian(Bytes);
+                    float f = BitConverter.Int32BitsToSingle(bits);
+                    return !float.IsNaN(f) && !float.IsInfinity(f);
+                }
+                if (Type == ValueType.Float64)
+                {
+                    long bits = BinaryPrimitives.ReadInt64LittleEndian(Bytes);
+                    double d = BitConverter.Int64BitsToDouble(bits);
+                    return !double.IsNaN(d) && !double.IsInfinity(d);
+                }
+                // non-float types are always finite from FP perspective
+                return true;
+            }
+        }
+
+
+
+
         public ValueView(ReadOnlySpan<byte> bytes, ValueType type) : this()
         {
             Bytes = bytes;
             Type = type;
         }
+
+
+
+
 
 
         /// <summary>
@@ -35,6 +127,10 @@ namespace Amlos.Container
                 return true;
             }
 
+            // If implicit-only and conversion not allowed by implicit table -> fail
+            if (!isExplicit && !TypeUtil.IsImplicitlyConvertible(Type, targetType))
+                return false;
+
             // classify types
             bool srcIsInt = Type.IsIntegral();
             bool dstIsInt = targetType.IsIntegral();
@@ -44,10 +140,6 @@ namespace Amlos.Container
             bool dstIsBool = targetType == ValueType.Bool;
             bool srcIsChar = Type == ValueType.Char16;
             bool dstIsChar = targetType == ValueType.Char16;
-
-            // If implicit-only and conversion not allowed by implicit table -> fail
-            if (!isExplicit && !TypeUtil.IsImplicitlyConvertible(Type, targetType))
-                return false;
 
             try
             {
@@ -180,6 +272,11 @@ namespace Amlos.Container
             return false;
         }
 
+
+
+
+
+
         public override string ToString()
         {
             switch (Type)
@@ -193,6 +290,7 @@ namespace Amlos.Container
                 case ValueType.UInt8:
                     return ToArrayOrSingleString<byte>();
                 case ValueType.Char16:
+                    // special case: decode as UTF-16 string
                     return MemoryMarshal.Cast<byte, char>(Bytes).ToString();
                 case ValueType.Int16:
                     return ToArrayOrSingleString<short>();

@@ -66,7 +66,7 @@ namespace Amlos.Container.Tests
             using var c = Container.CreateWild(s);
 
             var fa = s.GetField("a");
-            Assert.That(c.TryWrite<int>("a", 7), Is.False); // sizeof(int) > 2 -> false
+            Assert.That(c.TryWrite<int>("a", 7, false), Is.False); // sizeof(int) > 2 -> false
 
             c.WriteNoRescheme<int>("b", 300);
 
@@ -84,7 +84,7 @@ namespace Amlos.Container.Tests
             using var c = Container.CreateWild(s);
 
             var fa = s.GetField("a");
-            Assert.That(c.TryWrite<int>("a", 7), Is.False); // sizeof(int) > 2 -> false
+            Assert.That(c.TryWrite<int>("a", 7, false), Is.False); // sizeof(int) > 2 -> false
 
             c.WriteNoRescheme<int>("b", 99);
             Assert.That(c.TryRead<int>("b", out var v), Is.True);

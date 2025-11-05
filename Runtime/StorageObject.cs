@@ -11,10 +11,19 @@ namespace Amlos.Container
         private readonly Container _container;
 
 
+        /// <summary>
+        /// Object Schema
+        /// </summary>
         public readonly Schema Schema => _container.Schema;
-        public ulong ID => _container.ID;
-        internal Span<byte> HeaderHints => _container.HeaderSegment;
 
+        /// <summary>
+        /// Object ID   
+        /// </summary>
+        public ulong ID => _container.ID;
+
+        /// <summary>
+        /// Is object null
+        /// </summary>
         public bool IsNull => _container == null || _container._id == 0;
 
         /// <summary>
@@ -22,11 +31,15 @@ namespace Amlos.Container
         /// </summary>
         public bool IsString => Schema.Fields.Count == 1 && !Schema.Fields[0].IsRef && TypeUtil.PrimOf(HeaderHints[0]) == ValueType.Char16;
 
+        internal Span<byte> HeaderHints => _container.HeaderSegment;
+
+
 
         internal StorageObject(Container container)
         {
             _container = container;
         }
+
 
 
 
@@ -43,10 +56,19 @@ namespace Amlos.Container
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
         /// </summary>
+        /// <remarks>
+        /// - If implicit conversion is possible, write the converted code without changing the type.
+        /// - If implicit conversion is not possible:
+        /// <ul> 
+        /// <li> If the current size is the same, change the type. </li>
+        /// <li> If is too small, rescheme. </li>
+        /// <li> If is too large, explicit conversion. </li>
+        /// </ul>
+        /// </remarks>
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
-        public void Write<T>(string fieldName, in T value) where T : unmanaged => _container.Write(fieldName, value);
+        public void Write<T>(string fieldName, in T value) where T : unmanaged => _container.Write(fieldName, value, true);
 
         /// <summary>
         /// Write a value to an existing field without rescheming, if the field does not exist, an exception is thrown.
@@ -54,16 +76,68 @@ namespace Amlos.Container
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
-        public void WriteNoRescheme<T>(string fieldName, in T value) where T : unmanaged => _container.WriteNoRescheme(fieldName, value);
+        public void Write<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged => _container.Write(fieldName, value, allowRescheme);
+
+        /// <summary>
+        /// Write a value to a field, if the field does not exist, it will be added to the schema.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <param name="value"></param>
+        public void TryWrite<T>(string fieldName, in T value) where T : unmanaged => _container.TryWrite(fieldName, value, true);
+
+        /// <summary>
+        /// Write a value to a field, if the field does not exist, it will be added to the schema.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <param name="value"></param>
+        public void TryWrite<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged => _container.TryWrite(fieldName, value, allowRescheme);
 
 
+
+
+
+        /// <summary>
+        /// Read the field
+        /// </summary>
+        /// <remarks>
+        /// - If field does not exist, read <typeparamref name="T"/> default value and create the field
+        /// - Always return explicit conversion result, unless conversion is not supported, then exception will throw
+        /// </remarks>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <returns></returns>
         public T Read<T>(string fieldName) where T : unmanaged => _container.Read<T>(fieldName);
 
+        /// <summary>
+        /// Try Read the field
+        /// </summary>
+        /// <remarks>
+        /// - If field does not exist, return false and will not create the field
+        /// - Always return explicit conversion result, unless conversion is not supported, return false
+        /// - return true with explicitly casted value, false otherwise
+        /// </remarks>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <returns></returns>
         public bool TryRead<T>(string fieldName, out T value) where T : unmanaged => _container.TryRead(fieldName, out value);
 
         public T ReadOrDefault<T>(string fieldName) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : default;
 
         public T ReadOrDefault<T>(string fieldName, T defaultValue) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : defaultValue;
+
+        /// <summary>
+        /// Read data regardless actual stored type
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <returns></returns>
+        public T Read_Unsafe<T>(string fieldName) where T : unmanaged => _container.Read_Unsafe<T>(fieldName);
+
+
+
+
 
 
 
@@ -155,6 +229,13 @@ namespace Amlos.Container
             return new StorageObjectArray(_container, f);
         }
 
+        /// <summary>
+        /// Get a scala value view
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <returns></returns>
+        public ValueView GetValueView(string fieldName) => _container.GetValueView(fieldName);
+
 
 
 
@@ -178,6 +259,19 @@ namespace Amlos.Container
         public override int GetHashCode() => _container.GetHashCode();
         public override bool Equals(object obj) => false;
         public override string ToString() => _container.ToString();
+    }
+
+
+    public static class StorageObjectExtension
+    {
+
+        /// <summary>
+        /// Write a value to an existing field without rescheming, if the field does not exist, an exception is thrown.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <param name="value"></param>
+        public static void WriteNoRescheme<T>(this StorageObject so, string fieldName, in T value) where T : unmanaged => so.Write(fieldName, value, false);
     }
 }
 

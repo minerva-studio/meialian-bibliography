@@ -189,4 +189,12 @@ namespace Amlos.Container.Tests
                 Assert.That(reg.GetContainer(nodes[i].ID), Is.Null);
         }
     }
+
+    public static class ContainerExtension
+    {
+        internal static void WriteNoRescheme<T>(this Container container, string fieldName, in T value) where T : unmanaged
+        {
+            container.Write(fieldName, value, false);
+        }
+    }
 }

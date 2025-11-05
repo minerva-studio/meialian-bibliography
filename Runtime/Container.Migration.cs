@@ -1,4 +1,3 @@
-using NUnit.Framework;
 using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
@@ -285,7 +284,13 @@ namespace Amlos.Container
 
 
 
-
+        /// <summary>
+        /// Try read scalar with implicit conversion if needed. will not change type hint if type known.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="index"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
         private bool TryReadScalarImplicit<T>(int index, out T value) where T : unmanaged
         {
             value = default;
@@ -296,6 +301,13 @@ namespace Amlos.Container
             return view.TryRead(out value);
         }
 
+        /// <summary>
+        /// Try write scalar with implicit conversion if needed. will not change type hint if type known.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="index"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
         private bool TryWriteScalarImplicit<T>(int index, T value) where T : unmanaged
         {
             FieldType ft = new(HeaderSegment[index]);
@@ -312,6 +324,7 @@ namespace Amlos.Container
 
                 HeaderSegment[index] = TypeUtil.Pack(srcType, ft.IsArray);
                 MemoryMarshal.Write(dstSpan, ref Unsafe.AsRef(value));
+                return true;
             }
             // type match, direct write
             if (dstType == srcType)
@@ -326,6 +339,13 @@ namespace Amlos.Container
             return view.TryWrite(dstSpan, dstType);
         }
 
+        /// <summary>
+        /// Try read scalar with explicit conversion if needed. will not change type hint if type known.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="index"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
         private bool TryReadScalarExplicit<T>(int index, out T value) where T : unmanaged
         {
             var view = GetValueView(index);
