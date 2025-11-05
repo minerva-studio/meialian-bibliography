@@ -29,6 +29,10 @@ namespace Amlos.Container
         private const byte PRIM_MASK = 0b1_1111;            // 5 bits
         private const byte PRIM_FIELD = (byte)(PRIM_MASK << PRIM_SHIFT);
 
+
+        public const byte Ref = (byte)ValueType.Ref << PRIM_SHIFT;
+
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte Pack(ValueType valueType, bool isArray) => (byte)((isArray ? IS_ARRAY_MASK : 0) | (((byte)valueType & PRIM_MASK) << PRIM_SHIFT));
 
@@ -112,6 +116,62 @@ namespace Amlos.Container
                 case ValueType.Float32:
                 case ValueType.Float64:
                     return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Return true if a value of 'from' can be implicitly converted to 'to'
+        /// (a conservative subset matching C# numeric implicit conversions).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsImplicitlyConvertible(ValueType from, ValueType to)
+        {
+            if (from == to) return true;
+
+            switch (from)
+            {
+                case ValueType.Int8: // sbyte
+                    return to == ValueType.Int16 || to == ValueType.Int32 || to == ValueType.Int64
+                        || to == ValueType.Float32 || to == ValueType.Float64;
+
+                case ValueType.UInt8: // byte
+                    return to == ValueType.Int16 || to == ValueType.UInt16 || to == ValueType.Int32
+                        || to == ValueType.UInt32 || to == ValueType.Int64 || to == ValueType.UInt64
+                        || to == ValueType.Float32 || to == ValueType.Float64;
+
+                case ValueType.Int16:
+                    return to == ValueType.Int32 || to == ValueType.Int64 || to == ValueType.Float32 || to == ValueType.Float64;
+
+                case ValueType.UInt16:
+                    return to == ValueType.Int32 || to == ValueType.UInt32 || to == ValueType.Int64 || to == ValueType.UInt64
+                        || to == ValueType.Float32 || to == ValueType.Float64;
+
+                case ValueType.Int32:
+                    return to == ValueType.Int64 || to == ValueType.Float32 || to == ValueType.Float64;
+
+                case ValueType.UInt32:
+                    return to == ValueType.Int64 || to == ValueType.UInt64 || to == ValueType.Float32 || to == ValueType.Float64;
+
+                case ValueType.Int64:
+                    return to == ValueType.Float32 || to == ValueType.Float64;
+
+                case ValueType.UInt64:
+                    return to == ValueType.Float32 || to == ValueType.Float64;
+
+                case ValueType.Float32:
+                    return to == ValueType.Float64;
+
+                case ValueType.Char16:
+                    // char -> numeric implicit conversions in C#: to int/uint/long/ulong/float/double
+                    return to == ValueType.Int32 || to == ValueType.UInt32
+                        || to == ValueType.Int64 || to == ValueType.UInt64
+                        || to == ValueType.Float32 || to == ValueType.Float64;
+
+                case ValueType.Bool:
+                    return to == ValueType.Bool;
+
                 default:
                     return false;
             }

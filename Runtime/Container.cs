@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Amlos.Container
 {
@@ -176,43 +177,55 @@ namespace Amlos.Container
 
         public void Write<T>(string fieldName, in T value) where T : unmanaged
         {
-            FieldDescriptor f = GetFieldDescriptorOrRescheme<T>(fieldName);
-            WriteNoRescheme(f, value);
+            EnsureNotDisposed();
+
+            int index = GetFieldIndexOrRescheme<T>(fieldName);
+            if (TryWriteScalarImplicit(index, value))
+                return;
+
+            // currently can't contain the value, rescheme
+            index = ReschemeFor<T>(fieldName);
+            WriteNoRescheme_Internal(index, value, Unsafe.SizeOf<T>());
         }
 
-        public void WriteNoRescheme<T>(string fieldName, in T value) where T : unmanaged => WriteNoRescheme(_schema.GetField(fieldName), value);
+        public void WriteNoRescheme<T>(string fieldName, in T value) where T : unmanaged => WriteNoRescheme(_schema.IndexOf(fieldName), value);
 
-        public void WriteNoRescheme<T>(in FieldDescriptor f, T value) where T : unmanaged
+        public void WriteNoRescheme<T>(int index, T value) where T : unmanaged
         {
             int sz = Unsafe.SizeOf<T>();
+            var f = Schema.Fields[index];
             if (sz > f.Length)
                 throw new ArgumentException($"Type {typeof(T).Name} size {sz} exceeds field length {f.Length}.", nameof(value));
 
-            WriteNoRescheme_Internal(f, value, sz);
+            WriteNoRescheme_Internal(index, value, sz);
         }
 
         public bool TryWrite<T>(string fieldName, in T value) where T : unmanaged
         {
-            if (!_schema.TryGetField(fieldName, out var f)) return false;
-            return TryWrite(f, value);
-        }
-
-        public bool TryWrite<T>(in FieldDescriptor field, in T value) where T : unmanaged
-        {
+            var index = _schema.IndexOf(fieldName);
+            if (index < 0) return false;
+            var f = Schema.Fields[index];
             int sz = Unsafe.SizeOf<T>();
-            if (sz > field.Length) return false;
-            WriteNoRescheme_Internal(field, value, sz);
+            if (sz > f.Length) return false;
+
+            if (TryWriteScalarImplicit(index, value))
+                return true;
+
+            // currently can't contain the value, rescheme
+            index = ReschemeFor<T>(fieldName);
+            WriteNoRescheme_Internal(index, value, sz);
             return true;
         }
 
-        private void WriteNoRescheme_Internal<T>(FieldDescriptor f, T value, int sz) where T : unmanaged
+        private void WriteNoRescheme_Internal<T>(int index, T value, int sz) where T : unmanaged
         {
+            var f = Schema.Fields[index];
+
             var span = GetSpan(in f);
             if (sz < f.Length) span.Clear(); // avoid stale trailing bytes
             MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
 
-            int idx = _schema.IndexOf(f.Name);
-            if (idx >= 0) SetScalarType<T>(idx);
+            SetScalarType<T>(index);
         }
 
 
@@ -227,42 +240,67 @@ namespace Amlos.Container
         public T Read<T>(string fieldName) where T : unmanaged
         {
             EnsureNotDisposed();
-            EnsureFieldForRead<T>(fieldName);
 
-            var f = _schema.GetField(fieldName);
-            return Read_Unsafe<T>(f);
+            int index = GetFieldIndexOrRescheme<T>(fieldName);
+
+            if (TryReadScalarExplicit(index, out T result))
+                return result;
+
+            throw new InvalidOperationException();
+        }
+
+        public T Read<T>(string fieldName, bool explicitCast) where T : unmanaged
+        {
+            EnsureNotDisposed();
+
+            int index = GetFieldIndexOrRescheme<T>(fieldName);
+
+            if (explicitCast ? TryReadScalarExplicit(index, out T result) : TryReadScalarImplicit(index, out result))
+                return result;
+
+            EnsureFieldForRead<T>(index);
+            return Read_Unsafe<T>(index);
         }
 
         public bool TryRead<T>(string fieldName, out T value) where T : unmanaged
         {
             EnsureNotDisposed();
 
-            value = default;
-            if (!_schema.TryGetField(fieldName, out var f)) return false;
+            int index = _schema.IndexOf(fieldName);
+            if (index < 0)
+            {
+                value = default;
+                return false;
+            }
 
-            EnsureFieldForRead<T>(fieldName);
+            if (TryReadScalarExplicit(index, out value))
+                return true;
 
-            int sz = Unsafe.SizeOf<T>();
-            if (sz > f.Length) return false;
-            value = Read_Unsafe<T>(f);
+            EnsureFieldForRead<T>(index);
+            value = Read_Unsafe<T>(index);
             return true;
         }
 
         public T Read_Unsafe<T>(string fieldName) where T : unmanaged
         {
-            var f = _schema.GetField(fieldName);
-            return Read_Unsafe<T>(f);
+            return Read_Unsafe<T>(_schema.IndexOf(fieldName));
         }
 
-        private T Read_Unsafe<T>(FieldDescriptor f) where T : unmanaged
+        public T Read_Unsafe<T>(int index) where T : unmanaged
         {
+            var f = _schema.Fields[index];
             return MemoryMarshal.Read<T>(GetReadOnlySpan(f));
         }
 
 
-        internal ValueView GetValueView(string fieldName)
+        public ValueView GetValueView(string fieldName)
         {
             int index = _schema.IndexOf(fieldName);
+            return new ValueView(GetSpan(index), Header[index].Type);
+        }
+
+        public ValueView GetValueView(int index)
+        {
             return new ValueView(GetSpan(index), Header[index].Type);
         }
 
@@ -273,14 +311,15 @@ namespace Amlos.Container
 
         public ref ulong GetRef(string fieldName)
         {
-            var f = GetFieldDescriptorOrRescheme<ulong>(fieldName);
+            var f = GetFieldIndexOrReschemeObject(fieldName);
             return ref GetRef(f);
         }
 
-        public ref ulong GetRefNoRescheme(string fieldName) => ref GetRef(_schema.GetField(fieldName));
+        public ref ulong GetRefNoRescheme(string fieldName) => ref GetRef(_schema.IndexOf(fieldName));
 
-        public ref ulong GetRef(FieldDescriptor f)
+        public ref ulong GetRef(int index)
         {
+            var f = _schema.Fields[index];
             if (!f.IsRef || f.RefCount != 1)
                 throw new ArgumentException($"Field '{f.Name}' is not a single ref slot.");
             var span = GetSpan(f.Offset, FieldDescriptor.REF_SIZE);
@@ -437,5 +476,28 @@ namespace Amlos.Container
 
         #endregion
 
+
+        public override string ToString()
+        {
+            StringBuilder sb = new();
+            sb.Append("{");
+            for (int i = 0; i < _schema.Fields.Count; i++)
+            {
+                var valueView = GetValueView(i);
+                sb.AppendLine();
+                sb.Append("\"");
+                sb.Append(_schema.Fields[i].Name);
+                sb.Append("\"");
+                sb.Append(": ");
+                sb.Append(valueView.ToString());
+                sb.Append(",");
+            }
+            if (sb.Length > 1)
+                sb.Length--;
+
+            sb.AppendLine();
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
     }
 }

@@ -1,5 +1,7 @@
 using System;
 using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using static Amlos.Container.MigrationConverter;
 
 namespace Amlos.Container
@@ -17,18 +19,23 @@ namespace Amlos.Container
         }
 
 
-        public void WriteTo(Span<byte> dst, ValueType targetType, bool isExplicit = false)
+        /// <summary>
+        /// Try to convert current value (represented by Bytes/Type) into targetType and write into dst.
+        /// - Returns true on success (dst is written).
+        /// - Returns false when the conversion is not allowed/supported (no exception).
+        /// - If isExplicit == false: only allow implicit conversions (TypeUtil.IsImplicitlyConvertible).
+        /// - If isExplicit == true: allow explicit/narrowing conversions when possible.
+        /// </summary>
+        public bool TryWrite(Span<byte> dst, ValueType targetType, bool isExplicit = false)
         {
-            // If the source and target types are identical, copy exactly the bytes needed.
-            // This avoids copying extra bytes if the backing Bytes is larger than the type size.
+            // Quick path: identical type -> copy as much as target expects (avoid overrun)
             if (Type == targetType)
             {
-                // Copy only the number of bytes the target type requires.
                 Bytes.CopyTo(dst);
-                return;
+                return true;
             }
 
-            // Classify source and destination types for fewer pairwise cases.
+            // classify types
             bool srcIsInt = Type.IsIntegral();
             bool dstIsInt = targetType.IsIntegral();
             bool srcIsFloat = Type.IsFloatingPoint();
@@ -38,118 +45,213 @@ namespace Amlos.Container
             bool srcIsChar = Type == ValueType.Char16;
             bool dstIsChar = targetType == ValueType.Char16;
 
-            // ---- Boolean conversions ----
-            // Bool -> Bool (normalized to 0/1)
-            if (srcIsBool && dstIsBool)
-            {
-                dst[0] = (byte)(Bytes.Length > 0 && Bytes[0] != 0 ? 1 : 0);
-                return;
-            }
+            // If implicit-only and conversion not allowed by implicit table -> fail
+            if (!isExplicit && !TypeUtil.IsImplicitlyConvertible(Type, targetType))
+                return false;
 
-            // Bool -> Non-Bool: treat true as 1.0, false as 0.0 and reuse numeric path
-            if (srcIsBool && !dstIsBool)
+            try
             {
-                bool b = Bytes.Length > 0 && Bytes[0] != 0;
-                double d = b ? 1.0 : 0.0;
-                WriteFromDouble(dst, targetType, d);
-                return;
-            }
-
-            // Non-Bool -> Bool: non-zero becomes true
-            if (!srcIsBool && dstIsBool)
-            {
-                bool nonzero = !IsZero(Bytes, Type);
-                dst[0] = (byte)(nonzero ? 1 : 0);
-                return;
-            }
-
-            // ---- Char16 handling (treat as unsigned 16-bit) ----
-            if (srcIsChar && dstIsChar)
-            {
-                // both are char16 but Type != targetType, still copy the 2 bytes
-                Bytes.CopyTo(dst);
-                return;
-            }
-
-            if (srcIsChar && !dstIsChar)
-            {
-                // read char as unsigned 16-bit and convert via integer path
-                ushort u = BinaryPrimitives.ReadUInt16LittleEndian(Bytes);
-                WriteFromULong(dst, targetType, u);
-                return;
-            }
-
-            if (!srcIsChar && dstIsChar)
-            {
-                // convert numeric/float/bool to ushort (truncate floats)
-                if (srcIsFloat)
+                // ---- Boolean conversions ----
+                if (srcIsBool && dstIsBool)
                 {
-                    double d = ReadDouble(Bytes, Type);
-                    ushort u = (ushort)(int)Math.Truncate(d);
-                    BinaryPrimitives.WriteUInt16LittleEndian(dst, u);
+                    dst[0] = (byte)(Bytes.Length > 0 && Bytes[0] != 0 ? 1 : 0);
+                    if (dst.Length > 1) dst.Slice(1).Clear();
+                    return true;
                 }
-                else // integer or other
-                {
-                    ulong u = ReadULong(Bytes, Type);
-                    BinaryPrimitives.WriteUInt16LittleEndian(dst, (ushort)u);
-                }
-                return;
-            }
 
-            // ---- Integer <-> Integer conversions ----
-            if (srcIsInt && dstIsInt)
-            {
-                // Use unsigned read if source is unsigned, otherwise signed read.
-                if (Type.IsUnsignedInteger())
+                if (srcIsBool && !dstIsBool)
                 {
-                    ulong u = ReadULong(Bytes, Type);
+                    bool b = Bytes.Length > 0 && Bytes[0] != 0;
+                    double d = b ? 1.0 : 0.0;
+                    WriteFromDouble(dst, targetType, d);
+                    return true;
+                }
+
+                if (!srcIsBool && dstIsBool)
+                {
+                    bool nonzero = !IsZero(Bytes, Type);
+                    dst[0] = (byte)(nonzero ? 1 : 0);
+                    if (dst.Length > 1) dst.Slice(1).Clear();
+                    return true;
+                }
+
+                // ---- Char16 handling (treat as unsigned 16-bit) ----
+                if (srcIsChar && dstIsChar)
+                {
+                    int copy = Math.Min(2, Math.Min(Bytes.Length, dst.Length));
+                    if (copy > 0) Bytes.Slice(0, copy).CopyTo(dst.Slice(0, copy));
+                    if (dst.Length > copy) dst.Slice(copy).Clear();
+                    return true;
+                }
+
+                if (srcIsChar && !dstIsChar)
+                {
+                    ushort u = BinaryPrimitives.ReadUInt16LittleEndian(Bytes);
                     WriteFromULong(dst, targetType, u);
+                    return true;
                 }
-                else
+
+                if (!srcIsChar && dstIsChar)
                 {
-                    long s = ReadLong(Bytes, Type);
-                    WriteFromLong(dst, targetType, s);
+                    if (srcIsFloat)
+                    {
+                        double d = ReadDouble(Bytes, Type);
+                        ushort u = (ushort)(int)Math.Truncate(d);
+                        BinaryPrimitives.WriteUInt16LittleEndian(dst, u);
+                    }
+                    else
+                    {
+                        ulong u = ReadULong(Bytes, Type);
+                        BinaryPrimitives.WriteUInt16LittleEndian(dst, (ushort)u);
+                    }
+                    return true;
                 }
-                return;
-            }
 
-            // ---- Integer -> Float conversions ----
-            if (srcIsInt && dstIsFloat)
-            {
-                double d = Type.IsUnsignedInteger() ? (double)ReadULong(Bytes, Type) : (double)ReadLong(Bytes, Type);
-                WriteFromDouble(dst, targetType, d);
-                return;
-            }
-
-            // ---- Float -> Integer conversions ----
-            if (srcIsFloat && dstIsInt)
-            {
-                double d = ReadDouble(Bytes, Type);
-                long s = (long)Math.Truncate(d); // truncate toward zero, consistent with (long)d
-                WriteFromLong(dst, targetType, s);
-                return;
-            }
-
-            // ---- Float <-> Float conversions ----
-            if (srcIsFloat && dstIsFloat)
-            {
-                if (targetType == ValueType.Float32)
+                // ---- Integer <-> Integer conversions ----
+                if (srcIsInt && dstIsInt)
                 {
-                    float f = (float)ReadDouble(Bytes, Type); // may convert double->float
-                    int bits = BitConverter.SingleToInt32Bits(f);
-                    BinaryPrimitives.WriteInt32LittleEndian(dst, bits);
+                    if (Type.IsUnsignedInteger())
+                    {
+                        ulong u = ReadULong(Bytes, Type);
+                        WriteFromULong(dst, targetType, u);
+                    }
+                    else
+                    {
+                        long s = ReadLong(Bytes, Type);
+                        WriteFromLong(dst, targetType, s);
+                    }
+                    return true;
                 }
-                else // target float64
+
+                // ---- Integer -> Float conversions ----
+                if (srcIsInt && dstIsFloat)
+                {
+                    double d = Type.IsUnsignedInteger() ? (double)ReadULong(Bytes, Type) : (double)ReadLong(Bytes, Type);
+                    WriteFromDouble(dst, targetType, d);
+                    return true;
+                }
+
+                // ---- Float -> Integer conversions ----
+                if (srcIsFloat && dstIsInt)
                 {
                     double d = ReadDouble(Bytes, Type);
-                    long bits = BitConverter.DoubleToInt64Bits(d);
-                    BinaryPrimitives.WriteInt64LittleEndian(dst, bits);
+                    long s = (long)Math.Truncate(d); // truncate toward zero
+                    WriteFromLong(dst, targetType, s);
+                    return true;
                 }
-                return;
-            }
 
-            // Fallback for unsupported conversions
-            throw new NotSupportedException($"conversion {Type} -> {targetType} not supported");
+                // ---- Float <-> Float conversions ----
+                if (srcIsFloat && dstIsFloat)
+                {
+                    if (targetType == ValueType.Float32)
+                    {
+                        float f = (float)ReadDouble(Bytes, Type);
+                        int bits = BitConverter.SingleToInt32Bits(f);
+                        BinaryPrimitives.WriteInt32LittleEndian(dst, bits);
+                    }
+                    else
+                    {
+                        double d = ReadDouble(Bytes, Type);
+                        long bits = BitConverter.DoubleToInt64Bits(d);
+                        BinaryPrimitives.WriteInt64LittleEndian(dst, bits);
+                    }
+                    return true;
+                }
+
+                // If we fell through, conversion is unsupported even with explicit permission
+                return false;
+            }
+            catch
+            {
+                // treat any unexpected error as conversion failure (caller should drop/clear)
+                return false;
+            }
+        }
+
+        public bool TryRead<T>(out T value, bool isExplicit = false) where T : unmanaged
+        {
+            Span<byte> buffer = stackalloc byte[Unsafe.SizeOf<T>()];
+            if (TryWrite(buffer, TypeUtil.PrimOf<T>(), isExplicit))
+            {
+                value = MemoryMarshal.Read<T>(buffer);
+                return true;
+            }
+            value = default;
+            return false;
+        }
+
+        public override string ToString()
+        {
+            switch (Type)
+            {
+                case ValueType.Unknown:
+                    return "RawData:" + Bytes.ToHex();
+                case ValueType.Bool:
+                    return ToArrayOrSingleString<bool>();
+                case ValueType.Int8:
+                    return ToArrayOrSingleString<sbyte>();
+                case ValueType.UInt8:
+                    return ToArrayOrSingleString<byte>();
+                case ValueType.Char16:
+                    return MemoryMarshal.Cast<byte, char>(Bytes).ToString();
+                case ValueType.Int16:
+                    return ToArrayOrSingleString<short>();
+                case ValueType.UInt16:
+                    return ToArrayOrSingleString<ushort>();
+                case ValueType.Int32:
+                    return ToArrayOrSingleString<int>();
+                case ValueType.UInt32:
+                    return ToArrayOrSingleString<uint>();
+                case ValueType.Int64:
+                    return ToArrayOrSingleString<long>();
+                case ValueType.UInt64:
+                    return ToArrayOrSingleString<ulong>();
+                case ValueType.Float32:
+                    return ToArrayOrSingleString<float>();
+                case ValueType.Float64:
+                    return ToArrayOrSingleString<double>();
+                case ValueType.Ref:
+                    ulong id = MemoryMarshal.Read<ulong>(Bytes);
+                    if (id != 0UL && Container.Registry.Shared.GetContainer(id) is Container container)
+                    {
+                        return container.ToString();
+                    }
+                    return "null";
+                default:
+                    break;
+            }
+            return "Unknown";
+
+        }
+
+        string ToArrayOrSingleString<T>() where T : unmanaged
+        {
+            if (Bytes.Length > Unsafe.SizeOf<T>())
+            {
+                var arr = MemoryMarshal.Cast<byte, T>(Bytes);
+                return "[" + string.Join(", ", arr.ToArray()) + "]";
+            }
+            return MemoryMarshal.Read<T>(Bytes).ToString();
+        }
+    }
+
+    public static class HexExtensions
+    {
+        private static readonly char[] HexUpper = "0123456789ABCDEF".ToCharArray();
+        private static readonly char[] HexLower = "0123456789abcdef".ToCharArray();
+
+        public static string ToHex(this ReadOnlySpan<byte> bytes, bool uppercase = true)
+        {
+            if (bytes.Length == 0) return string.Empty;
+            var table = uppercase ? HexUpper : HexLower;
+            char[] chars = new char[bytes.Length * 2];
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                var b = bytes[i];
+                chars[i * 2] = table[b >> 4];
+                chars[i * 2 + 1] = table[b & 0x0F];
+            }
+            return new string(chars);
         }
     }
 }

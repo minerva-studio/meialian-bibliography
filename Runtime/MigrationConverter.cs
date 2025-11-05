@@ -6,52 +6,6 @@ namespace Amlos.Container
 {
     public static class MigrationConverter
     {
-        // Determine whether a value of 'from' ValueType can be implicitly converted to 'to' ValueType
-        // according to the C# implicit numeric conversion table supplied by the user.
-        // This only covers scalar primitive conversions; char/bool handled where sensible.
-        public static bool CanImplicitlyConvert(ValueType from, ValueType to)
-        {
-            if (from == to) return true;
-
-            switch (from)
-            {
-                case ValueType.Int8: // sbyte
-                    return to == ValueType.Int16 || to == ValueType.Int32 || to == ValueType.Int64
-                        || to == ValueType.Float32 || to == ValueType.Float64;
-                case ValueType.UInt8: // byte
-                    return to == ValueType.Int16 || to == ValueType.UInt16 || to == ValueType.Int32
-                        || to == ValueType.UInt32 || to == ValueType.Int64 || to == ValueType.UInt64
-                        || to == ValueType.Float32 || to == ValueType.Float64;
-                case ValueType.Int16:
-                    return to == ValueType.Int32 || to == ValueType.Int64 || to == ValueType.Float32 || to == ValueType.Float64;
-                case ValueType.UInt16:
-                    return to == ValueType.Int32 || to == ValueType.UInt32 || to == ValueType.Int64 || to == ValueType.UInt64
-                        || to == ValueType.Float32 || to == ValueType.Float64;
-                case ValueType.Int32:
-                    return to == ValueType.Int64 || to == ValueType.Float32 || to == ValueType.Float64;
-                case ValueType.UInt32:
-                    return to == ValueType.Int64 || to == ValueType.UInt64 || to == ValueType.Float32 || to == ValueType.Float64;
-                case ValueType.Int64:
-                    return to == ValueType.Float32 || to == ValueType.Float64;
-                case ValueType.UInt64:
-                    return to == ValueType.Float32 || to == ValueType.Float64;
-                case ValueType.Float32:
-                    return to == ValueType.Float64;
-                // note: char(ushort) and bool are special; keep only safe implicit behaviors
-                case ValueType.Char16:
-                    // char (ushort) implicitly converts to int, uint, long, ulong, float, double in C#.
-                    return to == ValueType.Int32 || to == ValueType.UInt32 || to == ValueType.Int64 || to == ValueType.UInt64
-                        || to == ValueType.Float32 || to == ValueType.Float64;
-                case ValueType.Bool:
-                    // bool does NOT implicitly convert to numeric in C#; treat only bool->bool
-                    return to == ValueType.Bool;
-                default:
-                    return false;
-            }
-        }
-
-
-
         // Place into MigrationConverter (keep your ReadElementAs/WriteElementAs/ElemSize helpers)
         public static bool MigrateValueFieldBytes(ReadOnlySpan<byte> src, Span<byte> dst, byte oldHint, byte newHint)
         {
@@ -61,7 +15,7 @@ namespace Amlos.Container
             return MigrateValueFieldBytes(src, dst, oldVt, newVt);
         }
 
-        public static bool MigrateValueFieldBytes(ReadOnlySpan<byte> src, Span<byte> dst, ValueType oldVt, ValueType newVt)
+        public static bool MigrateValueFieldBytes(ReadOnlySpan<byte> src, Span<byte> dst, ValueType oldVt, ValueType newVt, bool isExplicit = false)
         {
             // Unknown fallback: raw copy + zero-fill/truncate
             if (oldVt == ValueType.Unknown || newVt == ValueType.Unknown)
@@ -112,7 +66,10 @@ namespace Amlos.Container
                 var dSlice = dst.Slice(dOff, newElem);
 
                 var valueView = new ValueView(sSlice, oldVt);
-                valueView.WriteTo(dSlice, newVt);
+                if (!valueView.TryWrite(dSlice, newVt, isExplicit))
+                {
+                    dSlice.Clear();
+                }
             }
 
             // zero-fill remainder of destination if any
@@ -132,7 +89,7 @@ namespace Amlos.Container
             if (oldVt == ValueType.Unknown || newVt == ValueType.Unknown)
                 return false;
 
-            ConvertInPlace(bytes, bytes, oldVt, newVt);
+            ConvertInPlace(bytes, bytes, oldVt, newVt, true);
 
             // Zero out any tail beyond the new element size (if span larger than element)
             int newElem = SizeOf(newVt);
@@ -152,7 +109,7 @@ namespace Amlos.Container
             for (int i = 0, off = 0; i < count; i++, off += elem)
             {
                 var cell = bytes.Slice(off, elem);
-                ConvertInPlace(cell, cell, oldVt, newVt);
+                ConvertInPlace(cell, cell, oldVt, newVt, true);
             }
         }
 
@@ -160,12 +117,12 @@ namespace Amlos.Container
 
 
 
-        public static void ConvertInPlace(Span<byte> src, Span<byte> dst, ValueType from, ValueType to)
+        public static void ConvertInPlace(Span<byte> src, Span<byte> dst, ValueType from, ValueType to, bool isExplicit = false)
         {
             Span<byte> buffer = stackalloc byte[src.Length];
             src.CopyTo(buffer);
             var view = new ValueView(buffer, from);
-            view.WriteTo(dst, to);
+            view.TryWrite(dst, to, isExplicit);
         }
 
 

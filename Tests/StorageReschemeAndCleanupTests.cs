@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Amlos.Container.Tests
 {
@@ -87,10 +88,14 @@ namespace Amlos.Container.Tests
             using var storage = new Storage(_rootSchema);
             var root = storage.Root;
 
+            Debug.Log(root.ToString());
             // hp exists; score does not exist
             root.Write<int>("hp", 10);                    // existing value write  :contentReference[oaicite:8]{index=8}
+
+            Debug.Log(root.ToString());
             root.Write<float>("score", 3.5f);            // nonexistent -> auto add via Rescheme+AddFieldOf<T>  :contentReference[oaicite:9]{index=9}
 
+            Debug.Log(root.ToString());
             Assert.That(root.Read<int>("hp"), Is.EqualTo(10));
             Assert.That(root.Read<float>("score"), Is.EqualTo(3.5f));
         }

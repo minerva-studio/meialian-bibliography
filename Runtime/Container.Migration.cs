@@ -1,5 +1,8 @@
+using NUnit.Framework;
 using System;
 using System.Buffers;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using static Amlos.Container.TypeUtil;
 
 namespace Amlos.Container
@@ -7,26 +10,13 @@ namespace Amlos.Container
     internal sealed partial class Container
     {
         /// <summary>
-        /// Migrate this container to a new schema by ONLY adding/removing fields.
+        /// Migrate this container to a new schema by adding/removing fields.
         /// Rules:
-        ///  - For fields present in BOTH old and new schemas (matched by Name):
-        ///      * They must be the same kind (ref vs value) AND the same AbsLength.
-        ///      * If not, throws InvalidOperationException.
         ///  - New fields (present only in new schema) are zero-initialized.
         ///  - Removed fields (present only in old schema) are discarded.
         ///  - Container identity (ID) is preserved.
         ///  - New buffer is always zero-initialized by default.
-        /// </summary>
-        public void Rescheme(Schema newSchema)
-        {
-            Rescheme(newSchema, zeroInitNewBuffer: true);
-        }
-
-        /// <summary>
-        /// Convenience: derive a builder from the current schema, let the caller add/remove fields,
-        /// then rebuild with the produced schema. Only add/remove is allowed; changing an existing
-        /// field's kind/length will throw during rebuild.
-        /// </summary>
+        /// </summary> 
         public void Rescheme(Action<SchemaBuilder> edit)
         {
             EnsureNotDisposed();
@@ -37,7 +27,7 @@ namespace Amlos.Container
         /// Internal overload allowing to skip zero-initialization when the caller
         /// will fully overwrite the new buffer manually.
         /// </summary>
-        internal void Rescheme(Schema newSchema, bool zeroInitNewBuffer)
+        public void Rescheme(Schema newSchema, bool zeroInitNewBuffer = true)
         {
             if (newSchema is null) throw new ArgumentNullException(nameof(newSchema));
             EnsureNotDisposed();
@@ -73,20 +63,26 @@ namespace Amlos.Container
                 }
 
                 int newIdx = newSchema.IndexOf(newField.Name);
+                var dstBytes = dst.Slice(newField.Offset, newField.AbsLength); // NEW buffer slice
 
 
                 if (oldField.IsRef != newField.IsRef)
                 {
-                    throw new InvalidOperationException(
-                        $"Field '{oldField.Name}' changed kind (ref <-> value) which is not supported.");
+                    // Removed: if ref, unregister all non-zero children
+                    if (oldField.IsRef)
+                    {
+                        var oldIds = GetRefSpan(oldField);
+                        for (int j = 0; j < oldIds.Length; j++)
+                            Registry.Shared.Unregister(ref oldIds[j]);
+                    }
+                    dstBytes.Clear();
+                    continue;
                 }
-
                 if (!oldField.IsRef)
                 {
                     // we dont know what it could be, use unknown for now
                     // Value-to-value migration: convert from oldHint -> targetHint
                     var srcBytes = GetReadOnlySpan(oldField);                 // OLD buffer read-only
-                    var dstBytes = dst.Slice(newField.Offset, newField.AbsLength); // NEW buffer slice
                     if (srcBytes.Length == dstBytes.Length)
                     {
                         newHints[newIdx] = oldHint;
@@ -102,7 +98,6 @@ namespace Amlos.Container
                     newHints[newIdx] = oldHint;
                     // Ref-to-Ref migration unchanged (copy ids, unregister tails)
                     var oldIds = GetRefSpan(oldField);
-                    var dstBytes = dst.Slice(newField.Offset, newField.AbsLength);
                     var newIds = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, ulong>(dstBytes);
 
                     int keep = Math.Min(oldIds.Length, newIds.Length);
@@ -128,45 +123,92 @@ namespace Amlos.Container
 
 
 
-        public FieldDescriptor GetFieldDescriptorOrRescheme<T>(string fieldName) where T : unmanaged
+        public int GetFieldIndexOrRescheme<T>(string fieldName) where T : unmanaged
         {
-            if (!_schema.TryGetField(fieldName, out var f))
+            int index = _schema.IndexOf(fieldName);
+            if (index < 0)
             {
-                Rescheme(b => b.AddFieldOf<T>(fieldName));
-                f = _schema.GetField(fieldName);
+                index = ReschemeForNew<T>(fieldName);
             }
 
-            return f;
+            return index;
         }
+
+        public int GetFieldIndexOrReschemeObject(string fieldName)
+        {
+            int index = _schema.IndexOf(fieldName);
+            if (index < 0) index = ReschemeForNewObject(fieldName);
+            return index;
+        }
+
+        /// <summary>
+        /// Rescheme to add a new field of type T with given fieldName.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        public int ReschemeForNew<T>(string fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.Pack(TypeUtil.PrimOf<T>(), inlineArrayLength.HasValue),
+            b =>
+            {
+                if (inlineArrayLength.HasValue) b.AddArrayOf<T>(fieldName, inlineArrayLength.Value);
+                else b.AddFieldOf<T>(fieldName);
+            });
+
+        /// <summary>
+        /// Rescheme to add a new field of type T with given fieldName.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        public int ReschemeForNewObject(string fieldName, int? inlineArrayLength = null) => ReschemeForField_Internal(fieldName, TypeUtil.Pack(ValueType.Ref, inlineArrayLength.HasValue),
+            b =>
+            {
+                if (inlineArrayLength.HasValue) b.AddRefArray(fieldName, inlineArrayLength.Value);
+                else b.AddRef(fieldName);
+            });
+
+        /// <summary>
+        /// Rescheme to add a new field of type T with given fieldName.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        public int ReschemeFor<T>(string fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.Pack(TypeUtil.PrimOf<T>(), inlineArrayLength.HasValue),
+            b =>
+            {
+                b.RemoveField(fieldName);
+                if (inlineArrayLength.HasValue) b.AddArrayOf<T>(fieldName, inlineArrayLength.Value);
+                else b.AddFieldOf<T>(fieldName);
+            });
+
+        private int ReschemeForField_Internal(string fieldName, byte type, Action<SchemaBuilder> edit)
+        {
+            Rescheme(edit);
+            var index = _schema.IndexOf(fieldName);
+            HeaderSegment[index] = type;
+            return index;
+        }
+
+
+
+
+
+
 
         /// <summary>
         /// Ensure that 'fieldName' exists as a non-ref value field sized to sizeof(T).
         /// If it exists with same size but different type hint, convert the in-place bytes and update the hint,
         /// without rescheming. If it doesn't exist or size mismatches, rebuild schema to replace the field.
         /// </summary>
-        public void EnsureFieldForRead<T>(string fieldName) where T : unmanaged
+        public void EnsureFieldForRead<T>(int index, bool isExplicit = false) where T : unmanaged
         {
-            //1) Field missing ¡ú add as value field of T
-            if (!_schema.TryGetField(fieldName, out var f))
-            {
-                return;
-            }
-            Migrate<T>(f);
-        }
-
-        internal void Migrate<T>(FieldDescriptor field) where T : unmanaged
-        {
-            EnsureNotDisposed();
-
-            // 2) Existing but ref ¡ú not allowed
-            if (field.IsRef)
-                throw new InvalidOperationException($"Field '{field}' is a reference; cannot read value T={typeof(T).Name}.");
-
-            int fi = _schema.IndexOf(field.Name);
-            byte fieldType = HeaderSegment[fi];
-            bool isArray = IsArray(fieldType);
-            ValueType valueType = PrimOf(fieldType);
-            ValueType target = PrimOf<T>();
+            FieldType fieldType = HeaderSegment[index];
+            FieldType targetType = FieldType.Of<T>(fieldType.IsArray);
+            ValueType valueType = fieldType.Type;
+            ValueType target = targetType.Type;
 
             // is same type
             if (valueType == target)
@@ -175,9 +217,23 @@ namespace Amlos.Container
             // if we don't know current type, assume new type is valid
             if (valueType == ValueType.Unknown)
             {
-                HeaderSegment[fi] = Pack(target, isArray);
+                HeaderSegment[index] = Pack(target, fieldType.IsArray);
                 return;
             }
+            Migrate<T>(index, target);
+        }
+
+        public bool Migrate<T>(int index, ValueType target) where T : unmanaged
+        {
+            byte fieldType = HeaderSegment[index];
+            bool isArray = IsArray(fieldType);
+            ValueType valueType = PrimOf(fieldType);
+
+
+            FieldDescriptor field = _schema.Fields[index];
+            // 2) Existing but ref ¡ú not allowed
+            if (field.IsRef)
+                throw new InvalidOperationException($"Field '{field}' is a reference; cannot read value T={typeof(T).Name}.");
 
             int oldElementSize = TypeUtil.SizeOf(valueType);
             int newElementSize = TypeUtil.SizeOf(PrimOf<T>());
@@ -189,7 +245,7 @@ namespace Amlos.Container
                 Span<byte> data = GetSpan(field);
                 if (isArray) MigrationConverter.ConvertArrayInPlaceSameSize(data, arrayLength, valueType, target);
                 else MigrationConverter.ConvertScalarInPlace(data, valueType, target);
-                HeaderSegment[fi] = Pack(target, isArray);
+                HeaderSegment[index] = Pack(target, isArray);
             }
             // different size
             else
@@ -210,80 +266,84 @@ namespace Amlos.Container
                     var newIndex = Schema.IndexOf(field.Name);
                     var newSpan = GetSpan(Schema.Fields[newIndex]);
                     // fill back
-                    MigrationConverter.MigrateValueFieldBytes(buffer, newSpan, valueType, target);
+                    MigrationConverter.MigrateValueFieldBytes(buffer, newSpan, valueType, target, true);
                     HeaderSegment[newIndex] = Pack(target, isArray);
+                }
+                catch
+                {
+                    return false;
                 }
                 finally
                 {
                     ArrayPool<byte>.Shared.Return(array);
                 }
             }
+
+            return true;
         }
 
 
 
-        private bool TryReadScalarWithoutRescheme<T>(FieldDescriptor f, out T value) where T : unmanaged
+
+
+        private bool TryReadScalarImplicit<T>(int index, out T value) where T : unmanaged
         {
             value = default;
-            int idx = _schema.IndexOf(f.Name);
-            if (idx < 0) return false;
+            FieldType ft = new(HeaderSegment[index]);
+            if (ft.Type == ValueType.Unknown) return false;
 
-            byte hint = (idx < HeaderSegment.Length) ? HeaderSegment[idx] : (byte)0;
-            bool isArray = IsArray(hint);
-            var storedPrim = TypeUtil.PrimOf(hint);
-
-            if (storedPrim == ValueType.Unknown || isArray) return false;
-
-            var requestedPrim = TypeUtil.PrimOf<T>();
-
-            // If stored -> requested is allowed by implicit conversion table, do the conversion and return
-            if (!MigrationConverter.CanImplicitlyConvert(storedPrim, requestedPrim))
-                return false;
-
-            int storedElem = SizeOf(storedPrim);
-            if (storedElem <= 0) return false;
-
-            var srcSlice = GetReadOnlySpan(f)[..storedElem];
-            MigrationConverter.ReadElementAs(srcSlice, storedPrim, out double asDouble, out bool asBool, out char asChar);
-
-            // convert canonical -> T
-            if (!TryConvertCanonicalTo<T>(asDouble, asBool, asChar, out value))
-                return false;
-
-            return true;
+            var view = GetValueView(index);
+            return view.TryRead(out value);
         }
 
-        private bool TryWriteScalarWithoutRescheme<T>(FieldDescriptor f, T value) where T : unmanaged
+        private bool TryWriteScalarImplicit<T>(int index, T value) where T : unmanaged
         {
-            int idx = _schema.IndexOf(f.Name);
-            if (idx < 0) return false;
+            FieldType ft = new(HeaderSegment[index]);
 
-            byte hint = (HeaderSegment != null && idx < HeaderSegment.Length) ? HeaderSegment[idx] : (byte)0;
-            bool isArray = TypeUtil.IsArray(hint);
-            var storedPrim = TypeUtil.PrimOf(hint);
+            var dstSpan = GetSpan(index);
+            var dstType = ft.Type;
+            var srcType = TypeUtil.PrimOf<T>();
+            // current type unknown, update hint
+            if (dstType == ValueType.Unknown)
+            {
+                // too large to fit
+                if (Unsafe.SizeOf<T>() > dstSpan.Length)
+                    return false;
 
-            if (storedPrim == ValueType.Unknown || isArray) return false;
+                HeaderSegment[index] = TypeUtil.Pack(srcType, ft.IsArray);
+                MemoryMarshal.Write(dstSpan, ref Unsafe.AsRef(value));
+            }
+            // type match, direct write
+            if (dstType == srcType)
+            {
+                MemoryMarshal.Write(dstSpan, ref Unsafe.AsRef(value));
+                return true;
+            }
 
-            var valuePrim = TypeUtil.PrimOf<T>();
-
-            // If value type can implicitly convert to storedPrim (write-side)
-            if (!MigrationConverter.CanImplicitlyConvert(valuePrim, storedPrim))
-                return false;
-
-            // prepare canonical triple and write into stored slot
-            if (!TryGetCanonicalFromValue(value, out double asDouble, out bool asBool, out char asChar))
-                return false;
-
-            var span = GetSpan(f)[..SizeOf(storedPrim)];
-            MigrationConverter.WriteElementAs(span, storedPrim, asDouble, asBool, asChar);
-
-            // update hint when previously Unknown
-            if (TypeUtil.PrimOf(hint) == ValueType.Unknown)
-                HeaderSegment[idx] = TypeUtil.Pack(storedPrim, isArray: false);
-
-            return true;
+            // implicit conversion
+            var srcSpan = MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref value, 1));
+            var view = new ValueView(srcSpan, srcType);
+            return view.TryWrite(dstSpan, dstType);
         }
 
+        private bool TryReadScalarExplicit<T>(int index, out T value) where T : unmanaged
+        {
+            var view = GetValueView(index);
+            return view.TryRead(out value, true);
+        }
 
+        private bool TryWriteScalarExplicit<T>(int index, T value) where T : unmanaged
+        {
+            FieldType ft = new(HeaderSegment[index]);
+
+            var dstSpan = GetSpan(index);
+            var dstType = ft.Type;
+            var srcType = TypeUtil.PrimOf<T>();
+
+            // conversion
+            var srcSpan = MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref value, 1));
+            var view = new ValueView(srcSpan, srcType);
+            return view.TryWrite(dstSpan, dstType, true);
+        }
     }
 }

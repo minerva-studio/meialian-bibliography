@@ -13,7 +13,7 @@ namespace Amlos.Container
     {
         private readonly Span<T> _span;
 
-        private StorageArray(Container container, FieldDescriptor field)
+        internal StorageArray(Container container, FieldDescriptor field)
         {
             if (field.IsRef)
                 throw new ArgumentException($"Field '{field.Name}' is a reference field; use StorageObjectArray instead.");
@@ -37,13 +37,12 @@ namespace Amlos.Container
 
 
 
-        internal static StorageArray<T> CreateView(Container container, string fieldName)
+        internal static StorageArray<T> CreateView(Container container, int index)
         {
             // Ensure the field exists and matches an array of T (self-heal if needed)
             //container.EnsureArrayFor<T>(fieldName);
-            container.EnsureFieldForRead<T>(fieldName);
+            container.EnsureFieldForRead<T>(index);
 
-            var index = container.Schema.IndexOf(fieldName);
             var field = container.Schema.Fields[index];
 
             // produce view and mark array hint

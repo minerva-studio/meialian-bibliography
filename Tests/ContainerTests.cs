@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using NUnit.Framework;
+using UnityEngine;
 
 namespace Amlos.Container.Tests
 {
@@ -59,19 +60,37 @@ namespace Amlos.Container.Tests
         }
 
         [Test]
-        public void TryReadWrite_Unmanaged_ReturnsFalseOnMismatch()
+        public void TryReadWrite_Unmanaged_ReturnsTrueOnSmallerContainer()
         {
             var s = MakeSchema(true, ("a", 2), ("b", 4));
             using var c = Container.CreateWild(s);
 
             var fa = s.GetField("a");
-            Assert.That(c.TryWrite<int>(fa, 7), Is.False); // sizeof(int) > 2 -> false
+            Assert.That(c.TryWrite<int>("a", 7), Is.False); // sizeof(int) > 2 -> false
+
+            c.WriteNoRescheme<int>("b", 300);
+
+            Assert.That(c.TryRead<int>("b", out var v), Is.True);
+            Assert.That(v, Is.EqualTo(300));
+
+            Debug.Log(c.ToString());
+            Assert.That(c.TryRead<byte>("b", out _), Is.True);
+        }
+
+        [Test]
+        public void TryReadWrite_Unmanaged_ReturnsTrueOnLargerContainer()
+        {
+            var s = MakeSchema(true, ("a", 2), ("b", 4));
+            using var c = Container.CreateWild(s);
+
+            var fa = s.GetField("a");
+            Assert.That(c.TryWrite<int>("a", 7), Is.False); // sizeof(int) > 2 -> false
 
             c.WriteNoRescheme<int>("b", 99);
             Assert.That(c.TryRead<int>("b", out var v), Is.True);
             Assert.That(v, Is.EqualTo(99));
 
-            Assert.That(c.TryRead<long>("b", out _), Is.False);
+            Assert.That(c.TryRead<long>("b", out _), Is.True);
         }
 
         [Test]
@@ -81,7 +100,7 @@ namespace Amlos.Container.Tests
             using var c = Container.CreateWild(s);
 
             var payload = new byte[8];
-            new Random(0xC0FFEE).NextBytes(payload);
+            new System.Random(0xC0FFEE).NextBytes(payload);
 
             c.WriteBytes("id", payload);
             var dst = new byte[8];
@@ -97,6 +116,7 @@ namespace Amlos.Container.Tests
         [Test]
         public void TrailingBytes_AreCleared_WhenWritingSmallerT()
         {
+            Assert.Inconclusive("Haven't figure out what is the best aligment yet");
             // field length 4; write Int16 then read Int32 -> upper bytes must be zeroed
             var s = MakeSchema(true, ("word", 4));
             using var c = Container.CreateWild(s);

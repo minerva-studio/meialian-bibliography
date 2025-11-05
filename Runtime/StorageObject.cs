@@ -143,7 +143,7 @@ namespace Amlos.Container
         /// Get a stack-only view over a value array field T[].
         /// Field must be non-ref and length divisible by sizeof(T).
         /// </summary>
-        public StorageArray<T> GetArray<T>(string fieldName) where T : unmanaged => StorageArray<T>.CreateView(_container, fieldName);
+        public StorageArray<T> GetArray<T>(string fieldName) where T : unmanaged => StorageArray<T>.CreateView(_container, Schema.IndexOf(fieldName));
 
         /// <summary>
         /// Get a stack-only view over a child reference array (IDs).
@@ -177,6 +177,7 @@ namespace Amlos.Container
         public static bool operator !=(StorageObject left, StorageObject right) => !(left == right);
         public override int GetHashCode() => _container.GetHashCode();
         public override bool Equals(object obj) => false;
+        public override string ToString() => _container.ToString();
     }
 }
 
