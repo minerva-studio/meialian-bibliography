@@ -23,13 +23,15 @@ namespace Amlos.Container
         public Span<byte> Span { get { EnsureNotDisposed(); return span; } }
 
         /// <summary>Data slice [DataBase..Stride).</summary>
-        public Span<byte> Data { get { EnsureNotDisposed(); return span[_schema.DataBase..]; } }
+        public Span<byte> DataSegment { get { EnsureNotDisposed(); return span[_schema.DataBase..]; } }
 
         /// <summary>Per-container 1B-per-field type hints stored at the header.</summary>
-        public Span<byte> HeaderHints => span[.._schema.HeaderSize];
+        public Span<byte> HeaderSegment => span[.._schema.HeaderSize];
 
         /// <summary> Shortcut </summary>
         private Span<byte> span => _buffer;
+
+        private Header Header => new(HeaderSegment);
 
 
 
@@ -55,7 +57,7 @@ namespace Amlos.Container
             {
                 var field = schema.Fields[i];
                 if (field.IsRef)
-                    SetRefHint(i, field.RefCount > 1);
+                    SetRefType(i, field.RefCount > 1);
             }
         }
 
@@ -100,6 +102,10 @@ namespace Amlos.Container
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private Span<byte> GetSpan(int offset, int length) => span.Slice(offset, length);
+
+        /// <summary>Returns a writable span for the given field.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Span<byte> GetSpan(int fieldIndex) => GetSpan(Schema.Fields[fieldIndex]);
 
         /// <summary>Returns a writable span for the given field.</summary>
         public Span<byte> GetSpan(in FieldDescriptor field)
@@ -206,7 +212,7 @@ namespace Amlos.Container
             MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
 
             int idx = _schema.IndexOf(f.Name);
-            if (idx >= 0) SetScalarHint<T>(idx);
+            if (idx >= 0) SetScalarType<T>(idx);
         }
 
 
@@ -224,20 +230,40 @@ namespace Amlos.Container
             EnsureFieldForRead<T>(fieldName);
 
             var f = _schema.GetField(fieldName);
-            return MemoryMarshal.Read<T>(GetReadOnlySpan(f));
+            return Read_Unsafe<T>(f);
         }
 
         public bool TryRead<T>(string fieldName, out T value) where T : unmanaged
         {
             EnsureNotDisposed();
-            EnsureFieldForRead<T>(fieldName);
 
             value = default;
             if (!_schema.TryGetField(fieldName, out var f)) return false;
+
+            EnsureFieldForRead<T>(fieldName);
+
             int sz = Unsafe.SizeOf<T>();
             if (sz > f.Length) return false;
-            value = MemoryMarshal.Read<T>(GetReadOnlySpan(f));
+            value = Read_Unsafe<T>(f);
             return true;
+        }
+
+        public T Read_Unsafe<T>(string fieldName) where T : unmanaged
+        {
+            var f = _schema.GetField(fieldName);
+            return Read_Unsafe<T>(f);
+        }
+
+        private T Read_Unsafe<T>(FieldDescriptor f) where T : unmanaged
+        {
+            return MemoryMarshal.Read<T>(GetReadOnlySpan(f));
+        }
+
+
+        internal ValueView GetValueView(string fieldName)
+        {
+            int index = _schema.IndexOf(fieldName);
+            return new ValueView(GetSpan(index), Header[index].Type);
         }
 
         #endregion
@@ -283,19 +309,19 @@ namespace Amlos.Container
         #region Type Hint
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private ref byte HintRef(int fieldIndex) => ref HeaderHints[fieldIndex];
+        private ref byte HintRef(int fieldIndex) => ref HeaderSegment[fieldIndex];
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal void SetScalarHint<T>(int fieldIndex) where T : unmanaged
-            => HintRef(fieldIndex) = TypeHintUtil.Pack(TypeHintUtil.PrimOf<T>(), isArray: false);
+        internal void SetScalarType<T>(int fieldIndex) where T : unmanaged
+            => HintRef(fieldIndex) = TypeUtil.Pack(TypeUtil.PrimOf<T>(), isArray: false);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal void SetArrayHint<T>(int fieldIndex) where T : unmanaged
-            => HintRef(fieldIndex) = TypeHintUtil.Pack(TypeHintUtil.PrimOf<T>(), isArray: true);
+        internal void SetArrayType<T>(int fieldIndex) where T : unmanaged
+            => HintRef(fieldIndex) = TypeUtil.Pack(TypeUtil.PrimOf<T>(), isArray: true);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void SetRefHint(int fieldIndex, bool isArray)
-            => HintRef(fieldIndex) = TypeHintUtil.Pack(ValueType.Ref, isArray);
+        private void SetRefType(int fieldIndex, bool isArray)
+            => HintRef(fieldIndex) = TypeUtil.Pack(ValueType.Ref, isArray);
 
         #endregion
 

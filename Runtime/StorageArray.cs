@@ -48,7 +48,7 @@ namespace Amlos.Container
 
             // produce view and mark array hint
             StorageArray<T> view = new(container, field);
-            container.SetArrayHint<T>(index); // your existing API to set Pack(PrimOf<T>(), isArray:true)
+            container.SetArrayType<T>(index); // your existing API to set Pack(PrimOf<T>(), isArray:true)
             return view;
         }
 

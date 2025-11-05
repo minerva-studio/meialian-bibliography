@@ -21,7 +21,7 @@ namespace Amlos.Container
                    // 14..31 reserved
     }
 
-    public static class TypeHintUtil
+    public static class TypeUtil
     {
         private const int IS_ARRAY_BIT = 7;         // bit7
         private const int PRIM_SHIFT = 2;         // bits6..2
@@ -30,23 +30,20 @@ namespace Amlos.Container
         private const byte PRIM_FIELD = (byte)(PRIM_MASK << PRIM_SHIFT);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte Pack(ValueType valueType, bool isArray)
-            => (byte)((isArray ? IS_ARRAY_MASK : 0) | (((byte)valueType & PRIM_MASK) << PRIM_SHIFT));
+        public static byte Pack(ValueType valueType, bool isArray) => (byte)((isArray ? IS_ARRAY_MASK : 0) | (((byte)valueType & PRIM_MASK) << PRIM_SHIFT));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte SetType(ref byte b, ValueType v) => (byte)((b & IS_ARRAY_MASK) | ((byte)v & PRIM_MASK) << PRIM_SHIFT);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte SetArray(ref byte b, bool isArray) => (byte)((isArray ? IS_ARRAY_MASK : 0) | ((byte)b & PRIM_MASK) << PRIM_SHIFT);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsArray(byte hint) => (hint & IS_ARRAY_MASK) != 0;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ValueType Prim(byte hint)
+        public static ValueType PrimOf(byte hint)
             => (ValueType)((hint >> PRIM_SHIFT) & PRIM_MASK);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte WithArray(byte hint, bool isArray)
-            => isArray ? (byte)(hint | IS_ARRAY_MASK) : (byte)(hint & ~IS_ARRAY_MASK);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte WithPrim(byte hint, ValueType valueType)
-            => (byte)((hint & ~PRIM_FIELD) | (((byte)valueType & PRIM_MASK) << PRIM_SHIFT));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ValueType PrimOf<T>() where T : unmanaged
@@ -66,9 +63,21 @@ namespace Amlos.Container
             return Amlos.Container.ValueType.Unknown;
         }
 
-        // Map ValueType to element byte size; Unknown returns 1 for raw byte copy fallback.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int ElemSize(ValueType vt) => vt switch
+        public static byte WithArray(byte hint, bool isArray)
+            => isArray ? (byte)(hint | IS_ARRAY_MASK) : (byte)(hint & ~IS_ARRAY_MASK);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte WithPrim(byte hint, ValueType valueType)
+            => (byte)((hint & ~PRIM_FIELD) | (((byte)valueType & PRIM_MASK) << PRIM_SHIFT));
+
+        /// <summary>
+        /// Map ValueType to element byte size; Unknown returns 1 for raw byte copy fallback.
+        /// </summary>
+        /// <param name="vt"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int SizeOf(ValueType vt) => vt switch
         {
             ValueType.Bool => 1,
             ValueType.Int8 => 1,
@@ -86,6 +95,31 @@ namespace Amlos.Container
             _ => 1
         };
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsIntegral(this ValueType vt) => vt == ValueType.UInt8 || vt == ValueType.UInt16 || vt == ValueType.UInt32 || vt == ValueType.UInt64 || vt == ValueType.Int8 || vt == ValueType.Int16 || vt == ValueType.Int32 || vt == ValueType.Int64;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsUnsignedInteger(this ValueType vt) => vt == ValueType.UInt8 || vt == ValueType.UInt16 || vt == ValueType.UInt32 || vt == ValueType.UInt64;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsSignedInteger(this ValueType vt) => vt == ValueType.Int8 || vt == ValueType.Int16 || vt == ValueType.Int32 || vt == ValueType.Int64;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsFloatingPoint(this ValueType vt)
+        {
+            switch (vt)
+            {
+                case ValueType.Float32:
+                case ValueType.Float64:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+
+
+
         // Replace with your actual source of recommended hint for a new field.
         // For now: Unknown (0) to be safe, or map by newField.IsRef/AbsLength if you maintain that metadata.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -93,15 +127,15 @@ namespace Amlos.Container
         {
             // If you already keep a recommended ValueType per field, convert here.
             // As a safe default, say Unknown scalar/array based on nf:
-            bool isArray = !nf.IsRef && nf.AbsLength > 0 && nf.AbsLength % 8 != 0 && nf.AbsLength > ElemSize(ValueType.Int64);
+            bool isArray = !nf.IsRef && nf.AbsLength > 0 && nf.AbsLength % 8 != 0 && nf.AbsLength > SizeOf(ValueType.Int64);
             // Better: if you store per-field expected PrimType, use that.
             return Pack(ValueType.Unknown, isArray);
         }
 
         public static string ToString(byte s)
         {
-            var baseType = Prim(s).ToString();
-            return TypeHintUtil.IsArray(s) ? baseType + "[]" : baseType;
+            var baseType = PrimOf(s).ToString();
+            return TypeUtil.IsArray(s) ? baseType + "[]" : baseType;
         }
     }
 }

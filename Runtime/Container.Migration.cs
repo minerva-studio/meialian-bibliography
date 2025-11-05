@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
-using System.Buffers.Binary;
-using static Amlos.Container.TypeHintUtil;
+using static Amlos.Container.TypeUtil;
 
 namespace Amlos.Container
 {
@@ -59,7 +58,7 @@ namespace Amlos.Container
             for (int oldIdx = 0; oldIdx < _schema.Fields.Count; oldIdx++)
             {
                 var oldField = _schema.Fields[oldIdx];
-                byte oldHint = (HeaderHints != null && oldIdx < HeaderHints.Length) ? HeaderHints[oldIdx] : (byte)0;
+                byte oldHint = (oldIdx < HeaderSegment.Length) ? HeaderSegment[oldIdx] : (byte)0;
 
                 if (!newSchema.TryGetField(oldField.Name, out var newField))
                 {
@@ -164,9 +163,9 @@ namespace Amlos.Container
                 throw new InvalidOperationException($"Field '{field}' is a reference; cannot read value T={typeof(T).Name}.");
 
             int fi = _schema.IndexOf(field.Name);
-            byte oldHint = HeaderHints[fi];
-            bool isArray = IsArray(oldHint);
-            ValueType valueType = Prim(oldHint);
+            byte fieldType = HeaderSegment[fi];
+            bool isArray = IsArray(fieldType);
+            ValueType valueType = PrimOf(fieldType);
             ValueType target = PrimOf<T>();
 
             // is same type
@@ -176,12 +175,12 @@ namespace Amlos.Container
             // if we don't know current type, assume new type is valid
             if (valueType == ValueType.Unknown)
             {
-                HeaderHints[fi] = Pack(target, isArray);
+                HeaderSegment[fi] = Pack(target, isArray);
                 return;
             }
 
-            int oldElementSize = TypeHintUtil.ElemSize(valueType);
-            int newElementSize = TypeHintUtil.ElemSize(PrimOf<T>());
+            int oldElementSize = TypeUtil.SizeOf(valueType);
+            int newElementSize = TypeUtil.SizeOf(PrimOf<T>());
             int arrayLength = isArray ? field.Length / oldElementSize : 1;
 
             // inplace conversion, given element same size
@@ -190,7 +189,7 @@ namespace Amlos.Container
                 Span<byte> data = GetSpan(field);
                 if (isArray) MigrationConverter.ConvertArrayInPlaceSameSize(data, arrayLength, valueType, target);
                 else MigrationConverter.ConvertScalarInPlace(data, valueType, target);
-                HeaderHints[fi] = Pack(target, isArray);
+                HeaderSegment[fi] = Pack(target, isArray);
             }
             // different size
             else
@@ -212,7 +211,7 @@ namespace Amlos.Container
                     var newSpan = GetSpan(Schema.Fields[newIndex]);
                     // fill back
                     MigrationConverter.MigrateValueFieldBytes(buffer, newSpan, valueType, target);
-                    HeaderHints[newIndex] = Pack(target, isArray);
+                    HeaderSegment[newIndex] = Pack(target, isArray);
                 }
                 finally
                 {
@@ -223,302 +222,68 @@ namespace Amlos.Container
 
 
 
-    }
-
-    public static class MigrationConverter
-    {
-        // Place into MigrationConverter (keep your ReadElementAs/WriteElementAs/ElemSize helpers)
-        public static bool MigrateValueFieldBytes(ReadOnlySpan<byte> src, Span<byte> dst, byte oldHint, byte newHint)
+        private bool TryReadScalarWithoutRescheme<T>(FieldDescriptor f, out T value) where T : unmanaged
         {
-            var oldVt = TypeHintUtil.Prim(oldHint);
-            var newVt = TypeHintUtil.Prim(newHint);
+            value = default;
+            int idx = _schema.IndexOf(f.Name);
+            if (idx < 0) return false;
 
-            return MigrateValueFieldBytes(src, dst, oldVt, newVt);
+            byte hint = (idx < HeaderSegment.Length) ? HeaderSegment[idx] : (byte)0;
+            bool isArray = IsArray(hint);
+            var storedPrim = TypeUtil.PrimOf(hint);
+
+            if (storedPrim == ValueType.Unknown || isArray) return false;
+
+            var requestedPrim = TypeUtil.PrimOf<T>();
+
+            // If stored -> requested is allowed by implicit conversion table, do the conversion and return
+            if (!MigrationConverter.CanImplicitlyConvert(storedPrim, requestedPrim))
+                return false;
+
+            int storedElem = SizeOf(storedPrim);
+            if (storedElem <= 0) return false;
+
+            var srcSlice = GetReadOnlySpan(f)[..storedElem];
+            MigrationConverter.ReadElementAs(srcSlice, storedPrim, out double asDouble, out bool asBool, out char asChar);
+
+            // convert canonical -> T
+            if (!TryConvertCanonicalTo<T>(asDouble, asBool, asChar, out value))
+                return false;
+
+            return true;
         }
 
-        public static bool MigrateValueFieldBytes(ReadOnlySpan<byte> src, Span<byte> dst, ValueType oldVt, ValueType newVt)
+        private bool TryWriteScalarWithoutRescheme<T>(FieldDescriptor f, T value) where T : unmanaged
         {
-            // Unknown fallback: raw copy + zero-fill/truncate
-            if (oldVt == ValueType.Unknown || newVt == ValueType.Unknown)
-            {
-                int copy = Math.Min(src.Length, dst.Length);
-                if (copy > 0) src[..copy].CopyTo(dst);
-                if (dst.Length > copy) dst[copy..].Clear();
+            int idx = _schema.IndexOf(f.Name);
+            if (idx < 0) return false;
+
+            byte hint = (HeaderSegment != null && idx < HeaderSegment.Length) ? HeaderSegment[idx] : (byte)0;
+            bool isArray = TypeUtil.IsArray(hint);
+            var storedPrim = TypeUtil.PrimOf(hint);
+
+            if (storedPrim == ValueType.Unknown || isArray) return false;
+
+            var valuePrim = TypeUtil.PrimOf<T>();
+
+            // If value type can implicitly convert to storedPrim (write-side)
+            if (!MigrationConverter.CanImplicitlyConvert(valuePrim, storedPrim))
                 return false;
-            }
 
-            int oldElem = ElemSize(oldVt);
-            int newElem = ElemSize(newVt);
-            if (oldElem <= 0 || newElem <= 0)
-            {
-                dst.Clear();
+            // prepare canonical triple and write into stored slot
+            if (!TryGetCanonicalFromValue(value, out double asDouble, out bool asBool, out char asChar))
                 return false;
-            }
 
-            // SAFETY GUARD: only operate in element-aligned arrays. If sizes are not divisible,
-            // fallback to raw-copy to avoid misinterpreting incomplete trailing bytes.
-            if (src.Length % oldElem != 0 || dst.Length % newElem != 0)
-            {
-                // conservative fallback
-                int copy = Math.Min(src.Length, dst.Length);
-                if (copy > 0) src[..copy].CopyTo(dst);
-                if (dst.Length > copy) dst[copy..].Clear();
-                return false;
-            }
+            var span = GetSpan(f)[..SizeOf(storedPrim)];
+            MigrationConverter.WriteElementAs(span, storedPrim, asDouble, asBool, asChar);
 
-            int oldCnt = src.Length / oldElem;
-            int newCnt = dst.Length / newElem;
-            int cnt = Math.Min(oldCnt, newCnt);
+            // update hint when previously Unknown
+            if (TypeUtil.PrimOf(hint) == ValueType.Unknown)
+                HeaderSegment[idx] = TypeUtil.Pack(storedPrim, isArray: false);
 
-            // Fast path: identical element type and element size -> memcpy common part
-            if (oldVt == newVt && oldElem == newElem)
-            {
-                int bytesToCopy = cnt * oldElem;
-                if (bytesToCopy > 0) src[..bytesToCopy].CopyTo(dst);
-                if (dst.Length > bytesToCopy) dst[bytesToCopy..].Clear();
-                return false;
-            }
-
-            // Element-wise conversion using explicit, offsetted slices (no global buffer assumptions)
-            int sOff = 0, dOff = 0;
-            for (int i = 0; i < cnt; i++, sOff += oldElem, dOff += newElem)
-            {
-                var sSlice = src.Slice(sOff, oldElem);
-                var dSlice = dst.Slice(dOff, newElem);
-
-                // read element into canonical numeric view (double), bool and char views
-                ReadElementAs(sSlice, oldVt, out double asDouble, out bool asBool, out char asChar);
-
-                // write into destination element according to target type
-                WriteElementAs(dSlice, newVt, asDouble, asBool, asChar);
-            }
-
-            // zero-fill remainder of destination if any
-            int used = cnt * newElem;
-            if (dst.Length > used) dst[used..].Clear();
             return true;
         }
 
 
-        /// <summary>
-        /// Convert a single scalar value in-place from oldHint to newHint.
-        /// The span length is the field's total length; only the first element is read/written.
-        /// </summary> 
-        public static bool ConvertScalarInPlace(Span<byte> bytes, ValueType oldVt, ValueType newVt)
-        {
-            // Unknown on either side → keep bytes unchanged (but caller may still update hint).
-            if (oldVt == ValueType.Unknown || newVt == ValueType.Unknown)
-                return false;
-
-            // Read exactly ONE element from oldVt
-            ReadElementAs(bytes, oldVt, out double asDouble, out bool asBool, out char asChar);
-
-            // Write ONE element as newVt (overwriting the same span)
-            WriteElementAs(bytes, newVt, asDouble, asBool, asChar);
-
-            // Zero out any tail beyond the new element size (if span larger than element)
-            int newElem = ElemSize(newVt);
-            if (bytes.Length > newElem)
-                bytes.Slice(newElem).Clear();
-            return true;
-        }
-
-        /// <summary>
-        /// In-place convert an array when old and new element sizes are the same.
-        /// Reads each element as 'oldHint' and writes as 'newHint'.
-        /// </summary> 
-        public static void ConvertArrayInPlaceSameSize(Span<byte> bytes, int count, ValueType oldVt, ValueType newVt)
-        {
-            int elem = ElemSize(oldVt); // == ElemSize(newVt) by contract
-
-            for (int i = 0, off = 0; i < count; i++, off += elem)
-            {
-                var cell = bytes.Slice(off, elem);
-
-                // 读一个旧元素
-                ReadElementAs(cell, oldVt, out double asDouble, out bool asBool, out char asChar);
-
-                // 写一个新元素
-                WriteElementAs(cell, newVt, asDouble, asBool, asChar);
-            }
-        }
-
-
-
-
-
-        // Read one element (given its ValueType) and return canonical views:
-        // numeric as double, boolean asBool, char asChar.
-        public static void ReadElementAs(ReadOnlySpan<byte> src, ValueType vt, out double asDouble, out bool asBool, out char asChar)
-        {
-            asDouble = 0.0;
-            asBool = false;
-            asChar = '\0';
-
-            switch (vt)
-            {
-                case ValueType.Bool:
-                    asBool = src.Length > 0 && src[0] != 0;
-                    asDouble = asBool ? 1.0 : 0.0;
-                    return;
-
-                case ValueType.Char16:
-                    {
-                        ushort u = BinaryPrimitives.ReadUInt16LittleEndian(src);
-                        asChar = (char)u;
-                        asBool = u != 0;
-                        asDouble = u;
-                        return;
-                    }
-
-                case ValueType.Int8:
-                    {
-                        sbyte v = unchecked((sbyte)src[0]);
-                        asDouble = v; asBool = v != 0; asChar = (char)(ushort)(byte)v;
-                        return;
-                    }
-                case ValueType.UInt8:
-                    {
-                        byte v = src[0];
-                        asDouble = v; asBool = v != 0; asChar = (char)(ushort)v;
-                        return;
-                    }
-                case ValueType.Int16:
-                    {
-                        short v = BinaryPrimitives.ReadInt16LittleEndian(src);
-                        asDouble = v; asBool = v != 0; asChar = (char)(ushort)v;
-                        return;
-                    }
-                case ValueType.UInt16:
-                    {
-                        ushort v = BinaryPrimitives.ReadUInt16LittleEndian(src);
-                        asDouble = v; asBool = v != 0; asChar = (char)v;
-                        return;
-                    }
-                case ValueType.Int32:
-                    {
-                        int v = BinaryPrimitives.ReadInt32LittleEndian(src);
-                        asDouble = v; asBool = v != 0; asChar = (char)(ushort)v;
-                        return;
-                    }
-                case ValueType.UInt32:
-                    {
-                        uint v = BinaryPrimitives.ReadUInt32LittleEndian(src);
-                        asDouble = v; asBool = v != 0; asChar = (char)(ushort)(v & 0xFFFF);
-                        return;
-                    }
-                case ValueType.Int64:
-                    {
-                        long v = BinaryPrimitives.ReadInt64LittleEndian(src);
-                        asDouble = v; asBool = v != 0; asChar = (char)(ushort)(v & 0xFFFF);
-                        return;
-                    }
-                case ValueType.UInt64:
-                    {
-                        ulong v = BinaryPrimitives.ReadUInt64LittleEndian(src);
-                        asDouble = (double)v; asBool = v != 0; asChar = (char)(ushort)(v & 0xFFFF);
-                        return;
-                    }
-                case ValueType.Float32:
-                    {
-                        int bits = BinaryPrimitives.ReadInt32LittleEndian(src);
-                        float f = BitConverter.Int32BitsToSingle(bits);
-                        asDouble = f; asBool = f != 0f; asChar = (char)(ushort)(int)f;
-                        return;
-                    }
-                case ValueType.Float64:
-                    {
-                        long bits = BinaryPrimitives.ReadInt64LittleEndian(src);
-                        double d = BitConverter.Int64BitsToDouble(bits);
-                        asDouble = d; asBool = d != 0.0; asChar = (char)(ushort)(int)d;
-                        return;
-                    }
-                default:
-                    asDouble = 0.0; asBool = false; asChar = '\0';
-                    return;
-            }
-        }
-
-        // Write one element into destination span according to target ValueType.
-        // For float targets, perform IEEE cast (double -> float) before writing bits.
-        public static void WriteElementAs(Span<byte> dst, ValueType to, double asDouble, bool asBool, char asChar)
-        {
-            switch (to)
-            {
-                case ValueType.Bool:
-                    dst[0] = (byte)(asBool ? 1 : 0);
-                    return;
-
-                case ValueType.Char16:
-                    BinaryPrimitives.WriteUInt16LittleEndian(dst, (ushort)asChar);
-                    return;
-
-                case ValueType.Int8:
-                    {
-                        sbyte vv = (sbyte)System.Math.Truncate(asDouble);
-                        dst[0] = unchecked((byte)vv);
-                        return;
-                    }
-                case ValueType.UInt8:
-                    {
-                        byte vv = (byte)System.Math.Truncate(asDouble);
-                        dst[0] = vv;
-                        return;
-                    }
-                case ValueType.Int16:
-                    {
-                        short vv = (short)System.Math.Truncate(asDouble);
-                        BinaryPrimitives.WriteInt16LittleEndian(dst, vv);
-                        return;
-                    }
-                case ValueType.UInt16:
-                    {
-                        ushort vv = (ushort)System.Math.Truncate(asDouble);
-                        BinaryPrimitives.WriteUInt16LittleEndian(dst, vv);
-                        return;
-                    }
-                case ValueType.Int32:
-                    {
-                        int vv = (int)System.Math.Truncate(asDouble);
-                        BinaryPrimitives.WriteInt32LittleEndian(dst, vv);
-                        return;
-                    }
-                case ValueType.UInt32:
-                    {
-                        uint vv = (uint)System.Math.Truncate(asDouble);
-                        BinaryPrimitives.WriteUInt32LittleEndian(dst, vv);
-                        return;
-                    }
-                case ValueType.Int64:
-                    {
-                        long vv = (long)System.Math.Truncate(asDouble);
-                        BinaryPrimitives.WriteInt64LittleEndian(dst, vv);
-                        return;
-                    }
-                case ValueType.UInt64:
-                    {
-                        ulong vv = (ulong)System.Math.Truncate(asDouble);
-                        BinaryPrimitives.WriteUInt64LittleEndian(dst, vv);
-                        return;
-                    }
-                case ValueType.Float32:
-                    {
-                        // IEEE cast double->float, then write float bits as little-endian
-                        float f = (float)asDouble;
-                        int bits = BitConverter.SingleToInt32Bits(f);
-                        BinaryPrimitives.WriteInt32LittleEndian(dst, bits);
-                        return;
-                    }
-                case ValueType.Float64:
-                    {
-                        long bits = BitConverter.DoubleToInt64Bits(asDouble);
-                        BinaryPrimitives.WriteInt64LittleEndian(dst, bits);
-                        return;
-                    }
-                default:
-                    dst.Clear();
-                    return;
-            }
-        }
     }
 }

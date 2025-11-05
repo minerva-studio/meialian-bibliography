@@ -2,7 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Linq;
 using NUnit.Framework;
-using static Amlos.Container.TypeHintUtil; // Pack, PrimOf<T>()
+using static Amlos.Container.TypeUtil; // Pack, PrimOf<T>()
 
 namespace Amlos.Container.Tests
 {

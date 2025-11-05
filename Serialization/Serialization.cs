@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Unity.Serialization.Json;
-using static Amlos.Container.TypeHintUtil;
+using static Amlos.Container.TypeUtil;
 
 namespace Amlos.Container.Serialization
 {
@@ -394,8 +394,8 @@ namespace Amlos.Container.Serialization
                 var fieldName = field.Name;
 
                 byte hint = value.HeaderHints[i];
-                var vt = TypeHintUtil.Prim(hint);
-                bool isArray = TypeHintUtil.IsArray(hint);
+                var vt = TypeUtil.PrimOf(hint);
+                bool isArray = TypeUtil.IsArray(hint);
 
                 // Always write the key for now (no omit-default policy here)
                 writer.WriteKey(fieldName);
