@@ -50,39 +50,4 @@ namespace Amlos.Container
             get => TypeUtil.IsArray(Span[0]);
         }
     }
-
-    internal struct FieldType
-    {
-        public byte b;
-
-        public FieldType(byte b) => this.b = b;
-
-        public ValueType Type
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            readonly get => TypeUtil.PrimOf(b);
-            set => TypeUtil.SetType(ref b, value);
-        }
-
-        public bool IsArray
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            readonly get => TypeUtil.IsArray(b);
-            set => TypeUtil.SetArray(ref b, value);
-        }
-
-        public readonly int Size
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get
-            {
-                return TypeUtil.SizeOf(Type);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static FieldType Of<T>(bool isArray) where T : unmanaged => TypeUtil.Pack(TypeUtil.PrimOf<T>(), isArray);
-
-        public static implicit operator FieldType(byte b) => new FieldType(b);
-    }
 }

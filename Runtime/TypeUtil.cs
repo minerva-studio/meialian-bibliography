@@ -17,7 +17,8 @@ namespace Amlos.Container
         UInt64 = 10,
         Float32 = 11,
         Float64 = 12,
-        Ref = 13,  // 8B
+        Blob = 13, // byte[] or something large
+        Ref = 14,  // 8B
                    // 14..31 reserved
     }
 
@@ -183,7 +184,7 @@ namespace Amlos.Container
         // Replace with your actual source of recommended hint for a new field.
         // For now: Unknown (0) to be safe, or map by newField.IsRef/AbsLength if you maintain that metadata.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte RecommendedHintOf(FieldDescriptor nf)
+        public static byte RecommendedHintOf(FieldDescriptor_Old nf)
         {
             // If you already keep a recommended ValueType per field, convert here.
             // As a safe default, say Unknown scalar/array based on nf:

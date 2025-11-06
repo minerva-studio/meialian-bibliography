@@ -9,19 +9,19 @@ namespace Amlos.Container.Tests
         [Test]
         public void FieldDescriptor_Ref_Semantics_AreCorrect()
         {
-            var single = FieldDescriptor.Reference("child");
+            var single = FieldDescriptor_Old.Reference("child");
             Assert.That(single.IsRef, Is.True);
-            Assert.That(single.AbsLength, Is.EqualTo(FieldDescriptor.REF_SIZE));
+            Assert.That(single.AbsLength, Is.EqualTo(FieldDescriptor_Old.REF_SIZE));
             Assert.That(single.RefCount, Is.EqualTo(1));
             Assert.That(single.IsRefArray, Is.False);
 
-            var arr = FieldDescriptor.ReferenceArray("children", 3);
+            var arr = FieldDescriptor_Old.ReferenceArray("children", 3);
             Assert.That(arr.IsRef, Is.True);
-            Assert.That(arr.AbsLength, Is.EqualTo(3 * FieldDescriptor.REF_SIZE));
+            Assert.That(arr.AbsLength, Is.EqualTo(3 * FieldDescriptor_Old.REF_SIZE));
             Assert.That(arr.RefCount, Is.EqualTo(3));
             Assert.That(arr.IsRefArray, Is.True);
 
-            var val = FieldDescriptor.Fixed("hp", 4);
+            var val = FieldDescriptor_Old.Fixed("hp", 4);
             Assert.That(val.IsRef, Is.False);
             Assert.That(val.AbsLength, Is.EqualTo(4));
             Assert.That(val.RefCount, Is.EqualTo(0));

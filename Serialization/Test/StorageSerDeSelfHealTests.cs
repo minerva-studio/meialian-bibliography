@@ -68,7 +68,7 @@ namespace Amlos.Container.Serialization.Tests
             int hp = root.Read<int>("health");
             Assert.That(hp, Is.EqualTo(1));
 
-            var f = root.Schema.GetField("health");
+            var f = root.GetField("health");
             Assert.That(f.IsRef, Is.False);
             //Assert.That(f.AbsLength, Is.EqualTo(sizeof(int)));
         }
@@ -86,7 +86,7 @@ namespace Amlos.Container.Serialization.Tests
             byte bx = root.Read<byte>("x");
             Assert.That(bx, Is.EqualTo((byte)1));
 
-            var f = root.Schema.GetField("x");
+            var f = root.GetField("x");
             Assert.That(f.IsRef, Is.False);
             //Assert.That(f.AbsLength, Is.EqualTo(sizeof(byte)));
         }
@@ -184,7 +184,7 @@ namespace Amlos.Container.Serialization.Tests
             var storage = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var root = storage.Root;
 
-            var baseLength = root.Schema.GetField("v").AbsLength;
+            var baseLength = root.GetField("v").Length;
 
             // First force an Int32 read to initialize field (if not already)
             int vInt = root.Read<int>("v");
@@ -194,8 +194,8 @@ namespace Amlos.Container.Serialization.Tests
             float vFloat = root.Read<float>("v");
             Assert.That(vFloat, Is.EqualTo(42.0f).Within(1e-6));
 
-            var f = root.Schema.GetField("v");
-            Assert.That(f.AbsLength, Is.GreaterThanOrEqualTo(baseLength)); // same size, no rescheme length change
+            var f = root.GetField("v");
+            Assert.That(f.Length, Is.GreaterThanOrEqualTo(baseLength)); // same size, no rescheme length change
         }
 
         /// <summary>

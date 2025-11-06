@@ -12,12 +12,12 @@ namespace Amlos.Container
     /// - Schema instances are immutable once created.
     /// - No field kind/type is stored here by design; callers must use the correct read/write API.
     /// </summary>
-    public sealed class Schema : IEquatable<Schema>
+    public sealed class Schema_Old : IEquatable<Schema_Old>
     {
         public static readonly int ALIGN = 8;
-        public static readonly Schema Empty = new Schema(Array.Empty<FieldDescriptor>(), 0);
+        public static readonly Schema_Old Empty = new Schema_Old(Array.Empty<FieldDescriptor_Old>(), 0);
 
-        private readonly FieldDescriptor[] _fields;               // immutable copy
+        private readonly FieldDescriptor_Old[] _fields;               // immutable copy
         private readonly Dictionary<string, int> _indexByName;    // O(1) lookups by name
         private FixedBytePool pool;
 
@@ -35,19 +35,19 @@ namespace Amlos.Container
         /// </summary>
         public FixedBytePool Pool => pool ??= new FixedBytePool(Stride);
         /// <summary>Fields in final, packed layout order.</summary>
-        public IReadOnlyList<FieldDescriptor> Fields => _fields;
+        public IReadOnlyList<FieldDescriptor_Old> Fields => _fields;
 
 
 
-        internal Schema(IEnumerable<FieldDescriptor> fields, int stride)
+        internal Schema_Old(IEnumerable<FieldDescriptor_Old> fields, int stride)
         {
-            _fields = (fields as FieldDescriptor[]) ?? fields.ToArray(); // value-type array copy
+            _fields = (fields as FieldDescriptor_Old[]) ?? fields.ToArray(); // value-type array copy
             Stride = stride;
 
             _indexByName = new Dictionary<string, int>(StringComparer.Ordinal);
             for (int i = 0; i < _fields.Length; i++)
             {
-                var name = _fields[i].Name ?? throw new ArgumentNullException(nameof(FieldDescriptor.Name));
+                var name = _fields[i].Name ?? throw new ArgumentNullException(nameof(FieldDescriptor_Old.Name));
                 if (_indexByName.ContainsKey(name))
                     throw new ArgumentException($"Duplicate field name in schema: '{name}'.");
                 _indexByName[name] = i;
@@ -69,7 +69,7 @@ namespace Amlos.Container
         public bool ContainsField(string name) => _indexByName.ContainsKey(name);
 
         /// <summary>Try to find a field by name (O(1)).</summary>
-        public bool TryGetField(string name, out FieldDescriptor field)
+        public bool TryGetField(string name, out FieldDescriptor_Old field)
         {
             if (_indexByName.TryGetValue(name, out int idx))
             {
@@ -81,7 +81,7 @@ namespace Amlos.Container
         }
 
         /// <summary>Get a field by name or throw if missing.</summary>
-        public FieldDescriptor GetField(string name)
+        public FieldDescriptor_Old GetField(string name)
         {
             if (!TryGetField(name, out var fd))
                 throw new KeyNotFoundException($"Field '{name}' not found in schema.");
@@ -91,7 +91,7 @@ namespace Amlos.Container
 
 
         #region Equality / Hashing
-        public bool Equals(Schema other)
+        public bool Equals(Schema_Old other)
         {
             if (other is null) return false;
             if (ReferenceEquals(this, other)) return true;
@@ -106,7 +106,7 @@ namespace Amlos.Container
             return true;
         }
 
-        public override bool Equals(object obj) => obj is Schema s && Equals(s);
+        public override bool Equals(object obj) => obj is Schema_Old s && Equals(s);
 
         public override int GetHashCode()
         {
@@ -117,11 +117,11 @@ namespace Amlos.Container
             return h.ToHashCode();
         }
 
-        public static bool operator ==(Schema lhs, Schema rhs) => ReferenceEquals(lhs, rhs) || (lhs?.Equals(rhs) ?? false);
+        public static bool operator ==(Schema_Old lhs, Schema_Old rhs) => ReferenceEquals(lhs, rhs) || (lhs?.Equals(rhs) ?? false);
 
-        public static bool operator !=(Schema lhs, Schema rhs) => !(lhs == rhs);
+        public static bool operator !=(Schema_Old lhs, Schema_Old rhs) => !(lhs == rhs);
 
-        public static int GetHashCode(int stride, IReadOnlyList<FieldDescriptor> field)
+        public static int GetHashCode(int stride, IReadOnlyList<FieldDescriptor_Old> field)
         {
             var hc = new HashCode();
             hc.Add(stride);

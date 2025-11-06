@@ -6,6 +6,9 @@ using static Amlos.Container.MigrationConverter;
 
 namespace Amlos.Container
 {
+    /// <summary>
+    /// Represent a single value with type information.
+    /// </summary>
     public readonly ref struct ValueView
     {
         public ValueType Type { get; }

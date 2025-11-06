@@ -12,12 +12,12 @@ namespace Amlos.Container
     /// </summary>
     public readonly struct SchemaKey : IEquatable<SchemaKey>
     {
-        public static readonly SchemaKey Empty = new SchemaKey(Array.Empty<FieldDescriptor>(), 0);
+        public static readonly SchemaKey Empty = new SchemaKey(Array.Empty<FieldDescriptor_Old>(), 0);
 
-        public readonly IReadOnlyList<FieldDescriptor> Fields;
+        public readonly IReadOnlyList<FieldDescriptor_Old> Fields;
         public readonly int Stride;
 
-        public SchemaKey(IReadOnlyList<FieldDescriptor> fields, int stride)
+        public SchemaKey(IReadOnlyList<FieldDescriptor_Old> fields, int stride)
         {
             Fields = fields ?? throw new ArgumentNullException(nameof(fields));
             Stride = stride;
@@ -39,7 +39,7 @@ namespace Amlos.Container
         }
 
         public override bool Equals(object obj) => obj is SchemaKey k && Equals(k);
-        public override int GetHashCode() => Schema.GetHashCode(Stride, Fields);
+        public override int GetHashCode() => Schema_Old.GetHashCode(Stride, Fields);
         public static bool operator ==(SchemaKey x, SchemaKey y) => x.Equals(y);
         public static bool operator !=(SchemaKey x, SchemaKey y) => !x.Equals(y);
     }
@@ -54,7 +54,7 @@ namespace Amlos.Container
     {
         public static SchemaPool Shared { get; } = new SchemaPool();
 
-        private readonly Dictionary<SchemaKey, Schema> _map = new();
+        private readonly Dictionary<SchemaKey, Schema_Old> _map = new();
         private readonly object _gate = new();
 
         public int Count { get { lock (_gate) return _map.Count; } }
@@ -64,29 +64,29 @@ namespace Amlos.Container
             lock (_gate)
             {
                 _map.Clear();
-                _map.Add(SchemaKey.Empty, Schema.Empty);
+                _map.Add(SchemaKey.Empty, Schema_Old.Empty);
             }
         }
 
         public SchemaPool()
         {
-            _map.Add(SchemaKey.Empty, Schema.Empty);
+            _map.Add(SchemaKey.Empty, Schema_Old.Empty);
         }
 
         /// <summary>
         /// Intern from a finalized field sequence (order-sensitive) and stride.
         /// Tries to avoid extra allocations when the input is already an array or a read-only array view.
         /// </summary>
-        public Schema Intern(IEnumerable<FieldDescriptor> fields, int stride)
+        public Schema_Old Intern(IEnumerable<FieldDescriptor_Old> fields, int stride)
         {
             if (fields is null) throw new ArgumentNullException(nameof(fields));
 
             // Fast path: already an array
-            if (fields is FieldDescriptor[] arr)
+            if (fields is FieldDescriptor_Old[] arr)
                 return Intern(arr, stride);
 
             // Safe path for IReadOnlyList<T>: try lookup first (no alloc on hit), copy on miss
-            if (fields is IReadOnlyList<FieldDescriptor> list)
+            if (fields is IReadOnlyList<FieldDescriptor_Old> list)
             {
                 // Create a temporary key over the list (note: list must not mutate while locked)
                 var tempKey = new SchemaKey(list, stride);
@@ -98,7 +98,7 @@ namespace Amlos.Container
                     // miss: copy once to freeze layout, then insert
                     var frozen = list.ToArray();
                     var key = new SchemaKey(frozen, stride);
-                    var created = new Schema(frozen, stride);
+                    var created = new Schema_Old(frozen, stride);
                     _map.Add(key, created);
                     return created;
                 }
@@ -112,7 +112,7 @@ namespace Amlos.Container
         /// <summary>
         /// Intern using a finalized read-only list (array or immutable view preferred).
         /// </summary>
-        public Schema Intern(IReadOnlyList<FieldDescriptor> fields, int stride)
+        public Schema_Old Intern(IReadOnlyList<FieldDescriptor_Old> fields, int stride)
         {
             if (fields is null) throw new ArgumentNullException(nameof(fields));
             var key = new SchemaKey(fields, stride);
@@ -124,10 +124,10 @@ namespace Amlos.Container
 
                 // If the incoming list is mutable (e.g., List<T>), freeze it into an array
                 // to ensure key immutability inside the dictionary.
-                var stable = fields is FieldDescriptor[] fa ? fa : fields.ToArray();
+                var stable = fields is FieldDescriptor_Old[] fa ? fa : fields.ToArray();
                 var stableKey = (ReferenceEquals(stable, fields)) ? key : new SchemaKey(stable, stride);
 
-                var created = new Schema(stable, stride);
+                var created = new Schema_Old(stable, stride);
                 _map.Add(stableKey, created);
                 return created;
             }
@@ -136,7 +136,7 @@ namespace Amlos.Container
         /// <summary>
         /// Intern an already constructed Schema.
         /// </summary>
-        public Schema Intern(Schema schema)
+        public Schema_Old Intern(Schema_Old schema)
         {
             if (schema is null) throw new ArgumentNullException(nameof(schema));
             var key = new SchemaKey(schema.Fields, schema.Stride);
@@ -154,7 +154,7 @@ namespace Amlos.Container
         /// <summary>
         /// Try to find an existing schema (order-sensitive) without creating one.
         /// </summary>
-        public bool TryGetExisting(IReadOnlyList<FieldDescriptor> fields, int stride, out Schema schema)
+        public bool TryGetExisting(IReadOnlyList<FieldDescriptor_Old> fields, int stride, out Schema_Old schema)
         {
             schema = null;
             if (fields is null) return false;
@@ -165,15 +165,15 @@ namespace Amlos.Container
         /// <summary>
         /// Try to find an existing schema from an IEnumerable (will avoid allocation for arrays/lists where possible).
         /// </summary>
-        public bool TryGetExisting(IEnumerable<FieldDescriptor> fields, int stride, out Schema schema)
+        public bool TryGetExisting(IEnumerable<FieldDescriptor_Old> fields, int stride, out Schema_Old schema)
         {
             schema = null;
             if (fields is null) return false;
 
-            if (fields is FieldDescriptor[] arr)
+            if (fields is FieldDescriptor_Old[] arr)
                 return TryGetExisting(arr, stride, out schema);
 
-            if (fields is IReadOnlyList<FieldDescriptor> list)
+            if (fields is IReadOnlyList<FieldDescriptor_Old> list)
             {
                 var key = new SchemaKey(list, stride);
                 lock (_gate) return _map.TryGetValue(key, out schema);

@@ -24,7 +24,7 @@ namespace Amlos.Container
 
 
 
-        internal StorageObjectArray(Container container, FieldDescriptor field)
+        internal StorageObjectArray(Container container, FieldDescriptor_Old field)
         {
             if (!field.IsRef)
                 throw new ArgumentException($"Field '{field.Name}' is not a reference field.");
@@ -64,7 +64,7 @@ namespace Amlos.Container
         /// Is a null slot (ID == 0)
         /// </summary>
         public bool IsNull => Position == 0UL;
-        public StorageObject Object => Get(ref Position, Schema.Empty);
+        public StorageObject Object => Get(ref Position, Schema_Old.Empty);
 
 
         /// <summary>
@@ -74,7 +74,7 @@ namespace Amlos.Container
 
         public StorageObject GetObjectNoAllocate() => GetNoAllocate(Position);
 
-        public StorageObject GetObject(Schema schema) => Get(ref Position, schema);
+        public StorageObject GetObject(Schema_Old schema) => Get(ref Position, schema);
 
 
         public static implicit operator StorageObject(StorageObjectArrayElement element) => element.GetObjectNoAllocate();

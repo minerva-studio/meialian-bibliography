@@ -10,7 +10,7 @@ namespace Amlos.Container.Tests
     [TestFixture]
     public class SchemaPoolTests
     {
-        private static Schema MakeSchema(bool canonicalize, params (string name, int len)[] fields)
+        private static Schema_Old MakeSchema(bool canonicalize, params (string name, int len)[] fields)
         {
             var b = new SchemaBuilder(canonicalizeByName: canonicalize);
             foreach (var (n, l) in fields) b.AddFieldFixed(n, l);
@@ -25,8 +25,8 @@ namespace Amlos.Container.Tests
             Assert.That(pool.Count, Is.EqualTo(1));
 
             // TryGetExisting on empty should succeed
-            Assert.That(pool.TryGetExisting(Array.Empty<FieldDescriptor>(), 0, out var s), Is.True);
-            Assert.That(ReferenceEquals(s, Schema.Empty), Is.True);
+            Assert.That(pool.TryGetExisting(Array.Empty<FieldDescriptor_Old>(), 0, out var s), Is.True);
+            Assert.That(ReferenceEquals(s, Schema_Old.Empty), Is.True);
         }
 
         [Test]
@@ -58,10 +58,10 @@ namespace Amlos.Container.Tests
             var list = s.Fields.ToList();
 
             // 1) First call: miss -> pool freezes to array and stores
-            var i1 = pool.Intern((IEnumerable<FieldDescriptor>)list, s.Stride);
+            var i1 = pool.Intern((IEnumerable<FieldDescriptor_Old>)list, s.Stride);
 
             // mutate the list AFTER interning to ensure pool key stability
-            list.Add(FieldDescriptor.Fixed("tmp", 1)); // this should NOT affect stored mapping
+            list.Add(FieldDescriptor_Old.Fixed("tmp", 1)); // this should NOT affect stored mapping
 
             // 2) Second call with the original schema (from s.Fields): hit -> same instance
             var i2 = pool.Intern(s.Fields, s.Stride);
@@ -114,7 +114,7 @@ namespace Amlos.Container.Tests
 
             // Pass as array explicitly
             var arr = s.Fields.ToArray(); // array with correct Name/Length/Offset
-            var i1 = pool.Intern((IEnumerable<FieldDescriptor>)arr, s.Stride);
+            var i1 = pool.Intern((IEnumerable<FieldDescriptor_Old>)arr, s.Stride);
 
             // Intern the schema object should return the same instance
             var i2 = pool.Intern(s);
@@ -130,7 +130,7 @@ namespace Amlos.Container.Tests
             var s = MakeSchema(true, ("a", 1), ("b", 2), ("c", 8));
 
             // 1) IEnumerable (materialized fallback)
-            var i1 = pool.Intern((IEnumerable<FieldDescriptor>)s.Fields, s.Stride);
+            var i1 = pool.Intern((IEnumerable<FieldDescriptor_Old>)s.Fields, s.Stride);
             // 2) IReadOnlyList fast path
             var i2 = pool.Intern(s.Fields, s.Stride);
             // 3) Schema object

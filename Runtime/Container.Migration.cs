@@ -16,6 +16,7 @@ namespace Amlos.Container
         ///  - Container identity (ID) is preserved.
         ///  - New buffer is always zero-initialized by default.
         /// </summary> 
+        [Obsolete]
         public void Rescheme(Action<SchemaBuilder> edit)
         {
             EnsureNotDisposed();
@@ -25,8 +26,9 @@ namespace Amlos.Container
         /// <summary>
         /// Internal overload allowing to skip zero-initialization when the caller
         /// will fully overwrite the new buffer manually.
-        /// </summary>
-        public void Rescheme(Schema newSchema, bool zeroInitNewBuffer = true)
+        /// </summary> 
+        [Obsolete]
+        public void Rescheme(Schema_Old newSchema, bool zeroInitNewBuffer = true)
         {
             if (newSchema is null) throw new ArgumentNullException(nameof(newSchema));
             EnsureNotDisposed();
@@ -47,7 +49,7 @@ namespace Amlos.Container
             for (int oldIdx = 0; oldIdx < _schema.Fields.Count; oldIdx++)
             {
                 var oldField = _schema.Fields[oldIdx];
-                byte oldHint = (oldIdx < HeaderSegment.Length) ? HeaderSegment[oldIdx] : (byte)0;
+                byte oldHint = (oldIdx < HeaderSegment_Old.Length) ? HeaderSegment_Old[oldIdx] : (byte)0;
 
                 if (!newSchema.TryGetField(oldField.Name, out var newField))
                 {
@@ -120,11 +122,9 @@ namespace Amlos.Container
 
 
 
-
-
         public int GetFieldIndexOrRescheme<T>(string fieldName) where T : unmanaged
         {
-            int index = _schema.IndexOf(fieldName);
+            int index = IndexOf(fieldName);
             if (index < 0)
             {
                 index = ReschemeForNew<T>(fieldName);
@@ -135,7 +135,7 @@ namespace Amlos.Container
 
         public int GetFieldIndexOrReschemeObject(string fieldName)
         {
-            int index = _schema.IndexOf(fieldName);
+            int index = IndexOf(fieldName);
             if (index < 0) index = ReschemeForNewObject(fieldName);
             return index;
         }
@@ -147,12 +147,7 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <param name="type"></param>
         /// <returns></returns>
-        public int ReschemeForNew<T>(string fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.Pack(TypeUtil.PrimOf<T>(), inlineArrayLength.HasValue),
-            b =>
-            {
-                if (inlineArrayLength.HasValue) b.AddArrayOf<T>(fieldName, inlineArrayLength.Value);
-                else b.AddFieldOf<T>(fieldName);
-            });
+        public int ReschemeForNew<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
 
         /// <summary>
         /// Rescheme to add a new field of type T with given fieldName.
@@ -161,12 +156,7 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <param name="type"></param>
         /// <returns></returns>
-        public int ReschemeForNewObject(string fieldName, int? inlineArrayLength = null) => ReschemeForField_Internal(fieldName, TypeUtil.Pack(ValueType.Ref, inlineArrayLength.HasValue),
-            b =>
-            {
-                if (inlineArrayLength.HasValue) b.AddRefArray(fieldName, inlineArrayLength.Value);
-                else b.AddRef(fieldName);
-            });
+        public int ReschemeForNewObject(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) => ReschemeForField_Internal(fieldName, ValueType.Ref, inlineArrayLength);
 
         /// <summary>
         /// Rescheme to add a new field of type T with given fieldName.
@@ -175,19 +165,63 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <param name="type"></param>
         /// <returns></returns>
-        public int ReschemeFor<T>(string fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.Pack(TypeUtil.PrimOf<T>(), inlineArrayLength.HasValue),
-            b =>
-            {
-                b.RemoveField(fieldName);
-                if (inlineArrayLength.HasValue) b.AddArrayOf<T>(fieldName, inlineArrayLength.Value);
-                else b.AddFieldOf<T>(fieldName);
-            });
+        public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
 
-        private int ReschemeForField_Internal(string fieldName, byte type, Action<SchemaBuilder> edit)
+        private int ReschemeForField_Internal(ReadOnlySpan<char> fieldName, ValueType valueType, int? inlineArrayLength = null)
         {
-            Rescheme(edit);
-            var index = _schema.IndexOf(fieldName);
-            HeaderSegment[index] = type;
+            var objectBuilder = new ObjectBuilder();
+            int minimumLength = View.Header.DataOffset - View.Header.NameOffset;
+
+            char[] fieldNameBuffer = ArrayPool<char>.Shared.Rent(fieldName.Length);
+            char[] nameBuffer = ArrayPool<char>.Shared.Rent(minimumLength / sizeof(char));
+            try
+            {
+                View.NameSegment.CopyTo(MemoryMarshal.AsBytes(nameBuffer.AsSpan(0, minimumLength)));
+                fieldName.CopyTo(fieldNameBuffer);
+                if (inlineArrayLength.HasValue)
+                {
+                    objectBuilder.SetArray(fieldNameBuffer.AsMemory(), new FieldType(valueType, true), inlineArrayLength.Value);
+                }
+                else objectBuilder.SetScalar(fieldNameBuffer.AsMemory(), new FieldType(valueType, false));
+
+                int baseOffset = View.Header.NameOffset;
+                for (int i = 0; i < FieldCount; i++)
+                {
+                    FieldView fieldView = View[i];
+                    ReadOnlyMemory<char> name;
+
+                    // todo: get name from name buffer
+                    int fixedOffset = ((int)fieldView.Header.NameOffset - baseOffset) / sizeof(char);
+                    name = nameBuffer.AsMemory(fixedOffset, fieldView.Name.Length);
+
+                    // field to rescheme
+                    if (!name.Span.SequenceEqual(fieldName))
+                        objectBuilder.SetScalar(name, fieldView.FieldType, fieldView.Data);
+                }
+
+                int newSize = objectBuilder.CountByte();
+                byte[] newBuffer = DefaultPool.Rent(newSize);
+                try
+                {
+                    objectBuilder.Build(newBuffer);
+                    // switch buffer now
+                    var oldBuffer = this._buffer;
+                    this._buffer = newBuffer;
+                    DefaultPool.Return(oldBuffer);
+                }
+                finally
+                {
+                    DefaultPool.Return(newBuffer);
+                }
+            }
+            finally
+            {
+                ArrayPool<char>.Shared.Return(fieldNameBuffer);
+                ArrayPool<char>.Shared.Return(nameBuffer);
+            }
+
+            var index = IndexOf(fieldName);
+            View.Fields[index].FieldType.Type = valueType;
             return index;
         }
 
@@ -204,7 +238,7 @@ namespace Amlos.Container
         /// </summary>
         public void EnsureFieldForRead<T>(int index, bool isExplicit = false) where T : unmanaged
         {
-            FieldType fieldType = HeaderSegment[index];
+            FieldType fieldType = View.Fields[index].FieldType;
             FieldType targetType = FieldType.Of<T>(fieldType.IsArray);
             ValueType valueType = fieldType.Type;
             ValueType target = targetType.Type;
@@ -216,7 +250,7 @@ namespace Amlos.Container
             // if we don't know current type, assume new type is valid
             if (valueType == ValueType.Unknown)
             {
-                HeaderSegment[index] = Pack(target, fieldType.IsArray);
+                View.Fields[index].FieldType = Pack(target, fieldType.IsArray);
                 return;
             }
             Migrate<T>(index, target);
@@ -224,49 +258,58 @@ namespace Amlos.Container
 
         public bool Migrate<T>(int index, ValueType target) where T : unmanaged
         {
-            byte fieldType = HeaderSegment[index];
-            bool isArray = IsArray(fieldType);
-            ValueType valueType = PrimOf(fieldType);
+            FieldType fieldType = View.Fields[index].FieldType;
+            bool isArray = fieldType.IsArray;
+            ValueType valueType = fieldType.Type;
 
 
-            FieldDescriptor field = _schema.Fields[index];
+            var field = View[index];
             // 2) Existing but ref ¡ú not allowed
             if (field.IsRef)
-                throw new InvalidOperationException($"Field '{field}' is a reference; cannot read value T={typeof(T).Name}.");
+                throw new InvalidOperationException($"Field '{field.Name.ToString()}' is a reference; cannot read value T={typeof(T).Name}.");
 
             int oldElementSize = TypeUtil.SizeOf(valueType);
             int newElementSize = TypeUtil.SizeOf(PrimOf<T>());
-            int arrayLength = isArray ? field.Length / oldElementSize : 1;
+            int dataLength = (int)field.Length;
+            int arrayLength = isArray ? dataLength / oldElementSize : 1;
 
             // inplace conversion, given element same size
             if (oldElementSize == newElementSize)
             {
-                Span<byte> data = GetSpan(field);
+                Span<byte> data = field.Data;
                 if (isArray) MigrationConverter.ConvertArrayInPlaceSameSize(data, arrayLength, valueType, target);
                 else MigrationConverter.ConvertScalarInPlace(data, valueType, target);
-                HeaderSegment[index] = Pack(target, isArray);
+                View[index].Header.FieldType = Pack(target, isArray);
             }
             // different size
             else
             {
                 // copy old data
-                byte[] array = ArrayPool<byte>.Shared.Rent(field.Length);
+                int nameLength = field.Name.Length * sizeof(byte);
+                int minimumLength = nameLength + dataLength;
+                byte[] array = ArrayPool<byte>.Shared.Rent(minimumLength);
                 try
                 {
-                    Span<byte> buffer = array.AsSpan(0, field.Length);
-                    GetSpan(field).CopyTo(buffer);
+                    Span<char> name = MemoryMarshal.Cast<byte, char>(array.AsSpan(0, nameLength));
+                    Span<byte> buffer = array.AsSpan(nameLength);
+                    // store name + data
+                    field.Name.CopyTo(name);
+                    field.Data.CopyTo(buffer);
+
                     // rescheme
-                    Rescheme(b =>
-                    {
-                        b.RemoveField(field.Name);
-                        if (isArray) b.AddArrayOf<T>(field.Name, arrayLength);
-                        else b.AddFieldOf<T>(field.Name);
-                    });
-                    var newIndex = Schema.IndexOf(field.Name);
-                    var newSpan = GetSpan(Schema.Fields[newIndex]);
+                    //Rescheme(b =>
+                    //{
+                    //    b.RemoveField(field.Name);
+                    //    if (isArray) b.AddArrayOf<T>(field.Name, arrayLength);
+                    //    else b.AddFieldOf<T>(field.Name);
+                    //});
+                    ReschemeFor<T>(field.Name, isArray ? arrayLength : null);
+                    var newIndex = IndexOf(name);
+                    var newField = View[newIndex];
+                    var newSpan = newField.Data;
                     // fill back
                     MigrationConverter.MigrateValueFieldBytes(buffer, newSpan, valueType, target, true);
-                    HeaderSegment[newIndex] = Pack(target, isArray);
+                    newField.Header.FieldType = Pack(target, isArray);
                 }
                 catch
                 {
@@ -294,8 +337,7 @@ namespace Amlos.Container
         private bool TryReadScalarImplicit<T>(int index, out T value) where T : unmanaged
         {
             value = default;
-            FieldType ft = new(HeaderSegment[index]);
-            if (ft.Type == ValueType.Unknown) return false;
+            if (View[index].Type == ValueType.Unknown) return false;
 
             var view = GetValueView(index);
             return view.TryRead(out value);
@@ -310,10 +352,9 @@ namespace Amlos.Container
         /// <returns></returns>
         private bool TryWriteScalarImplicit<T>(int index, T value) where T : unmanaged
         {
-            FieldType ft = new(HeaderSegment[index]);
-
-            var dstSpan = GetSpan(index);
-            var dstType = ft.Type;
+            var field = View[index];
+            var dstType = field.Type;
+            var dstSpan = field.Data;
             var srcType = TypeUtil.PrimOf<T>();
             // current type unknown, update hint
             if (dstType == ValueType.Unknown)
@@ -322,7 +363,7 @@ namespace Amlos.Container
                 if (Unsafe.SizeOf<T>() > dstSpan.Length)
                     return false;
 
-                HeaderSegment[index] = TypeUtil.Pack(srcType, ft.IsArray);
+                field.Header.FieldType = TypeUtil.Pack(srcType, View[index].IsArray);
                 MemoryMarshal.Write(dstSpan, ref Unsafe.AsRef(value));
                 return true;
             }
@@ -354,10 +395,9 @@ namespace Amlos.Container
 
         private bool TryWriteScalarExplicit<T>(int index, T value) where T : unmanaged
         {
-            FieldType ft = new(HeaderSegment[index]);
-
-            var dstSpan = GetSpan(index);
-            var dstType = ft.Type;
+            var field = View[index];
+            var dstType = field.Type;
+            var dstSpan = field.Data;
             var srcType = TypeUtil.PrimOf<T>();
 
             // conversion

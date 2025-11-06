@@ -1,6 +1,5 @@
 using NUnit.Framework;
 using System;
-using UnityEngine;
 
 namespace Amlos.Container.Tests
 {
@@ -8,10 +7,10 @@ namespace Amlos.Container.Tests
     public class StoragePublicApiTests
     {
         // root: int hp; ref child; float[4] speeds
-        private Schema _rootSchema;
+        private Schema_Old _rootSchema;
 
         // leaf: int hp;
-        private Schema _leafSchema;
+        private Schema_Old _leafSchema;
 
         [SetUp]
         public void Setup()
@@ -109,10 +108,10 @@ namespace Amlos.Container.Tests
             using var storage = new Storage(_rootSchema);
             var root = storage.Root;
             root.Write<byte>("v", 1);
-            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(1));
+            Assert.That(root.GetField("v").Length, Is.EqualTo(1));
 
             root.Write<int>("v", 1);
-            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(4));
+            Assert.That(root.GetField("v").Length, Is.EqualTo(4));
         }
 
         [Test]
@@ -132,16 +131,16 @@ namespace Amlos.Container.Tests
             var root = storage.Root;
             const string f1 = "f1";
             root.Write<int>(f1, 1);
-            Assert.That(root.Schema.GetField(f1).Length, Is.EqualTo(4));
+            Assert.That(root.GetField(f1).Length, Is.EqualTo(4));
             root.Write<float>(f1, 1f);
-            Assert.That(root.Schema.GetField(f1).Length, Is.EqualTo(4));
+            Assert.That(root.GetField(f1).Length, Is.EqualTo(4));
             Assert.That(root.GetValueView(f1).Type, Is.EqualTo(ValueType.Float32)); // same size, change type
 
             const string f2 = "f2";
             root.Write<float>(f2, 1f);
-            Assert.That(root.Schema.GetField(f2).Length, Is.EqualTo(4));
+            Assert.That(root.GetField(f2).Length, Is.EqualTo(4));
             root.Write<int>(f2, 1);
-            Assert.That(root.Schema.GetField(f2).Length, Is.EqualTo(4));
+            Assert.That(root.GetField(f2).Length, Is.EqualTo(4));
             Assert.That(root.GetValueView(f2).Type, Is.EqualTo(ValueType.Float32)); // int can implicit to float
         }
 
@@ -151,7 +150,7 @@ namespace Amlos.Container.Tests
             using var storage = new Storage(_rootSchema);
             var root = storage.Root;
             root.Write<byte>("v", 1);
-            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(1));
+            Assert.That(root.GetField("v").Length, Is.EqualTo(1));
 
             bool threw = false;
             try
@@ -166,7 +165,7 @@ namespace Amlos.Container.Tests
 
 
             root.Write<float>("v", 1000.0f);
-            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(4));
+            Assert.That(root.GetField("v").Length, Is.EqualTo(4));
             threw = false;
             try
             {
@@ -186,7 +185,7 @@ namespace Amlos.Container.Tests
             var root = storage.Root;
 
             root.Write<double>("v", 1000.0);
-            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(8));
+            Assert.That(root.GetField("v").Length, Is.EqualTo(8));
             var threw = false;
             try
             {
@@ -197,7 +196,7 @@ namespace Amlos.Container.Tests
                 threw = true;
             }
             Assert.That(threw, Is.False);
-            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(8));
+            Assert.That(root.GetField("v").Length, Is.EqualTo(8));
             var view = root.GetValueView("v");
             Assert.That(view.Type, Is.EqualTo(ValueType.Float64));
         }
@@ -208,7 +207,7 @@ namespace Amlos.Container.Tests
             using var storage = new Storage(_rootSchema);
             var root = storage.Root;
             root.Write<int>("v", 1);
-            Assert.That(root.Schema.GetField("v").Length, Is.EqualTo(4));
+            Assert.That(root.GetField("v").Length, Is.EqualTo(4));
 
             bool threw = false;
             try

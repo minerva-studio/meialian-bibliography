@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using static Amlos.Container.Schema;
+using static Amlos.Container.Schema_Old;
 
 namespace Amlos.Container
 {
@@ -14,7 +14,7 @@ namespace Amlos.Container
     /// </summary>
     public sealed class SchemaBuilder
     {
-        private readonly List<FieldDescriptor> _pending = new();
+        private readonly List<FieldDescriptor_Old> _pending = new();
         private readonly bool _canonicalizeByName;
 
         /// <param name="canonicalizeByName">
@@ -29,7 +29,7 @@ namespace Amlos.Container
 
 
 
-        public SchemaBuilder AddField(FieldDescriptor field) => AddFieldFixed(field.Name, field.Length);
+        public SchemaBuilder AddField(FieldDescriptor_Old field) => AddFieldFixed(field.Name, field.Length);
 
         /// <summary>
         /// Add a field with a fixed byte length.
@@ -63,7 +63,7 @@ namespace Amlos.Container
         {
             if (string.IsNullOrEmpty(name)) throw new ArgumentException(nameof(name));
             // one 8-byte reference slot:
-            return AddFieldFixed_Internal(name, -FieldDescriptor.REF_SIZE);
+            return AddFieldFixed_Internal(name, -FieldDescriptor_Old.REF_SIZE);
         }
 
         /// <summary>
@@ -78,7 +78,7 @@ namespace Amlos.Container
         {
             if (string.IsNullOrEmpty(name)) throw new ArgumentException(nameof(name));
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
-            long total = (long)FieldDescriptor.REF_SIZE * count;
+            long total = (long)FieldDescriptor_Old.REF_SIZE * count;
             if (total > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(count), "Total byte length too large.");
             return AddFieldFixed_Internal(name, -(int)total);
         }
@@ -88,7 +88,7 @@ namespace Amlos.Container
             if (_pending.Any(p => string.Equals(p.Name, name, StringComparison.Ordinal)))
                 throw new ArgumentException($"Field '{name}' already added to builder.", nameof(name));
 
-            var fd = FieldDescriptor.Fixed(name, length);
+            var fd = FieldDescriptor_Old.Fixed(name, length);
             _pending.Add(fd);
             return this;
         }
@@ -122,7 +122,7 @@ namespace Amlos.Container
         }
 
         /// <summary>Remove all fields matching a predicate. Returns number removed.</summary>
-        public int RemoveWhere(Func<FieldDescriptor, bool> predicate)
+        public int RemoveWhere(Func<FieldDescriptor_Old, bool> predicate)
         {
             if (predicate is null) return 0;
             int removed = 0;
@@ -144,10 +144,10 @@ namespace Amlos.Container
         /// <summary>
         /// Compute offsets with a deterministic alignment rule and produce an immutable Schema.
         /// </summary>
-        public Schema Build()
+        public Schema_Old Build()
         {
             if (_pending.Count == 0)
-                return new Schema(Array.Empty<FieldDescriptor>(), stride: AlignUp(0, Schema.ALIGN));
+                return new Schema_Old(Array.Empty<FieldDescriptor_Old>(), stride: AlignUp(0, Schema_Old.ALIGN));
 
             var fields = _pending.ToArray();
 
@@ -160,7 +160,7 @@ namespace Amlos.Container
             {
                 ref var f = ref fields[i];
                 int absLen = f.AbsLength;
-                int align = f.IsRef ? FieldDescriptor.REF_SIZE : AutoAlign(absLen);
+                int align = f.IsRef ? FieldDescriptor_Old.REF_SIZE : AutoAlign(absLen);
                 relative = AlignUp(relative, align);
                 f = f.WithOffset(relative);   // relative to data base 0
                 relative += absLen;
@@ -168,13 +168,13 @@ namespace Amlos.Container
 
             // 2) Shift to absolute offsets by DataBase, which is AlignUp(N, ALIGN).
             int headerSize = fields.Length;
-            int dataBase = AlignUp(headerSize, Schema.ALIGN);
+            int dataBase = AlignUp(headerSize, Schema_Old.ALIGN);
 
             for (int i = 0; i < fields.Length; i++)
                 fields[i] = fields[i].WithOffset(fields[i].Offset + dataBase);
 
             // 3) Compute stride: AlignUp(dataBase + totalRelativeBytes, ALIGN).
-            int stride = AlignUp(dataBase + relative, Schema.ALIGN);
+            int stride = AlignUp(dataBase + relative, Schema_Old.ALIGN);
 
             // 4) Produce immutable schema (absolute offsets already set). 
             return SchemaPool.Shared.Intern(fields, stride);
@@ -214,7 +214,7 @@ namespace Amlos.Container
         /// Offsets are not copied; Build() recomputes offsets using the same alignment rule,
         /// so the result is equivalent if canonicalization flag matches.
         /// </summary>
-        public static SchemaBuilder FromSchema(Schema schema, bool canonicalizeByName = true)
+        public static SchemaBuilder FromSchema(Schema_Old schema, bool canonicalizeByName = true)
         {
             var b = new SchemaBuilder(canonicalizeByName);
             foreach (var f in schema.Fields)
@@ -222,7 +222,7 @@ namespace Amlos.Container
             return b;
         }
 
-        public static Schema FromFields(IEnumerable<FieldDescriptor> newFields)
+        public static Schema_Old FromFields(IEnumerable<FieldDescriptor_Old> newFields)
         {
             var schema = new SchemaBuilder();
             foreach (var item in newFields)
@@ -232,9 +232,9 @@ namespace Amlos.Container
             return schema.Build();
         }
 
-        public static Schema BuildString(int length) => BuildArray<char>(length);
+        public static Schema_Old BuildString(int length) => BuildArray<char>(length);
 
-        public static Schema BuildArray<T>(int length) where T : unmanaged
+        public static Schema_Old BuildArray<T>(int length) where T : unmanaged
         {
             return new SchemaBuilder().AddFieldFixed("value", length * Unsafe.SizeOf<T>()).Build();
         }

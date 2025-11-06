@@ -23,7 +23,7 @@ namespace Amlos.Container.Serialization
             if (maxDepth <= 0) throw new InvalidOperationException("Max depth exceeded.");
 
             // rebuild scehema
-            List<FieldDescriptor> newFields = new();
+            List<FieldDescriptor_Old> newFields = new();
             Dictionary<string, byte> types = new();
             foreach (var member in obj)
             {
@@ -33,12 +33,12 @@ namespace Amlos.Container.Serialization
                 // 1) If field missing ¡ú infer FieldDescriptor and rebuild schema, then continue.
                 if (!target.HasField(name))
                 {
-                    InferField(name, val, out var hint, out FieldDescriptor fd);
+                    InferField(name, val, out var hint, out FieldDescriptor_Old fd);
                     newFields.Add(fd);
                     types.Add(name, hint);
                 }
             }
-            Schema schema = SchemaBuilder.FromFields(newFields);
+            Schema_Old schema = SchemaBuilder.FromFields(newFields);
             target.Rescheme(schema);
             foreach (var (name, t) in types)
             {
@@ -84,14 +84,14 @@ namespace Amlos.Container.Serialization
             }
         }
 
-        private void InferField(string name, SerializedValueView tok, out byte hint, out FieldDescriptor fieldDescriptor)
+        private void InferField(string name, SerializedValueView tok, out byte hint, out FieldDescriptor_Old fieldDescriptor)
         {
             switch (tok.Type)
             {
                 case TokenType.Object:
                     // Single ref (8B)
                     hint = Pack(ValueType.Ref, false);
-                    fieldDescriptor = FieldDescriptor.Reference(name);
+                    fieldDescriptor = FieldDescriptor_Old.Reference(name);
                     return;
                 case TokenType.Array:
                     {
@@ -102,7 +102,7 @@ namespace Amlos.Container.Serialization
                         if (n == 0)
                         {
                             hint = 0;
-                            fieldDescriptor = FieldDescriptor.Fixed(name, 0);
+                            fieldDescriptor = FieldDescriptor_Old.Fixed(name, 0);
                         }
                         // Find first non-null element
                         SerializedValueView first = default;
@@ -113,7 +113,7 @@ namespace Amlos.Container.Serialization
                         {
                             // all nulls ¡ú ref-array of size n
                             hint = Pack(ValueType.Ref, true);
-                            fieldDescriptor = FieldDescriptor.ReferenceArray(name, n);
+                            fieldDescriptor = FieldDescriptor_Old.ReferenceArray(name, n);
                             return;
                         }
 
@@ -121,7 +121,7 @@ namespace Amlos.Container.Serialization
                         {
                             // ref-array
                             hint = Pack(ValueType.Ref, true);
-                            fieldDescriptor = FieldDescriptor.ReferenceArray(name, n);
+                            fieldDescriptor = FieldDescriptor_Old.ReferenceArray(name, n);
                             return;
                         }
 
@@ -149,20 +149,20 @@ namespace Amlos.Container.Serialization
                         if (allBool)
                         {
                             hint = Pack(ValueType.Bool, true);
-                            fieldDescriptor = FieldDescriptor.Fixed(name, sizeof(bool) * n);
+                            fieldDescriptor = FieldDescriptor_Old.Fixed(name, sizeof(bool) * n);
                             return;
                         }
 
                         if (anyFloat)
                         {
                             hint = Pack(ValueType.Float64, true);
-                            fieldDescriptor = FieldDescriptor.Fixed(name, sizeof(double) * n); // conservative Float64
+                            fieldDescriptor = FieldDescriptor_Old.Fixed(name, sizeof(double) * n); // conservative Float64
                             return;
                         }
 
                         // integers only
                         hint = Pack(ValueType.Int64, true);
-                        fieldDescriptor = FieldDescriptor.Fixed(name, sizeof(long) * n); // conservative Float64
+                        fieldDescriptor = FieldDescriptor_Old.Fixed(name, sizeof(long) * n); // conservative Float64
                         return;
                     }
 
@@ -173,12 +173,12 @@ namespace Amlos.Container.Serialization
                         {
                             // Char16 scalar (2B)
                             hint = Pack(ValueType.Char16, true);
-                            fieldDescriptor = FieldDescriptor.Type<char>(name); // conservative Float64
+                            fieldDescriptor = FieldDescriptor_Old.Type<char>(name); // conservative Float64
                             return;
                         }
 
                         hint = Pack(ValueType.Char16, true);
-                        fieldDescriptor = FieldDescriptor.ArrayOf<char>(name, s.Length); // Char16 array
+                        fieldDescriptor = FieldDescriptor_Old.ArrayOf<char>(name, s.Length); // Char16 array
                         return;
                     }
 
@@ -188,20 +188,20 @@ namespace Amlos.Container.Serialization
                         if (pv.IsBoolean())
                         {
                             hint = Pack(ValueType.Bool, false);
-                            fieldDescriptor = FieldDescriptor.Type<bool>(name);
+                            fieldDescriptor = FieldDescriptor_Old.Type<bool>(name);
                             return;
                         }
                         else
                         if (pv.IsDecimal())
                         {
                             hint = Pack(ValueType.Float64, false);
-                            fieldDescriptor = FieldDescriptor.Type<double>(name);
+                            fieldDescriptor = FieldDescriptor_Old.Type<double>(name);
                             return;
                         }
                         else if (pv.IsIntegral())
                         {
                             hint = Pack(ValueType.Int64, false);
-                            fieldDescriptor = FieldDescriptor.Type<long>(name);
+                            fieldDescriptor = FieldDescriptor_Old.Type<long>(name);
                             return;
                         }
                         break;
@@ -210,7 +210,7 @@ namespace Amlos.Container.Serialization
 
             // Fallback: unknown/unsupported ¡ú zero-length field (safe no-op)
             hint = 0;
-            fieldDescriptor = FieldDescriptor.Fixed(name, 0);
+            fieldDescriptor = FieldDescriptor_Old.Fixed(name, 0);
             return;
         }
 
@@ -387,10 +387,9 @@ namespace Amlos.Container.Serialization
             using var obj = writer.WriteObjectScope();
 
             // Iterate fields in layout order; if you need name order do it at build time.
-            var schema = value.Schema;
-            for (int i = 0; i < schema.Fields.Count; i++)
+            for (int i = 0; i < value.FieldCount; i++)
             {
-                var field = schema.Fields[i];
+                var field = value.GetField(i);
                 var fieldName = field.Name;
 
                 byte hint = value.HeaderSegment[i];
@@ -500,7 +499,7 @@ namespace Amlos.Container.Serialization
 
         // 3) Unknown bytes ¡ª always emit as byte array (no base64, per your rule)
 
-        private void WriteUnknownBytes(JsonWriter writer, StorageObject value, FieldDescriptor field)
+        private void WriteUnknownBytes(JsonWriter writer, StorageObject value, FieldInfo field)
         {
             using var arr = writer.WriteArrayScope();
             var bytes = value.GetArray<byte>(field.Name).AsSpan();

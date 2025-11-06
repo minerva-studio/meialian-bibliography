@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -11,28 +12,43 @@ namespace Amlos.Container
     /// </summary>
     internal sealed partial class Container : IDisposable
     {
-        private Schema _schema;
-        private byte[] _buffer;        // exact size == _schema.Stride (or Array.Empty for 0)
-        private bool _disposed;
+        public const int Version = 0;
+        private static readonly ArrayPool<byte> DefaultPool = ArrayPool<byte>.Create();
 
-        public Schema Schema => _schema;
+
+        [Obsolete]
+        private Schema_Old _schema;
+
+        private byte[] _buffer;         // exact size == _schema.Stride (or Array.Empty for 0)
+        private bool _disposed;
+        private ulong _id;              // assigned by registry
+
+        /// <summary> object id </summary>
+        internal ulong ID => _id;
+
+
+        [Obsolete]
+        public Schema_Old Schema => _schema;
 
         /// <summary>Logical length in bytes (== Schema.Stride).</summary>
-        public int Length => Schema.Stride;
+        public int Length => _buffer.Length;
+
+        public int FieldCount => View.FieldCount;
+
+        public ContainerView View => new ContainerView(_buffer);
 
         /// <summary>Logical memory slice [0..Stride).</summary>
-        public Span<byte> Span { get { EnsureNotDisposed(); return span; } }
+        public Span<byte> Span => _buffer;
 
         /// <summary>Data slice [DataBase..Stride).</summary>
-        public Span<byte> DataSegment { get { EnsureNotDisposed(); return span[_schema.DataBase..]; } }
+        public Span<byte> DataSegment => View.DataSegment;
 
         /// <summary>Per-container 1B-per-field type hints stored at the header.</summary>
-        public Span<byte> HeaderSegment => span[.._schema.HeaderSize];
+        [Obsolete]
+        public Span<byte> HeaderSegment_Old => Span[.._schema.HeaderSize];
 
-        /// <summary> Shortcut </summary>
-        private Span<byte> span => _buffer;
-
-        private Header Header => new(HeaderSegment);
+        [Obsolete]
+        private Header Header_Old => new(HeaderSegment_Old);
 
 
 
@@ -40,7 +56,8 @@ namespace Amlos.Container
         /// <summary>
         /// Create a container 
         /// </summary> 
-        private Container(Schema schema, bool zeroInit = true)
+        [Obsolete]
+        private Container(Schema_Old schema, bool zeroInit = true)
         {
             _schema = schema ?? throw new ArgumentNullException(nameof(schema));
 
@@ -65,30 +82,68 @@ namespace Amlos.Container
         /// <summary>
         /// Create a container; rent from schema's pool
         /// </summary>
-        private Container(Schema schema) : this(schema, zeroInit: true) { }
+        [Obsolete]
+        private Container(Schema_Old schema) : this(schema, zeroInit: true) { }
 
         /// <summary>
         /// Create a container initialized with provided bytes (length must equal stride).
         /// </summary>
-        private Container(Schema schema, ReadOnlySpan<byte> source)
+        [Obsolete]
+        private Container(Schema_Old schema, ReadOnlySpan<byte> source)
             : this(schema, zeroInit: false)
         {
             if (source.Length != Length)
                 throw new ArgumentException($"Source length {source.Length} must equal schema stride {Length}.", nameof(source));
-            source.CopyTo(span);
+            source.CopyTo(Span);
+        }
+
+        /// <summary>
+        /// Create an empty container (for internal use only).
+        /// </summary>
+        private Container()
+        {
+            // mark disposed, since not usable
+            _disposed = true;
+        }
+
+        /// <summary>
+        /// Create an empty, uninitialized container of the given size.
+        /// </summary>
+        /// <param name="size"></param>
+        /// <param name="zeroInit"></param>
+        private Container(int size)
+        {
+            Initialize(size);
+        }
+
+
+
+
+        private void Initialize(int size)
+        {
+            if (size < ContainerHeader.Size)
+                size = ContainerHeader.Size;
+
+            _buffer = DefaultPool.Rent((int)size);
+            _disposed = false;
         }
 
         public void Dispose()
         {
+            // never dispose empty
+            if (ID == Registry.ID.Empty) return;
+
             if (_disposed) return;
+
+            // set disposed
             _disposed = true;
 
+            // return buffer to pool
             if (_buffer.Length != 0 && !ReferenceEquals(_buffer, Array.Empty<byte>()))
             {
                 // Clear only the logical slice (avoid clearing entire array for perf)
-                _schema.Pool.Return(_buffer);
+                DefaultPool.Return(_buffer);
             }
-
             _buffer = Array.Empty<byte>();
         }
 
@@ -99,24 +154,25 @@ namespace Amlos.Container
 
 
 
+        public int IndexOf(ReadOnlySpan<char> fieldName)
+        {
+            EnsureNotDisposed();
+            return View.IndexOf(fieldName);
+        }
+
+
         #region Byte-span accessors
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private Span<byte> GetSpan(int offset, int length) => span.Slice(offset, length);
+        private Span<byte> GetSpan(int offset, int length) => _buffer.AsSpan(offset, length);
 
         /// <summary>Returns a writable span for the given field.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Span<byte> GetSpan(int fieldIndex) => GetSpan(Schema.Fields[fieldIndex]);
+        public Span<byte> GetSpan(int fieldIndex) => View.GetFieldBytes(fieldIndex);
 
         /// <summary>Returns a writable span for the given field.</summary>
-        private Span<byte> GetSpan(in FieldDescriptor field)
-        {
-            EnsureNotDisposed();
-            return GetSpan(field.Offset, field.AbsLength);
-        }
-
-        /// <summary>Returns a read-only span for the given field.</summary>
-        private ReadOnlySpan<byte> GetReadOnlySpan(FieldDescriptor field) => GetSpan(field);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Span<byte> GetReadOnlySpan(int fieldIndex) => GetSpan(fieldIndex);
 
         /// <summary>Returns a read-only span for the given field.</summary>
         public Span<T> GetSpan<T>(int index) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetSpan(index));
@@ -124,15 +180,30 @@ namespace Amlos.Container
         /// <summary>Returns a read-only span for the given field.</summary>
         public ReadOnlySpan<T> GetReadOnlySpan<T>(int index) where T : unmanaged => GetSpan<T>(index);
 
-        public Span<byte> GetSpan(string fieldName) => GetSpan(_schema.GetField(fieldName));
+        public Span<byte> GetSpan(ReadOnlySpan<char> fieldName) => GetSpan(IndexOf(fieldName));
 
-        public ReadOnlySpan<byte> GetReadOnlySpan(string fieldName) => GetReadOnlySpan(_schema.GetField(fieldName));
+        public ReadOnlySpan<byte> GetReadOnlySpan(ReadOnlySpan<char> fieldName) => GetReadOnlySpan<byte>(IndexOf(fieldName));
 
         /// <summary>Returns a read-only span for the given field.</summary>
         public Span<T> GetSpan<T>(string fieldName) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetSpan(fieldName));
 
         /// <summary>Returns a read-only span for the given field.</summary>
         public ReadOnlySpan<T> GetReadOnlySpan<T>(string fieldName) where T : unmanaged => GetSpan<T>(fieldName);
+
+
+
+        /// <summary>Returns a writable span for the given field.</summary>
+        [Obsolete]
+        private Span<byte> GetSpan(in FieldDescriptor_Old field)
+        {
+            EnsureNotDisposed();
+            return GetSpan(field.Offset, field.AbsLength);
+        }
+
+        /// <summary>Returns a read-only span for the given field.</summary>
+        [Obsolete]
+        private ReadOnlySpan<byte> GetReadOnlySpan(FieldDescriptor_Old field) => GetSpan(field);
+
         #endregion
 
 
@@ -140,33 +211,39 @@ namespace Amlos.Container
 
         public void WriteBytes(string fieldName, ReadOnlySpan<byte> src)
         {
-            var f = _schema.GetField(fieldName);
-            if (src.Length != f.AbsLength)
+            var index = IndexOf(fieldName);
+            var f = View.Fields[index];
+            if (src.Length != f.Length)
                 throw new ArgumentException($"Source length {src.Length} must equal field length {f.Length}.", nameof(src));
-            src.CopyTo(GetSpan(f));
+            src.CopyTo(GetSpan(index));
         }
 
         public void ReadBytes(string fieldName, Span<byte> dst)
         {
-            var f = _schema.GetField(fieldName);
-            if (dst.Length != f.AbsLength)
+            var index = IndexOf(fieldName);
+            var f = View.Fields[index];
+            if (dst.Length != f.Length)
                 throw new ArgumentException($"Destination length {dst.Length} must equal field length {f.Length}.", nameof(dst));
-            GetReadOnlySpan(f).CopyTo(dst);
+            GetReadOnlySpan(index).CopyTo(dst);
         }
 
         public bool TryWriteBytes(string fieldName, ReadOnlySpan<byte> src)
         {
-            if (!_schema.TryGetField(fieldName, out var f)) return false;
-            if (src.Length != f.AbsLength) return false;
-            src.CopyTo(GetSpan(f));
+            var index = IndexOf(fieldName);
+            if (index < 0) return false;
+            var f = View.Fields[index];
+            if (src.Length != f.Length) return false;
+            src.CopyTo(GetSpan(index));
             return true;
         }
 
         public bool TryReadBytes(string fieldName, Span<byte> dst)
         {
-            if (!_schema.TryGetField(fieldName, out var f)) return false;
-            if (dst.Length != f.AbsLength) return false;
-            GetReadOnlySpan(f).CopyTo(dst);
+            var index = IndexOf(fieldName);
+            if (index < 0) return false;
+            var f = View.Fields[index];
+            if (dst.Length != f.Length) return false;
+            GetReadOnlySpan(index).CopyTo(dst);
             return true;
         }
 
@@ -180,7 +257,7 @@ namespace Amlos.Container
             EnsureNotDisposed();
 
             // nonexist
-            var index = _schema.IndexOf(fieldName);
+            var index = IndexOf(fieldName);
             if (index < 0)
             {
                 if (allowRescheme)
@@ -194,7 +271,7 @@ namespace Amlos.Container
         public bool TryWrite<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged
         {
             // nonexist
-            var index = _schema.IndexOf(fieldName);
+            var index = IndexOf(fieldName);
             if (index < 0) return false;
             return TryWrite_Internal(index, value, allowRescheme) == 0;
         }
@@ -202,17 +279,16 @@ namespace Amlos.Container
 
         private void Write_Internal<T>(int index, T value, bool allowRescheme = true) where T : unmanaged
         {
-            var f = Schema.Fields[index];
             switch (TryWrite_Internal(index, value, allowRescheme))
             {
                 case 0:
                     return;
                 case 1:
-                    throw new ArgumentException($"Type {typeof(T).Name} cannot cast to {TypeUtil.PrimOf(HeaderSegment[index])}.", nameof(value));
+                    throw new ArgumentException($"Type {typeof(T).Name} cannot cast to {View[index].Type}.", nameof(value));
                 case 2:
-                    throw new ArgumentException($"Type {typeof(T).Name} exceeds field length and cannot write into {f.Name} without rescheme.", nameof(value));
+                    throw new ArgumentException($"Type {typeof(T).Name} exceeds field length and cannot write into {View.GetFieldName(index).ToString()} without rescheme.", nameof(value));
                 default:
-                    throw new ArgumentException($"Type {typeof(T).Name} cannot write to {TypeUtil.PrimOf(HeaderSegment[index])}.", nameof(value));
+                    throw new ArgumentException($"Type {typeof(T).Name} cannot write to {View[index].Type}.", nameof(value));
             }
         }
         private int TryWrite_Internal<T>(int index, T value, bool allowRescheme = true) where T : unmanaged
@@ -221,7 +297,7 @@ namespace Amlos.Container
                 return 0;
 
             int sz = Unsafe.SizeOf<T>();
-            var f = Schema.Fields[index];
+            var f = View.Fields[index];
             // same size, override 
             if (f.Length == sz)
             {
@@ -244,16 +320,16 @@ namespace Amlos.Container
         }
         private void ReschemeAndWrite<T>(int index, T value) where T : unmanaged
         {
-            var f = Schema.Fields[index];
-            index = ReschemeFor<T>(f.Name);
+            var f = View.Fields[index];
+            index = ReschemeFor<T>(View.GetFieldName(index));
 
             // update to new field
             Write_Override(index, value);
         }
         private void Write_Override<T>(int index, T value) where T : unmanaged
         {
-            var f = Schema.Fields[index];
-            var span = GetSpan(in f);
+            var f = View[index];
+            var span = f.Data;
             if (Unsafe.SizeOf<T>() < f.Length) span.Clear(); // avoid stale trailing bytes
             MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
             SetScalarType<T>(index);
@@ -281,7 +357,7 @@ namespace Amlos.Container
         {
             EnsureNotDisposed();
 
-            int index = _schema.IndexOf(fieldName);
+            int index = IndexOf(fieldName);
             if (index < 0)
             {
                 value = default;
@@ -296,25 +372,24 @@ namespace Amlos.Container
 
         public T Read_Unsafe<T>(string fieldName) where T : unmanaged
         {
-            return Read_Unsafe<T>(_schema.IndexOf(fieldName));
+            return Read_Unsafe<T>(IndexOf(fieldName));
         }
 
         private T Read_Unsafe<T>(int index) where T : unmanaged
         {
-            var f = _schema.Fields[index];
-            return MemoryMarshal.Read<T>(GetReadOnlySpan(f));
+            return MemoryMarshal.Read<T>(View.GetFieldBytes(index));
         }
 
 
         public ValueView GetValueView(string fieldName)
         {
-            int index = _schema.IndexOf(fieldName);
-            return new ValueView(GetSpan(index), Header[index].Type);
+            int index = IndexOf(fieldName);
+            return new ValueView(GetSpan(index), View.Fields[index].FieldType.Type);
         }
 
         public ValueView GetValueView(int index)
         {
-            return new ValueView(GetSpan(index), Header[index].Type);
+            return new ValueView(GetSpan(index), View.Fields[index].FieldType.Type);
         }
 
         #endregion
@@ -322,32 +397,39 @@ namespace Amlos.Container
 
         #region Object
 
-        public ref ulong GetRef(string fieldName)
-        {
-            var f = GetFieldIndexOrReschemeObject(fieldName);
-            return ref GetRef(f);
-        }
+        public ref ulong GetRef(string fieldName) => ref GetRef(GetFieldIndexOrReschemeObject(fieldName));
 
-        public ref ulong GetRefNoRescheme(string fieldName) => ref GetRef(_schema.IndexOf(fieldName));
+        public ref ulong GetRefNoRescheme(string fieldName) => ref GetRef(IndexOf(fieldName));
 
         public ref ulong GetRef(int index)
         {
-            var f = _schema.Fields[index];
-            if (!f.IsRef || f.RefCount != 1)
-                throw new ArgumentException($"Field '{f.Name}' is not a single ref slot.");
-            var span = GetSpan(f.Offset, FieldDescriptor.REF_SIZE);
-            return ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, ulong>(span));
+            var f = View.GetField(index);
+            if (!f.IsRef)
+                throw new ArgumentException($"Field '{f.Name.ToString()}' is not a ref slot.");
+            return ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, ulong>(f.Data));
         }
 
-        public Span<ulong> GetRefSpan(string fieldName) => GetRefSpan(_schema.GetField(fieldName));
+        public Span<ulong> GetRefSpan(string fieldName) => GetRefSpan(IndexOf(fieldName));
 
-        public Span<ulong> GetRefSpan(FieldDescriptor f)
+        public Span<ulong> GetRefSpan(int index)
+        {
+            var f = View.GetField(index);
+            if (!f.IsRef) throw new ArgumentException($"Field '{f.Name.ToString()}' is not a ref field.");
+            if (f.Length % FieldDescriptor_Old.REF_SIZE != 0)
+                throw new ArgumentException($"Field '{f.Name.ToString()}' byte length is not multiple of {FieldDescriptor_Old.REF_SIZE}.");
+            return MemoryMarshal.Cast<byte, ulong>(f.Data);
+        }
+
+        [Obsolete]
+        public Span<ulong> GetRefSpan(FieldDescriptor_Old f)
         {
             if (!f.IsRef) throw new ArgumentException($"Field '{f.Name}' is not a ref field.");
-            if (f.AbsLength % FieldDescriptor.REF_SIZE != 0)
-                throw new ArgumentException($"Field '{f.Name}' byte length is not multiple of {FieldDescriptor.REF_SIZE}.");
+            if (f.AbsLength % FieldDescriptor_Old.REF_SIZE != 0)
+                throw new ArgumentException($"Field '{f.Name}' byte length is not multiple of {FieldDescriptor_Old.REF_SIZE}.");
             return MemoryMarshal.Cast<byte, ulong>(GetSpan(f));
         }
+
+
 
         public void WriteObject(string fieldName, Container container)
         {
@@ -361,7 +443,7 @@ namespace Amlos.Container
         #region Type Hint
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private ref byte HintRef(int fieldIndex) => ref HeaderSegment[fieldIndex];
+        private ref FieldType HintRef(int fieldIndex) => ref View[fieldIndex].Header.FieldType;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void SetScalarType<T>(int fieldIndex) where T : unmanaged
@@ -383,14 +465,14 @@ namespace Amlos.Container
         public void Clear()
         {
             EnsureNotDisposed();
-            span.Clear();
+            Span.Clear();
         }
 
         public Container Clone()
         {
             EnsureNotDisposed();
-            var c = new Container(_schema, zeroInit: false);
-            span.CopyTo(c.span);
+            var c = new Container(Length);
+            Span.CopyTo(c.Span);
             return c;
         }
 
@@ -398,10 +480,9 @@ namespace Amlos.Container
         {
             EnsureNotDisposed();
             if (other is null) throw new ArgumentNullException(nameof(other));
-            if (!ReferenceEquals(_schema, other._schema) && !_schema.Equals(other._schema))
-                throw new ArgumentException("Schema mismatch. Copy requires identical schema.", nameof(other));
-
-            other.span.CopyTo(span);
+            if (Length < other.Length)
+                throw new ArgumentException($"Destination length {Length} is smaller than source length {other.Length}.", nameof(other));
+            other.Span.CopyTo(Span);
         }
 
         public void CopyTo(Span<byte> destination)
@@ -409,15 +490,15 @@ namespace Amlos.Container
             EnsureNotDisposed();
             if (destination.Length != Length)
                 throw new ArgumentException($"Destination length {destination.Length} must equal {Length}.", nameof(destination));
-            span.CopyTo(destination);
+            Span.CopyTo(destination);
         }
 
         #endregion
 
 
-        #region Create
+        #region Create Old
 
-        public static Container CreateAt(ref ulong position, Schema schema)
+        public static Container CreateAt(ref ulong position, Schema_Old schema)
         {
             if (schema is null) throw new ArgumentNullException(nameof(schema));
 
@@ -441,7 +522,7 @@ namespace Amlos.Container
         /// <param name="position"></param>
         /// <param name="schema"></param>
         /// <exception cref="ArgumentNullException"></exception>
-        public static Container CreateAt(ref ulong position, Schema schema, ReadOnlySpan<byte> span)
+        public static Container CreateAt(ref ulong position, Schema_Old schema, ReadOnlySpan<byte> span)
         {
             if (schema is null) throw new ArgumentNullException(nameof(schema));
 
@@ -465,7 +546,7 @@ namespace Amlos.Container
         /// <param name="position"></param>
         /// <param name="schema"></param>
         /// <exception cref="ArgumentNullException"></exception>
-        public static Container CreateWild(Schema schema)
+        public static Container CreateWild(Schema_Old schema)
         {
             if (schema is null) throw new ArgumentNullException(nameof(schema));
             Container newContainer = new(schema);
@@ -479,7 +560,7 @@ namespace Amlos.Container
         /// <param name="position"></param>
         /// <param name="schema"></param>
         /// <exception cref="ArgumentNullException"></exception>
-        public static Container CreateWild(Schema schema, ReadOnlySpan<byte> span)
+        public static Container CreateWild(Schema_Old schema, ReadOnlySpan<byte> span)
         {
             if (schema is null) throw new ArgumentNullException(nameof(schema));
             Container newContainer = new(schema, span);
@@ -489,17 +570,17 @@ namespace Amlos.Container
 
         #endregion
 
-
         public override string ToString()
         {
             StringBuilder sb = new();
             sb.Append("{");
-            for (int i = 0; i < _schema.Fields.Count; i++)
+            for (int i = 0; i < View.FieldCount; i++)
             {
+                var field = View[i];
                 var valueView = GetValueView(i);
                 sb.AppendLine();
                 sb.Append("\"");
-                sb.Append(_schema.Fields[i].Name);
+                sb.Append(field.Name);
                 sb.Append("\"");
                 sb.Append(": ");
                 sb.Append(valueView.ToString());

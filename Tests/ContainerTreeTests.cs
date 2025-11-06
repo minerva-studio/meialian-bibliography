@@ -6,8 +6,8 @@ namespace Amlos.Container.Tests
     [TestFixture]
     public class ContainerTreeTests
     {
-        private Schema _nodeSchema_1Child;
-        private Schema _nodeSchema_3Children;
+        private Schema_Old _nodeSchema_1Child;
+        private Schema_Old _nodeSchema_3Children;
 
         [SetUp]
         public void Setup()

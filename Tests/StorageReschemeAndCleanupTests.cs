@@ -8,10 +8,10 @@ namespace Amlos.Container.Tests
     public class StorageReschemeAndCleanupTests
     {
         // root: int hp; ref child; ref-array children[2]; float[4] speeds
-        private Schema _rootSchema;
+        private Schema_Old _rootSchema;
 
         // child: int hp;
-        private Schema _childSchema;
+        private Schema_Old _childSchema;
 
         [SetUp]
         public void Setup()

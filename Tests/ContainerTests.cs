@@ -8,7 +8,7 @@ namespace Amlos.Container.Tests
     [TestFixture]
     public class ContainerTests
     {
-        private static Schema MakeSchema(bool canonicalize, params (string name, int len)[] fields)
+        private static Schema_Old MakeSchema(bool canonicalize, params (string name, int len)[] fields)
         {
             var b = new SchemaBuilder(canonicalizeByName: canonicalize);
             foreach (var (n, l) in fields) b.AddFieldFixed(n, l);
@@ -169,7 +169,7 @@ namespace Amlos.Container.Tests
         [Test]
         public void ZeroStride_UsesEmptyBuffer()
         {
-            var empty = Schema.Empty;
+            var empty = Schema_Old.Empty;
             using var c = Container.CreateWild(empty);
             Assert.That(c.Length, Is.EqualTo(0));
             Assert.That(c.Span.Length, Is.EqualTo(0));

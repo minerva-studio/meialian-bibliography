@@ -10,7 +10,7 @@ namespace Amlos.Container
     /// - Offset is the packed byte offset (>= 0).
     /// Immutable-by-contract: create new instances via factories or WithOffset/WithBaseInfo.
     /// </summary>
-    public readonly struct FieldDescriptor : IEquatable<FieldDescriptor>
+    public readonly struct FieldDescriptor_Old : IEquatable<FieldDescriptor_Old>
     {
         /// <summary>Size, in bytes, of one reference element (a child ID).</summary>
         public const int REF_SIZE = 8;
@@ -35,7 +35,7 @@ namespace Amlos.Container
         /// <summary>True if this is a reference array (2+ elements).</summary>
         public bool IsRefArray => IsRef && RefCount > 1;
 
-        private FieldDescriptor(string name, int length, int offset)
+        private FieldDescriptor_Old(string name, int length, int offset)
         {
             Name = name ?? throw new ArgumentNullException(nameof(name));
             Length = length;
@@ -43,10 +43,10 @@ namespace Amlos.Container
         }
 
         /// <summary>Create a copy with a different offset.</summary>
-        public FieldDescriptor WithOffset(int offset) => new FieldDescriptor(Name, Length, offset);
+        public FieldDescriptor_Old WithOffset(int offset) => new FieldDescriptor_Old(Name, Length, offset);
 
         /// <summary>Create a copy with offset of 0 (base info only).</summary>
-        public FieldDescriptor WithBaseInfo() => new FieldDescriptor(Name, Length, 0);
+        public FieldDescriptor_Old WithBaseInfo() => new FieldDescriptor_Old(Name, Length, 0);
 
         public int GetElementCount<T>() where T : unmanaged
         {
@@ -58,25 +58,25 @@ namespace Amlos.Container
 
 
 
-        public bool Equals(FieldDescriptor other)
+        public bool Equals(FieldDescriptor_Old other)
             => Length == other.Length && Offset == other.Offset &&
                string.Equals(Name, other.Name, StringComparison.Ordinal);
 
-        public override bool Equals(object obj) => obj is FieldDescriptor f && Equals(f);
+        public override bool Equals(object obj) => obj is FieldDescriptor_Old f && Equals(f);
 
         public override int GetHashCode() => HashCode.Combine(Name, Offset, Length);
 
-        public static bool operator ==(FieldDescriptor lhs, FieldDescriptor rhs) => lhs.Equals(rhs);
-        public static bool operator !=(FieldDescriptor lhs, FieldDescriptor rhs) => !lhs.Equals(rhs);
+        public static bool operator ==(FieldDescriptor_Old lhs, FieldDescriptor_Old rhs) => lhs.Equals(rhs);
+        public static bool operator !=(FieldDescriptor_Old lhs, FieldDescriptor_Old rhs) => !lhs.Equals(rhs);
 
         // ---------- Factories ----------
 
         /// <summary>Create a fixed-size value field using sizeof(T).</summary>
-        public static FieldDescriptor Type<T>(string name) where T : unmanaged
+        public static FieldDescriptor_Old Type<T>(string name) where T : unmanaged
             => Fixed(name, Unsafe.SizeOf<T>());
 
         /// <summary>Create a fixed-size value array field of T[count].</summary>
-        public static FieldDescriptor ArrayOf<T>(string name, int count) where T : unmanaged
+        public static FieldDescriptor_Old ArrayOf<T>(string name, int count) where T : unmanaged
         {
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
             int elem = Unsafe.SizeOf<T>();
@@ -86,21 +86,21 @@ namespace Amlos.Container
         }
 
         /// <summary>Create a single reference slot (8 bytes).</summary>
-        public static FieldDescriptor Reference(string name) => new FieldDescriptor(name, -REF_SIZE, 0);
+        public static FieldDescriptor_Old Reference(string name) => new FieldDescriptor_Old(name, -REF_SIZE, 0);
 
         /// <summary>Create an array of reference slots (count * 8 bytes).</summary>
-        public static FieldDescriptor ReferenceArray(string name, int count)
+        public static FieldDescriptor_Old ReferenceArray(string name, int count)
         {
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
             long total = (long)REF_SIZE * count;
             if (total > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(count), "Total byte length too large.");
-            return new FieldDescriptor(name, -(int)total, 0);
+            return new FieldDescriptor_Old(name, -(int)total, 0);
         }
 
         /// <summary>Create a fixed-size plain byte field.</summary>
-        public static FieldDescriptor Fixed(string name, int length)
+        public static FieldDescriptor_Old Fixed(string name, int length)
         {
-            return new FieldDescriptor(name, length, 0);
+            return new FieldDescriptor_Old(name, length, 0);
         }
     }
 }

@@ -58,10 +58,10 @@ namespace Amlos.Container.Tests
         {
             // Force a duplicate by bypassing builder¡¯s duplicate guard:
             // Build two identical fields, then manually attempt to create Schema with duplicates.
-            var fd1 = FieldDescriptor.Fixed("dup", 4).WithOffset(0);
-            var fd2 = FieldDescriptor.Fixed("dup", 8).WithOffset(4);
+            var fd1 = FieldDescriptor_Old.Fixed("dup", 4).WithOffset(0);
+            var fd2 = FieldDescriptor_Old.Fixed("dup", 8).WithOffset(4);
 
-            Assert.That(() => new Schema(new[] { fd1, fd2 }, stride: 12),
+            Assert.That(() => new Schema_Old(new[] { fd1, fd2 }, stride: 12),
                 Throws.TypeOf<ArgumentException>().With.Message.Contains("Duplicate field name"));
         }
     }

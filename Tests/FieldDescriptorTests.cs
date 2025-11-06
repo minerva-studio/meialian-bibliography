@@ -9,7 +9,7 @@ namespace Amlos.Container.Tests
         [Test]
         public void FromFixed_SetsNameAndLength()
         {
-            var f = FieldDescriptor.Fixed("hp", 4);
+            var f = FieldDescriptor_Old.Fixed("hp", 4);
             Assert.That(f.Name, Is.EqualTo("hp"));
             Assert.That(f.Length, Is.EqualTo(4));
             Assert.That(f.Offset, Is.EqualTo(0)); // default until builder assigns
@@ -18,8 +18,8 @@ namespace Amlos.Container.Tests
         [Test]
         public void FromType_UsesSizeOfT()
         {
-            var fI32 = FieldDescriptor.Type<int>("i32");
-            var fF32 = FieldDescriptor.Type<float>("f32");
+            var fI32 = FieldDescriptor_Old.Type<int>("i32");
+            var fF32 = FieldDescriptor_Old.Type<float>("f32");
             Assert.That(fI32.Length, Is.EqualTo(4));
             Assert.That(fF32.Length, Is.EqualTo(4));
         }
@@ -27,7 +27,7 @@ namespace Amlos.Container.Tests
         [Test]
         public void Clone_CopiesNameAndLength_OffsetIsIndependent()
         {
-            var f = FieldDescriptor.Fixed("x", 8).WithOffset(16);
+            var f = FieldDescriptor_Old.Fixed("x", 8).WithOffset(16);
 
             var c = f.WithBaseInfo();
             Assert.That(c.Name, Is.EqualTo("x"));
@@ -38,9 +38,9 @@ namespace Amlos.Container.Tests
         [Test]
         public void Equality_ComparesNameLengthOffset()
         {
-            var a = FieldDescriptor.Fixed("a", 4).WithOffset(0);
-            var b = FieldDescriptor.Fixed("a", 4).WithOffset(0);
-            var c = FieldDescriptor.Fixed("a", 4).WithOffset(4);
+            var a = FieldDescriptor_Old.Fixed("a", 4).WithOffset(0);
+            var b = FieldDescriptor_Old.Fixed("a", 4).WithOffset(0);
+            var c = FieldDescriptor_Old.Fixed("a", 4).WithOffset(4);
 
             Assert.That(a == b, Is.True);
             Assert.That(a.Equals(b), Is.True);
