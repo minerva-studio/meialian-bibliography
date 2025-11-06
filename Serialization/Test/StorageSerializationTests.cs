@@ -38,7 +38,7 @@ namespace Amlos.Container.Serialization.Tests
             // speeds = [1.5, 3.33, 2.0, 74.0]
             // TODO: replace with your actual array write API.
             var speeds = new float[] { 1.5f, 3.33f, 2.0f, 74.0f };
-            StorageArray<float> storageArray = root.GetArray<float>("speeds");
+            StorageInlineArray<float> storageArray = root.GetArray<float>("speeds");
             MemoryExtensions.CopyTo(speeds, storageArray.AsSpan());
 
             var parameters = new JsonSerializationParameters

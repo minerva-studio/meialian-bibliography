@@ -29,9 +29,14 @@ namespace Amlos.Container
         /// <summary>
         /// True if this StorageObject represents a single string field, then this container is really just a string.
         /// </summary>
-        public bool IsString => Schema.Fields.Count == 1 && !Schema.Fields[0].IsRef && TypeUtil.PrimOf(HeaderHints[0]) == ValueType.Char16;
+        public bool IsString => IsArray && TypeUtil.PrimOf(_container.HeaderSegment[0]) == ValueType.Char16;
 
-        internal Span<byte> HeaderHints => _container.HeaderSegment;
+        /// <summary>
+        /// Is an array object
+        /// </summary>
+        public bool IsArray => Schema.Fields.Count == 1 && TypeUtil.IsArray(_container.HeaderSegment[0]);
+
+        internal Span<byte> HeaderSegment => _container.HeaderSegment;
 
 
 
@@ -170,13 +175,9 @@ namespace Amlos.Container
 
 
 
-        public void WriteString(string fieldName, ReadOnlySpan<char> value) => GetObject(fieldName).WriteString(value);
+        public void WriteString(string fieldName, ReadOnlySpan<char> value) => GetObject(fieldName).WriteArray(value);
 
-        public void WriteString(ReadOnlySpan<char> value)
-        {
-            Rescheme(SchemaBuilder.BuildString(value.Length));
-            value.CopyTo(_container.GetSpan<char>(_container.Schema.Fields[0]));
-        }
+        public void WriteString(ReadOnlySpan<char> value) => WriteArray(value);
 
         /// <summary>
         /// Read as a string (UTF-16)
@@ -193,7 +194,39 @@ namespace Amlos.Container
             if (!IsString)
                 throw new InvalidOperationException("This StorageObject does not represent a single string field.");
 
-            return new(_container.GetReadOnlySpan<char>(Schema.Fields[0]));
+            return new(_container.GetReadOnlySpan<char>(0));
+        }
+
+
+
+
+        public void WriteArray<T>(string fieldName, ReadOnlySpan<T> value) where T : unmanaged => GetObject(fieldName).WriteArray(value);
+
+        public void WriteArray<T>(ReadOnlySpan<T> value) where T : unmanaged
+        {
+            if (!IsArray)
+                throw new InvalidOperationException("This StorageObject does not represent an array.");
+
+            Rescheme(SchemaBuilder.BuildArray<T>(value.Length));
+            value.CopyTo(_container.GetSpan<T>(0));
+        }
+
+        /// <summary>
+        /// Read as a string (UTF-16)
+        /// </summary>
+        /// <returns></returns>
+        public T[] ReadArray<T>(string fieldName) where T : unmanaged => GetObject(fieldName).ReadArray<T>();
+
+        /// <summary>
+        /// Read entire container as a string (UTF-16)
+        /// </summary>
+        /// <returns></returns>
+        public T[] ReadArray<T>() where T : unmanaged
+        {
+            if (!IsString)
+                throw new InvalidOperationException("This StorageObject does not represent a single string field.");
+
+            return _container.GetReadOnlySpan<T>(0).ToArray();
         }
 
 
@@ -217,7 +250,7 @@ namespace Amlos.Container
         /// Get a stack-only view over a value array field T[].
         /// Field must be non-ref and length divisible by sizeof(T).
         /// </summary>
-        public StorageArray<T> GetArray<T>(string fieldName) where T : unmanaged => StorageArray<T>.CreateView(_container, Schema.IndexOf(fieldName));
+        public StorageInlineArray<T> GetArray<T>(string fieldName) where T : unmanaged => StorageInlineArray<T>.CreateView(_container, Schema.IndexOf(fieldName));
 
         /// <summary>
         /// Get a stack-only view over a child reference array (IDs).

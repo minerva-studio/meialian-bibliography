@@ -222,11 +222,6 @@ namespace Amlos.Container
             return b;
         }
 
-        public static Schema BuildString(int length)
-        {
-            return new SchemaBuilder().AddFieldFixed("value", length * sizeof(char)).Build();
-        }
-
         public static Schema FromFields(IEnumerable<FieldDescriptor> newFields)
         {
             var schema = new SchemaBuilder();
@@ -235,6 +230,13 @@ namespace Amlos.Container
                 schema.AddFieldFixed(item.Name, item.Length);
             }
             return schema.Build();
+        }
+
+        public static Schema BuildString(int length) => BuildArray<char>(length);
+
+        public static Schema BuildArray<T>(int length) where T : unmanaged
+        {
+            return new SchemaBuilder().AddFieldFixed("value", length * Unsafe.SizeOf<T>()).Build();
         }
     }
 }

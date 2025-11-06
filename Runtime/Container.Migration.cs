@@ -97,7 +97,7 @@ namespace Amlos.Container
                     newHints[newIdx] = oldHint;
                     // Ref-to-Ref migration unchanged (copy ids, unregister tails)
                     var oldIds = GetRefSpan(oldField);
-                    var newIds = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, ulong>(dstBytes);
+                    var newIds = MemoryMarshal.Cast<byte, ulong>(dstBytes);
 
                     int keep = Math.Min(oldIds.Length, newIds.Length);
                     for (int i = 0; i < keep; i++) newIds[i] = oldIds[i];

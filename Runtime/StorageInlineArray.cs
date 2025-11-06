@@ -9,18 +9,13 @@ namespace Amlos.Container
     /// - Field byte length must be a multiple of sizeof(T).
     /// - No heap allocation; wraps a Span<T>.
     /// </summary>
-    public readonly ref struct StorageArray<T> where T : unmanaged
+    public readonly ref struct StorageInlineArray<T> where T : unmanaged
     {
         private readonly Span<T> _span;
 
-        internal StorageArray(Container container, FieldDescriptor field)
+        internal StorageInlineArray(Span<T> span)
         {
-            if (field.IsRef)
-                throw new ArgumentException($"Field '{field.Name}' is a reference field; use StorageObjectArray instead.");
-            int sz = Unsafe.SizeOf<T>();
-            if (field.AbsLength % sz != 0)
-                throw new ArgumentException($"Field '{field.Name}' length {field.AbsLength} is not divisible by sizeof({typeof(T).Name})={sz}.");
-            _span = container.GetSpan<T>(field); // Container-level guard already rejects ref fields
+            _span = span; // Container-level guard already rejects ref fields
         }
 
         /// <summary>Number of T elements.</summary>
@@ -37,7 +32,7 @@ namespace Amlos.Container
 
 
 
-        internal static StorageArray<T> CreateView(Container container, int index)
+        internal static StorageInlineArray<T> CreateView(Container container, int index)
         {
             // Ensure the field exists and matches an array of T (self-heal if needed)
             //container.EnsureArrayFor<T>(fieldName);
@@ -45,8 +40,14 @@ namespace Amlos.Container
 
             var field = container.Schema.Fields[index];
 
+            if (field.IsRef)
+                throw new ArgumentException($"Field '{field.Name}' is a reference field; use StorageObjectArray instead.");
+            int sz = Unsafe.SizeOf<T>();
+            if (field.AbsLength % sz != 0)
+                throw new ArgumentException($"Field '{field.Name}' length {field.AbsLength} is not divisible by sizeof({typeof(T).Name})={sz}.");
+
             // produce view and mark array hint
-            StorageArray<T> view = new(container, field);
+            StorageInlineArray<T> view = new(container.GetSpan<T>(index));
             container.SetArrayType<T>(index); // your existing API to set Pack(PrimOf<T>(), isArray:true)
             return view;
         }

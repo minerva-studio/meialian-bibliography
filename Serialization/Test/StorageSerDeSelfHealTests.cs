@@ -158,10 +158,10 @@ namespace Amlos.Container.Serialization.Tests
 
             var s2 = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var r2 = s2.Root;
-            Debug.Log(string.Join(',', r2.HeaderHints.ToArray().Select(s => TypeUtil.ToString(s))));
+            Debug.Log(string.Join(',', r2.HeaderSegment.ToArray().Select(s => TypeUtil.ToString(s))));
 
             Assert.That(r2.Read<int>("hp"), Is.EqualTo(123));
-            Debug.Log(string.Join(',', r2.HeaderHints.ToArray().Select(s => TypeUtil.ToString(s))));
+            Debug.Log(string.Join(',', r2.HeaderSegment.ToArray().Select(s => TypeUtil.ToString(s))));
             var sp2 = r2.GetArray<float>("speeds");
             Debug.Log(JsonSerialization.ToJson(s2, ParamsWithAdapter()));
             Debug.Log(string.Join(',', sp2.ToArray()));

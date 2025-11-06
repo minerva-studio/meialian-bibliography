@@ -42,7 +42,7 @@ namespace Amlos.Container.Serialization
             target.Rescheme(schema);
             foreach (var (name, t) in types)
             {
-                target.HeaderHints[schema.IndexOf(name)] = t;
+                target.HeaderSegment[schema.IndexOf(name)] = t;
             }
 
 
@@ -393,7 +393,7 @@ namespace Amlos.Container.Serialization
                 var field = schema.Fields[i];
                 var fieldName = field.Name;
 
-                byte hint = value.HeaderHints[i];
+                byte hint = value.HeaderSegment[i];
                 var vt = TypeUtil.PrimOf(hint);
                 bool isArray = TypeUtil.IsArray(hint);
 

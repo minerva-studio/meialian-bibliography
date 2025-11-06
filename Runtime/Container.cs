@@ -109,20 +109,20 @@ namespace Amlos.Container
         public Span<byte> GetSpan(int fieldIndex) => GetSpan(Schema.Fields[fieldIndex]);
 
         /// <summary>Returns a writable span for the given field.</summary>
-        public Span<byte> GetSpan(in FieldDescriptor field)
+        private Span<byte> GetSpan(in FieldDescriptor field)
         {
             EnsureNotDisposed();
             return GetSpan(field.Offset, field.AbsLength);
         }
 
         /// <summary>Returns a read-only span for the given field.</summary>
-        public ReadOnlySpan<byte> GetReadOnlySpan(FieldDescriptor field) => GetSpan(field);
+        private ReadOnlySpan<byte> GetReadOnlySpan(FieldDescriptor field) => GetSpan(field);
 
         /// <summary>Returns a read-only span for the given field.</summary>
-        public Span<T> GetSpan<T>(FieldDescriptor field) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetSpan(field));
+        public Span<T> GetSpan<T>(int index) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetSpan(index));
 
         /// <summary>Returns a read-only span for the given field.</summary>
-        public ReadOnlySpan<T> GetReadOnlySpan<T>(FieldDescriptor field) where T : unmanaged => GetSpan<T>(field);
+        public ReadOnlySpan<T> GetReadOnlySpan<T>(int index) where T : unmanaged => GetSpan<T>(index);
 
         public Span<byte> GetSpan(string fieldName) => GetSpan(_schema.GetField(fieldName));
 
