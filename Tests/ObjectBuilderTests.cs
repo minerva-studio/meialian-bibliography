@@ -110,7 +110,7 @@ namespace Amlos.Container.Tests
             var view = c.View;
             Assert.AreEqual(1, view.FieldCount);
             var f = view.Fields[0];
-            Assert.True(f.FieldType.IsArray, "Should be marked as array.");
+            Assert.True(f.FieldType.IsInlineArray, "Should be marked as array.");
             Assert.AreEqual(sizeof(int), f.ElemSize);
             Assert.AreEqual(arr.Length * sizeof(int), f.Length);
 
@@ -217,9 +217,9 @@ namespace Amlos.Container.Tests
             Assert.AreEqual(3, v.FieldCount);
 
             // Resolve indices by name (do not assume insertion order)
-            int iHp = v.IndexOf("hp".AsSpan());
-            int iScores = v.IndexOf("scores".AsSpan());
-            int iTicks = v.IndexOf("ticks".AsSpan());
+            int iHp = v.IndexOf("hp");
+            int iScores = v.IndexOf("scores");
+            int iTicks = v.IndexOf("ticks");
 
             Assert.GreaterOrEqual(iHp, 0);
             Assert.GreaterOrEqual(iScores, 0);
@@ -309,7 +309,7 @@ namespace Amlos.Container.Tests
             var iScores = v.IndexOf("scores".AsSpan());
             Assert.AreEqual(3 * sizeof(int), v.Fields[iScores].Length);
             Assert.AreEqual(sizeof(int), v.Fields[iScores].ElemSize);
-            Assert.IsTrue(v.Fields[iScores].FieldType.IsArray);
+            Assert.IsTrue(v.Fields[iScores].FieldType.IsInlineArray);
 
             var iChild = v.IndexOf("child".AsSpan());
             Assert.IsTrue(v.Fields[iChild].IsRef);
@@ -317,7 +317,7 @@ namespace Amlos.Container.Tests
 
             var iChildren = v.IndexOf("children".AsSpan());
             Assert.IsTrue(v.Fields[iChildren].IsRef);
-            Assert.IsTrue(v.Fields[iChildren].FieldType.IsArray);
+            Assert.IsTrue(v.Fields[iChildren].FieldType.IsInlineArray);
             Assert.AreEqual(2 * 8, v.Fields[iChildren].Length);
         }
     }

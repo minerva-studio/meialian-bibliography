@@ -221,7 +221,7 @@ namespace Amlos.Container.Serialization
 
                 var t = field.FieldHeader.FieldType;
                 var vt = t.Type;
-                bool isArray = t.IsArray;
+                bool isArray = t.IsInlineArray;
 
                 // Always write the key for now (no omit-default policy here)
                 writer.WriteKey(fieldName);

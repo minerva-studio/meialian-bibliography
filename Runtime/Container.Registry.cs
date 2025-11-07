@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 
 namespace Amlos.Container
@@ -209,7 +210,7 @@ namespace Amlos.Container
                 return container;
             }
 
-            public Container CreateWild(ContainerLayout layout) => CreateWild(layout, false);
+            public Container CreateWild(ContainerLayout layout) => CreateWild(layout, true);
             public Container CreateWild(ContainerLayout layout, bool zero)
             {
                 var container = CreateWild(layout.TotalLength);
@@ -245,10 +246,11 @@ namespace Amlos.Container
     /// </summary>
     public sealed class ObjectPool<T>
     {
-        private readonly Stack<T> _stack;
+        private readonly ConcurrentStack<T> _stack;
         private readonly Func<T> _factory;
         private readonly Action<T> _reset;
         private readonly int _maxSize; // 0 or negative => unbounded
+        private readonly object _lock = new object();
 
         /// <summary>
         /// Create a pool.
@@ -263,11 +265,11 @@ namespace Amlos.Container
         /// Optional cap for the number of cached instances (0 or negative = unbounded).
         /// Returned instances beyond this cap are simply dropped.
         /// </param>
-        public ObjectPool(Func<T> factory, Action<T>? reset = null, int initialCapacity = 0, int maxSize = 0)
+        public ObjectPool(Func<T> factory, Action<T> reset = null, int maxSize = 0)
         {
             _factory = factory ?? throw new ArgumentNullException(nameof(factory));
             _reset = reset;
-            _stack = initialCapacity > 0 ? new Stack<T>(initialCapacity) : new Stack<T>();
+            _stack = new();
             _maxSize = maxSize;
         }
 
@@ -277,7 +279,14 @@ namespace Amlos.Container
         /// <summary>
         /// Get an instance from the pool or create a new one via factory when empty.
         /// </summary>
-        public T Rent() => _stack.Count > 0 ? _stack.Pop() : _factory();
+        public T Rent()
+        {
+            if (_stack.TryPop(out var t))
+            {
+                return t;
+            }
+            return _factory();
+        }
 
         /// <summary>
         /// Return an instance to the pool. If maxSize is set and reached, the instance is dropped.
@@ -288,9 +297,15 @@ namespace Amlos.Container
             _reset?.Invoke(instance);
 
             if (_maxSize > 0 && _stack.Count >= _maxSize)
-                return; // drop excess to keep pool small
+                return;
 
-            _stack.Push(instance);
+            lock (_lock)
+            {
+                if (_maxSize <= 0 || _stack.Count < _maxSize)
+                {
+                    _stack.Push(instance);
+                }
+            }
         }
 
         /// <summary>

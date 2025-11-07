@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Data.SqlTypes;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using static Amlos.Container.TypeUtil;
@@ -42,68 +43,83 @@ namespace Amlos.Container
             newSchema.Span.CopyTo(dst);
 
             // Prepare new header hints (migrate by name)            
-            var newView = new ContainerView(dst);
+            ContainerView newView = new ContainerView(dst);
             ContainerView oldView = View;
 
             // ---- Migrate each old field into new layout ----
             for (int oldIdx = 0; oldIdx < oldView.FieldCount; oldIdx++)
             {
-                var oldField = oldView[oldIdx];
-                byte oldHint = oldField.FieldType;
+                var oldFieldView = oldView[oldIdx];
+                FieldType type = oldFieldView.FieldType;
 
-                var newIdx = newView.IndexOf(oldField.Name);
+                var newIdx = newView.IndexOf(oldFieldView.Name);
                 if (newIdx < 0)
                 {
                     // Removed: if ref, unregister all non-zero children
-                    if (oldField.IsRef)
+                    if (oldFieldView.IsRef)
                     {
-                        var oldIds = oldField.GetSpan<ContainerReference>();
+                        var oldIds = oldFieldView.GetSpan<ContainerReference>();
                         for (int j = 0; j < oldIds.Length; j++)
                             Registry.Shared.Unregister(ref oldIds[j]);
                     }
                     continue;
                 }
 
-                var newField = newView[newIdx];
-                var dstBytes = newField.Data; // NEW buffer slice
-                if (oldField.IsRef != newField.IsRef)
+                ref var newField = ref newView.GetFieldHeader(newIdx);
+                var dstBytes = newView.GetFieldBytes(newIdx); // NEW buffer slice
+
+
+                // diff in ref/non-ref
+                if (oldFieldView.IsRef != newField.IsRef)
                 {
                     // Removed: if ref, unregister all non-zero children
-                    if (oldField.IsRef)
+                    if (oldFieldView.IsRef)
                     {
-                        var oldIds = oldField.GetSpan<ContainerReference>();
+                        var oldIds = oldFieldView.GetSpan<ContainerReference>();
                         for (int j = 0; j < oldIds.Length; j++)
                             Registry.Shared.Unregister(ref oldIds[j]);
                     }
                     dstBytes.Clear();
                     continue;
                 }
-                if (!oldField.IsRef)
+                if (!oldFieldView.IsRef)
                 {
-                    // we dont know what it could be, use unknown for now
+                    var srcBytes = oldFieldView.Data;                 // OLD buffer read-only
+                    // truely same type
+                    // value type the same, but is array/non array, only diff in length (arr or non arr)
+                    if (oldFieldView.Type == newField.Type)
+                    {
+                        // copy as much as possible
+                        int min = Math.Min(srcBytes.Length, dstBytes.Length);
+                        srcBytes[..min].CopyTo(dstBytes[..min]);
+                        continue;
+                    }
+                    // type less store uses this method below but we aren't this now
                     // Value-to-value migration: convert from oldHint -> targetHint
-                    var srcBytes = oldField.Data;                 // OLD buffer read-only
-                    if (srcBytes.Length == dstBytes.Length)
-                    {
-                        newView[newIdx].Header.FieldType = oldHint;
-                        srcBytes.CopyTo(dstBytes);
-                    }
-                    else
-                    {
-                        newView[newIdx].Header.FieldType = Pack(ValueType.Unknown, IsArray(oldHint));
-                    }
+                    //if (srcBytes.Length == dstBytes.Length)
+                    //{
+                    //    newView[newIdx].Header.FieldType = oldHint;
+                    //    srcBytes.CopyTo(dstBytes);
+                    //}
+                    //else
+                    //{
+                    //    newView[newIdx].Header.FieldType = Pack(ValueType.Unknown, IsArray(oldHint));
+                    //}
                 }
                 else
                 {
-                    newView[newIdx].Header.FieldType = oldHint;
+                    //newView[newIdx].Header.FieldType = type;
+                    // copy as much as ref as possible, rest will dispose 
                     // Ref-to-Ref migration unchanged (copy ids, unregister tails)
-                    var oldIds = oldField.GetSpan<ContainerReference>();
-                    var newIds = MemoryMarshal.Cast<byte, ulong>(dstBytes);
+                    var oldIds = oldFieldView.GetSpan<ContainerReference>();
+                    var newIds = MemoryMarshal.Cast<byte, ContainerReference>(dstBytes);
 
-                    int keep = Math.Min(oldIds.Length, newIds.Length);
-                    for (int i = 0; i < keep; i++) newIds[i] = oldIds[i];
-                    for (int i = keep; i < newIds.Length; i++) newIds[i] = 0UL;
-                    for (int i = keep; i < oldIds.Length; i++) Registry.Shared.Unregister(ref oldIds[i]);
+                    int min = Math.Min(oldIds.Length, newIds.Length);
+                    for (int i = 0; i < min; i++) newIds[i] = oldIds[i];
+                    for (int i = min; i < oldIds.Length; i++) Registry.Shared.Unregister(ref oldIds[i]);
+                    //oldIds[..min].CopyTo(newIds[..min]);
+                    //newIds[min..].Clear();
+                    //for (int i = min; i < oldIds.Length; i++) Registry.Shared.Unregister(ref oldIds[i]);
                 }
             }
 
@@ -228,7 +244,7 @@ namespace Amlos.Container
         public void EnsureFieldForRead<T>(int index, bool isExplicit = false) where T : unmanaged
         {
             FieldType fieldType = View.Fields[index].FieldType;
-            FieldType targetType = FieldType.Of<T>(fieldType.IsArray);
+            FieldType targetType = FieldType.Of<T>(fieldType.IsInlineArray);
             ValueType valueType = fieldType.Type;
             ValueType target = targetType.Type;
 
@@ -239,7 +255,7 @@ namespace Amlos.Container
             // if we don't know current type, assume new type is valid
             if (valueType == ValueType.Unknown)
             {
-                View.Fields[index].FieldType = Pack(target, fieldType.IsArray);
+                View.Fields[index].FieldType = Pack(target, fieldType.IsInlineArray);
                 return;
             }
             Migrate<T>(index, target);
@@ -248,7 +264,7 @@ namespace Amlos.Container
         public bool Migrate<T>(int index, ValueType target) where T : unmanaged
         {
             FieldType fieldType = View.Fields[index].FieldType;
-            bool isArray = fieldType.IsArray;
+            bool isArray = fieldType.IsInlineArray;
             ValueType valueType = fieldType.Type;
 
 

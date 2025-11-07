@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Amlos.Container
 {
@@ -12,6 +13,7 @@ namespace Amlos.Container
     /// </summary>
     public sealed class ContainerLayout
     {
+        public const string ArrayName = "value";
         public static readonly ContainerLayout Empty = CreateEmptyHeaderBytes();
 
 
@@ -76,8 +78,24 @@ namespace Amlos.Container
         internal static ContainerLayout BuildArray<T>(int length) where T : unmanaged
         {
             var b = new ObjectBuilder();
-            b.SetArray<T>("value", length);
+            b.SetArray<T>(ArrayName, length);
             return b.BuildLayout();
+        }
+
+        public override string ToString()
+        {
+            StringBuilder sb = new();
+            var view = new ContainerView(headerBlob);
+            for (int i = 0; i < FieldCount; i++)
+            {
+                var f = view[i];
+                sb.Append(f.FieldType);
+                sb.Append(" ");
+                sb.Append(f.Name);
+                sb.Append(": ");
+                sb.Append(f.Length);
+            }
+            return sb.ToString();
         }
     }
 
@@ -109,7 +127,7 @@ namespace Amlos.Container
         /// </summary>
         public int Length => Header.Length;
         public bool IsRef => Header.IsRef;
-        public bool IsArray => Header.FieldType.IsArray;
+        public bool IsArray => Header.FieldType.IsInlineArray;
         public int Index => index;
         public ValueType Type => Header.Type;
         public FieldType FieldType => Header.FieldType;

@@ -178,6 +178,36 @@ namespace Amlos.Container.Tests
             catch (ArgumentException) { threw = true; }
             Assert.That(threw, Is.False);
         }
+
+        [Test]
+        public void Storage_String_RoundTrip_ExternalLeaf_OK()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            var big = new string('g', 276);
+            root.Write("e", big);
+            Assert.That(root.GetField("e").IsRef, Is.True);
+            Assert.That(root.GetObject("e").IsArray, Is.True);
+            Assert.That(root.GetObject("e").IsString, Is.True);
+            Assert.That(root.GetObject("e").GetField(ContainerLayout.ArrayName).Length, Is.EqualTo(big.Length * sizeof(char)));
+            var back = root.ReadString("e");
+
+            Assert.That(back.Length, Is.EqualTo(big.Length));
+            Assert.That(back, Is.EqualTo(big));
+
+            var big2 = new string('a', 100);
+            root.Write("e", big2);
+
+            Assert.That(root.GetField("e").IsRef, Is.True);
+            Assert.That(root.GetObject("e").IsArray, Is.True);
+            Assert.That(root.GetObject("e").IsString, Is.True);
+            Assert.That(root.GetObject("e").GetField(ContainerLayout.ArrayName).Length, Is.EqualTo(big2.Length * sizeof(char)));
+            var back2 = root.ReadString("e");
+
+            Assert.That(back2.Length, Is.EqualTo(big2.Length));
+            Assert.That(back2, Is.EqualTo(big2));
+        }
     }
 
     public static class StorageApiTestExt

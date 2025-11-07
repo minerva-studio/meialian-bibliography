@@ -16,19 +16,15 @@ namespace Amlos.Container
         public static readonly ArrayPool<byte> DefaultPool = ArrayPool<byte>.Create();
 
 
-        [Obsolete]
-        private Schema_Old _schema;
 
         private byte[] _buffer;         // exact size == _schema.Stride (or Array.Empty for 0)
         private bool _disposed;
         private ulong _id;              // assigned by registry
 
+
+
         /// <summary> object id </summary>
         public ulong ID => _id;
-
-
-        [Obsolete]
-        public Schema_Old Schema => _schema;
 
         /// <summary>Logical length in bytes (== Schema.Stride).</summary>
         public int Length => View.Length;
@@ -43,51 +39,10 @@ namespace Amlos.Container
         /// <summary>Data slice [DataBase..Stride).</summary>
         public Span<byte> DataSegment => View.DataSegment;
 
-        /// <summary>Per-container 1B-per-field type hints stored at the header.</summary>
-        [Obsolete]
-        public Span<byte> HeaderSegment_Old => Span[.._schema.HeaderSize];
-
         public ref byte[] Buffer => ref _buffer;
 
 
 
-
-        /// <summary>
-        /// Create a container 
-        /// </summary> 
-        [Obsolete]
-        private Container(Schema_Old schema, bool zeroInit = true)
-        {
-            _schema = schema ?? throw new ArgumentNullException(nameof(schema));
-
-            if (schema.Stride == 0)
-            {
-                // Zero-length buffers still get a valid object id and registry entry.
-                _buffer = Array.Empty<byte>();
-            }
-            else
-            {
-                _buffer = _schema.Pool.Rent(zeroInit);
-            }
-        }
-
-        /// <summary>
-        /// Create a container; rent from schema's pool
-        /// </summary>
-        [Obsolete]
-        private Container(Schema_Old schema) : this(schema, zeroInit: true) { }
-
-        /// <summary>
-        /// Create a container initialized with provided bytes (length must equal stride).
-        /// </summary>
-        [Obsolete]
-        private Container(Schema_Old schema, ReadOnlySpan<byte> source)
-            : this(schema, zeroInit: false)
-        {
-            if (source.Length != Length)
-                throw new ArgumentException($"Source length {source.Length} must equal schema stride {Length}.", nameof(source));
-            source.CopyTo(Span);
-        }
 
         /// <summary>
         /// Create an empty container (for internal use only).
@@ -98,15 +53,6 @@ namespace Amlos.Container
             _disposed = true;
         }
 
-        /// <summary>
-        /// Create an empty, uninitialized container of the given size.
-        /// </summary>
-        /// <param name="size"></param>
-        /// <param name="zeroInit"></param>
-        private Container(int size)
-        {
-            Initialize(size);
-        }
 
 
 
@@ -157,6 +103,8 @@ namespace Amlos.Container
         }
 
 
+
+
         #region Byte-span accessors
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -185,20 +133,6 @@ namespace Amlos.Container
 
         /// <summary>Returns a read-only span for the given field.</summary>
         public ReadOnlySpan<T> GetReadOnlySpan<T>(string fieldName) where T : unmanaged => GetSpan<T>(fieldName);
-
-
-
-        /// <summary>Returns a writable span for the given field.</summary>
-        [Obsolete]
-        private Span<byte> GetSpan(in FieldDescriptor_Old field)
-        {
-            EnsureNotDisposed();
-            return GetSpan(field.Offset, field.AbsLength);
-        }
-
-        /// <summary>Returns a read-only span for the given field.</summary>
-        [Obsolete]
-        private ReadOnlySpan<byte> GetReadOnlySpan(FieldDescriptor_Old field) => GetSpan(field);
 
         #endregion
 
@@ -411,29 +345,17 @@ namespace Amlos.Container
         {
             var f = View.GetField(index);
             if (!f.IsRef) throw new ArgumentException($"Field '{f.Name.ToString()}' is not a ref field.");
-            if (f.Length % FieldDescriptor_Old.REF_SIZE != 0)
-                throw new ArgumentException($"Field '{f.Name.ToString()}' byte length is not multiple of {FieldDescriptor_Old.REF_SIZE}.");
+            if (f.Length % ContainerReference.Size != 0)
+                throw new ArgumentException($"Field '{f.Name.ToString()}' byte length is not multiple of {ContainerReference.Size}.");
             return f.GetSpan<ContainerReference>();
         }
-
-        [Obsolete]
-        public Span<ulong> GetRefSpan(FieldDescriptor_Old f)
-        {
-            if (!f.IsRef) throw new ArgumentException($"Field '{f.Name}' is not a ref field.");
-            if (f.AbsLength % FieldDescriptor_Old.REF_SIZE != 0)
-                throw new ArgumentException($"Field '{f.Name}' byte length is not multiple of {FieldDescriptor_Old.REF_SIZE}.");
-            return MemoryMarshal.Cast<byte, ulong>(GetSpan(f));
-        }
-
-
 
         public void WriteObject(string fieldName, Container container)
         {
             GetRefNoRescheme(fieldName) = container.ID;
         }
 
-        #endregion
-
+        #endregion 
 
 
         #region Type Hint

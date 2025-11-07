@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -165,5 +166,16 @@ namespace Amlos.Container.Tests
             var s = ro.ToString();
             StringAssert.StartsWith("Raw:", s);
         }
+    }
+
+    /// <summary>
+    /// Reference equality comparer for arrays/objects (test helper).
+    /// </summary>
+    internal sealed class ReferenceEqualityComparer<T> : IEqualityComparer<T>
+        where T : class
+    {
+        public static readonly ReferenceEqualityComparer<T> Instance = new();
+        public bool Equals(T? x, T? y) => ReferenceEquals(x, y);
+        public int GetHashCode(T obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
     }
 }

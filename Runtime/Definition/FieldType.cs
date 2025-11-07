@@ -30,7 +30,7 @@ namespace Amlos.Container
         }
 
         /// <summary>Whether this field stores an array of elements.</summary>
-        public bool IsArray
+        public bool IsInlineArray
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             readonly get => TypeUtil.IsArray(b);
@@ -58,5 +58,8 @@ namespace Amlos.Container
 
         public static implicit operator FieldType(byte b) => new FieldType(b);
         public static implicit operator byte(FieldType b) => b.b;
+
+
+        public override readonly string ToString() => TypeUtil.ToString(b);
     }
 }

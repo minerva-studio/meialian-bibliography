@@ -164,21 +164,6 @@ namespace Amlos.Container
             }
         }
 
-
-
-
-        // Replace with your actual source of recommended hint for a new field.
-        // For now: Unknown (0) to be safe, or map by newField.IsRef/AbsLength if you maintain that metadata.
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte RecommendedHintOf(FieldDescriptor_Old nf)
-        {
-            // If you already keep a recommended ValueType per field, convert here.
-            // As a safe default, say Unknown scalar/array based on nf:
-            bool isArray = !nf.IsRef && nf.AbsLength > 0 && nf.AbsLength % 8 != 0 && nf.AbsLength > SizeOf(ValueType.Int64);
-            // Better: if you store per-field expected PrimType, use that.
-            return Pack(ValueType.Unknown, isArray);
-        }
-
         public static string ToString(byte s)
         {
             var baseType = PrimOf(s).ToString();

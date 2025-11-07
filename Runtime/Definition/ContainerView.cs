@@ -153,6 +153,13 @@ namespace Amlos.Container
         }
 
 
+        /// <summary>
+        /// Get the raw byte slice of a field's value.
+        /// Effective ABSOLUTE start = Header.DataOffset + Field.DataOffset.
+        /// </summary>
+        public Span<T> GetFieldBytes<T>(int index) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetFieldBytes(index));
+
+
 
 
 

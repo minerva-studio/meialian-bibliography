@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 
 namespace Amlos.Container
 {
@@ -10,12 +11,6 @@ namespace Amlos.Container
     {
         private readonly Container _container;
 
-
-        /// <summary>
-        /// Object Schema
-        /// </summary>
-        [Obsolete]
-        public readonly Schema_Old Schema => _container.Schema;
 
         /// <summary>
         /// Object ID   
@@ -37,9 +32,11 @@ namespace Amlos.Container
         /// </summary>
         public bool IsArray => _container.FieldCount == 1 && _container.View[0].IsArray;
 
+        public int FieldCount => _container.FieldCount;
+
         internal ref byte[] Buffer => ref _container.Buffer;
 
-        public int FieldCount => _container.FieldCount;
+        internal Container Container => _container;
 
         internal StorageObject(Container container)
         {
@@ -70,6 +67,8 @@ namespace Amlos.Container
 
 
         // Basic read/write passthroughs (blittable)
+
+        public void Write(string fieldName, in string value) => WriteString(fieldName, (ReadOnlySpan<char>)value);
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
@@ -158,6 +157,15 @@ namespace Amlos.Container
 
 
 
+        public void Override<T>(string fieldName, T value)
+        {
+
+        }
+
+
+
+
+
 
         /// <summary>
         /// Delete a field from this object. Returns true if the field was found and deleted, false otherwise.
@@ -200,7 +208,7 @@ namespace Amlos.Container
         /// Read as a string (UTF-16)
         /// </summary>
         /// <returns></returns>
-        public string ReadString(string fieldName) => new(_container.GetReadOnlySpan<char>(fieldName));
+        public string ReadString(string fieldName) => GetObject(fieldName).ReadString();
 
         /// <summary>
         /// Read entire container as a string (UTF-16)
@@ -209,9 +217,16 @@ namespace Amlos.Container
         public string ReadString()
         {
             if (!IsString)
-                throw new InvalidOperationException("This StorageObject does not represent a single string field.");
+            {
+                if (FieldCount == 0)
+                    throw new InvalidOperationException($"This StorageObject does not represent a single string field because object is empty.");
+                if (FieldCount == 1)
+                    throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field field is of type {_container.View.GetFieldHeader(0).FieldType}.");
+                throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field count is {FieldCount}.");
+            }
 
-            return new(_container.GetReadOnlySpan<char>(0));
+            ReadOnlySpan<char> value = _container.GetReadOnlySpan<char>(0);
+            return new(value);
         }
 
 
@@ -222,10 +237,13 @@ namespace Amlos.Container
         public void WriteArray<T>(ReadOnlySpan<T> value) where T : unmanaged
         {
             if (!IsArray)
-                throw new InvalidOperationException("This StorageObject does not represent an array.");
+            {
+                if (FieldCount != 0)
+                    throw new InvalidOperationException("This StorageObject does not represent an array.");
+            }
 
             Rescheme(ContainerLayout.BuildArray<T>(value.Length));
-            value.CopyTo(_container.GetSpan<T>(0));
+            MemoryMarshal.AsBytes(value).CopyTo(_container.View[0].Data);
         }
 
         /// <summary>
@@ -251,18 +269,39 @@ namespace Amlos.Container
 
 
         // Child navigation by reference field (single)
+
+        /// <summary>
+        /// Get child object (always not null)
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <returns></returns>
+        public StorageObject GetObject(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, layout: ContainerLayout.Empty);
+        /// <summary>
+        /// Get child with layout, if null, create a new object with given layout
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <param name="layout"></param>
+        /// <returns></returns>
+        public StorageObject GetObject(string fieldName, ContainerLayout layout = null) => GetObject(fieldName, reschemeOnMissing: true, layout: layout ?? ContainerLayout.Empty);
+        /// <summary>
+        /// Get without allocating a 
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <returns></returns>
+        public StorageObject GetObjectNoAllocate(string fieldName) => GetObject(fieldName, reschemeOnMissing: false, layout: null);
+        /// <summary>
+        /// Get child object with layout
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <param name="reschemeOnMissing"></param>
+        /// <param name="layout"></param>
+        /// <returns></returns>
         public StorageObject GetObject(string fieldName, bool reschemeOnMissing, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
             return layout != null ? StorageFactory.Get(ref idRef, layout) : StorageFactory.GetNoAllocate(idRef);
         }
 
-        // Child navigation by reference field (single)
-        public StorageObject GetObject(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, layout: ContainerLayout.Empty);
-        public StorageObject GetObject(string fieldName, ContainerLayout layout = null) => GetObject(fieldName, reschemeOnMissing: true, layout: layout ?? ContainerLayout.Empty);
-
-        // Child navigation by reference field (single)
-        public StorageObject GetObjectNoAllocate(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, layout: null);
 
         /// <summary>
         /// Get a stack-only view over a value array field T[].

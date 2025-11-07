@@ -19,14 +19,6 @@ namespace Amlos.Container
         public Storage(ContainerLayout rootSchema)
         {
             _root = Container.Registry.Shared.CreateAt(ref _id, rootSchema);
-            //_root = new Container(rootSchema);
-        }
-
-        public Storage(Schema_Old rootSchema)
-        {
-            throw new InvalidOperationException();
-            //_root = Container.CreateAt(ref _id, rootSchema);
-            //_root = new Container(rootSchema);
         }
 
         ~Storage() { Dispose(false); }

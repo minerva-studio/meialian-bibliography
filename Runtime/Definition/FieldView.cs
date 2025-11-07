@@ -23,7 +23,7 @@ namespace Amlos.Container
         /// </summary>
         public int Length => Header.Length;
         public bool IsRef => Header.IsRef;
-        public bool IsArray => Header.FieldType.IsArray;
+        public bool IsArray => Header.FieldType.IsInlineArray;
         public int Index => index;
         public ValueType Type => Header.Type;
         public FieldType FieldType => Header.FieldType;
@@ -41,6 +41,7 @@ namespace Amlos.Container
         public FieldHeader FieldHeader { get; }
         public int Length => FieldHeader.Length;
         public bool IsRef => FieldHeader.IsRef;
+        public bool IsInlineArray => FieldHeader.FieldType.IsInlineArray;
 
 
         internal FieldInfo(ReadOnlySpan<char> name, FieldHeader fieldHeader)
@@ -48,5 +49,6 @@ namespace Amlos.Container
             Name = name.ToString();
             FieldHeader = fieldHeader;
         }
+
     }
 }
