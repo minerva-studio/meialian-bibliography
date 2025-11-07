@@ -149,7 +149,7 @@ namespace Amlos.Container.Tests
             Debug.Log(c.ToString());
 
             int val = c.Read<int>("word");
-            Assert.AreEqual(0x0000ABCD, val);
+            Assert.AreEqual(0x000000CD, val); // shrink to CD
         }
 
         [Test]
