@@ -11,36 +11,33 @@ namespace Amlos.Container
     /// </summary>
     public readonly ref struct StorageObjectArray
     {
-        private readonly Span<ulong> _ids;
+        private readonly Span<ContainerReference> _ids;
 
         /// <summary>Number of child reference slots.</summary>
-        public int Count => _ids.Length;
+        public int Length => _ids.Length;
 
         /// <summary>Direct access to the underlying ID span (use with care).</summary>
-        internal Span<ulong> Ids => _ids;
+        internal Span<ContainerReference> Ids => _ids;
 
         public StorageObjectArrayElement this[int index] => new(this, index);
 
 
 
 
-        internal StorageObjectArray(Container container, FieldDescriptor_Old field)
+        internal StorageObjectArray(Container container, FieldView field)
         {
             if (!field.IsRef)
-                throw new ArgumentException($"Field '{field.Name}' is not a reference field.");
-            _ids = container.GetRefSpan(field);
+                throw new ArgumentException($"Field '{field.Name.ToString()}' is not a reference field.");
+            _ids = container.GetRefSpan(field.Index);
         }
 
 
 
         /// <summary>Get a child as a StorageObject (throws if not found).</summary>
-        public StorageObject Get(int index) => GetNoAllocate(Ids[index]);
+        public StorageObject Get(int index) => StorageFactory.Get(ref Ids[index], ContainerLayout.Empty);
 
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
         public bool TryGet(int index, out StorageObject child) => StorageFactory.TryGet(_ids[index], out child);
-
-        /// <summary>Assign a raw ID into the slot.</summary>
-        public void SetId(int index, ulong id) => _ids[index] = id;
 
         /// <summary>Clear the slot (set ID to 0).</summary>
         public void ClearAt(int index) => Container.Registry.Shared.Unregister(ref _ids[index]);
@@ -64,17 +61,17 @@ namespace Amlos.Container
         /// Is a null slot (ID == 0)
         /// </summary>
         public bool IsNull => Position == 0UL;
-        public StorageObject Object => Get(ref Position, Schema_Old.Empty);
+        public StorageObject Object => Get(ref Position, ContainerLayout.Empty);
 
 
         /// <summary>
         /// Single-ref field ref ref
         /// </summary>
-        private ref ulong Position => ref _array.Ids[_index];
+        private ref ContainerReference Position => ref _array.Ids[_index];
 
         public StorageObject GetObjectNoAllocate() => GetNoAllocate(Position);
 
-        public StorageObject GetObject(Schema_Old schema) => Get(ref Position, schema);
+        public StorageObject GetObject(ContainerLayout schema) => Get(ref Position, schema);
 
 
         public static implicit operator StorageObject(StorageObjectArrayElement element) => element.GetObjectNoAllocate();

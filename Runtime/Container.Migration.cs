@@ -15,64 +15,63 @@ namespace Amlos.Container
         ///  - Removed fields (present only in old schema) are discarded.
         ///  - Container identity (ID) is preserved.
         ///  - New buffer is always zero-initialized by default.
-        /// </summary> 
-        [Obsolete]
-        public void Rescheme(Action<SchemaBuilder> edit)
+        /// </summary>  
+        public void Rescheme(Action<ObjectBuilder> edit)
         {
             EnsureNotDisposed();
-            Rescheme(Schema.Variate(edit));  // zero-init by default
+            Rescheme(ObjectBuilder.FromContainer(this).Variate(edit).BuildLayout());  // zero-init by default
         }
 
         /// <summary>
         /// Internal overload allowing to skip zero-initialization when the caller
         /// will fully overwrite the new buffer manually.
-        /// </summary> 
-        [Obsolete]
-        public void Rescheme(Schema_Old newSchema, bool zeroInitNewBuffer = true)
+        /// </summary>  
+        public void Rescheme(ContainerLayout newSchema, bool zeroInitNewBuffer = true)
         {
             if (newSchema is null) throw new ArgumentNullException(nameof(newSchema));
             EnsureNotDisposed();
 
-            if (ReferenceEquals(_schema, newSchema) || _schema.Equals(newSchema))
+            // same header
+            if (View.HeadersSegment.SequenceEqual(newSchema.Span))
                 return;
 
             // Prepare destination buffer
-            byte[] dstBuf = newSchema.Stride == 0
-                ? Array.Empty<byte>()
-                : newSchema.Pool.Rent(zeroInit: zeroInitNewBuffer);
+            byte[] dstBuf = DefaultPool.Rent(newSchema.TotalLength);
             var dst = dstBuf.AsSpan();
+            dst.Clear();
+            newSchema.Span.CopyTo(dst);
 
-            // Prepare new header hints (migrate by name)
-            var newHints = dstBuf.AsSpan(0, newSchema.HeaderSize);
+            // Prepare new header hints (migrate by name)            
+            var newView = new ContainerView(dst);
+            ContainerView oldView = View;
 
             // ---- Migrate each old field into new layout ----
-            for (int oldIdx = 0; oldIdx < _schema.Fields.Count; oldIdx++)
+            for (int oldIdx = 0; oldIdx < oldView.FieldCount; oldIdx++)
             {
-                var oldField = _schema.Fields[oldIdx];
-                byte oldHint = (oldIdx < HeaderSegment_Old.Length) ? HeaderSegment_Old[oldIdx] : (byte)0;
+                var oldField = oldView[oldIdx];
+                byte oldHint = oldField.FieldType;
 
-                if (!newSchema.TryGetField(oldField.Name, out var newField))
+                var newIdx = newView.IndexOf(oldField.Name);
+                if (newIdx < 0)
                 {
                     // Removed: if ref, unregister all non-zero children
                     if (oldField.IsRef)
                     {
-                        var oldIds = GetRefSpan(oldField);
+                        var oldIds = oldField.GetSpan<ContainerReference>();
                         for (int j = 0; j < oldIds.Length; j++)
                             Registry.Shared.Unregister(ref oldIds[j]);
                     }
                     continue;
                 }
 
-                int newIdx = newSchema.IndexOf(newField.Name);
-                var dstBytes = dst.Slice(newField.Offset, newField.AbsLength); // NEW buffer slice
-
-
+                var newField = newView[newIdx];
+                var dstBytes = newField.Data; // NEW buffer slice
                 if (oldField.IsRef != newField.IsRef)
                 {
                     // Removed: if ref, unregister all non-zero children
                     if (oldField.IsRef)
                     {
-                        var oldIds = GetRefSpan(oldField);
+                        var oldIds = oldField.GetSpan<ContainerReference>();
                         for (int j = 0; j < oldIds.Length; j++)
                             Registry.Shared.Unregister(ref oldIds[j]);
                     }
@@ -83,22 +82,22 @@ namespace Amlos.Container
                 {
                     // we dont know what it could be, use unknown for now
                     // Value-to-value migration: convert from oldHint -> targetHint
-                    var srcBytes = GetReadOnlySpan(oldField);                 // OLD buffer read-only
+                    var srcBytes = oldField.Data;                 // OLD buffer read-only
                     if (srcBytes.Length == dstBytes.Length)
                     {
-                        newHints[newIdx] = oldHint;
+                        newView[newIdx].Header.FieldType = oldHint;
                         srcBytes.CopyTo(dstBytes);
                     }
                     else
                     {
-                        newHints[newIdx] = Pack(ValueType.Unknown, IsArray(oldHint));
+                        newView[newIdx].Header.FieldType = Pack(ValueType.Unknown, IsArray(oldHint));
                     }
                 }
                 else
                 {
-                    newHints[newIdx] = oldHint;
+                    newView[newIdx].Header.FieldType = oldHint;
                     // Ref-to-Ref migration unchanged (copy ids, unregister tails)
-                    var oldIds = GetRefSpan(oldField);
+                    var oldIds = oldField.GetSpan<ContainerReference>();
                     var newIds = MemoryMarshal.Cast<byte, ulong>(dstBytes);
 
                     int keep = Math.Min(oldIds.Length, newIds.Length);
@@ -109,14 +108,10 @@ namespace Amlos.Container
             }
 
             // ---- Swap schema & buffers ----
-            var oldSchema = _schema;
             var oldBuf = _buffer;
-
-            _schema = newSchema;
             _buffer = dstBuf;
-
-            if (oldSchema.Stride > 0 && oldBuf.Length > 0 && !ReferenceEquals(oldBuf, Array.Empty<byte>()))
-                oldSchema.Pool.Return(oldBuf);
+            if (oldBuf.Length > 0 && !ReferenceEquals(oldBuf, Array.Empty<byte>()))
+                DefaultPool.Return(oldBuf);
         }
 
 
@@ -176,13 +171,14 @@ namespace Amlos.Container
             char[] nameBuffer = ArrayPool<char>.Shared.Rent(minimumLength / sizeof(char));
             try
             {
-                View.NameSegment.CopyTo(MemoryMarshal.AsBytes(nameBuffer.AsSpan(0, minimumLength)));
+                View.NameSegment.CopyTo(MemoryMarshal.AsBytes(nameBuffer.AsSpan()));
                 fieldName.CopyTo(fieldNameBuffer);
+                Memory<char> tempName = fieldNameBuffer.AsMemory(0, fieldName.Length);
                 if (inlineArrayLength.HasValue)
                 {
-                    objectBuilder.SetArray(fieldNameBuffer.AsMemory(), new FieldType(valueType, true), inlineArrayLength.Value);
+                    objectBuilder.SetArray(tempName, new FieldType(valueType, true), inlineArrayLength.Value);
                 }
-                else objectBuilder.SetScalar(fieldNameBuffer.AsMemory(), new FieldType(valueType, false));
+                else objectBuilder.SetScalar(tempName, new FieldType(valueType, false));
 
                 int baseOffset = View.Header.NameOffset;
                 for (int i = 0; i < FieldCount; i++)
@@ -201,18 +197,11 @@ namespace Amlos.Container
 
                 int newSize = objectBuilder.CountByte();
                 byte[] newBuffer = DefaultPool.Rent(newSize);
-                try
-                {
-                    objectBuilder.Build(newBuffer);
-                    // switch buffer now
-                    var oldBuffer = this._buffer;
-                    this._buffer = newBuffer;
-                    DefaultPool.Return(oldBuffer);
-                }
-                finally
-                {
-                    DefaultPool.Return(newBuffer);
-                }
+                objectBuilder.WriteTo(ref newBuffer);
+                // switch buffer now
+                var oldBuffer = this._buffer;
+                this._buffer = newBuffer;
+                DefaultPool.Return(oldBuffer);
             }
             finally
             {
@@ -277,8 +266,8 @@ namespace Amlos.Container
             if (oldElementSize == newElementSize)
             {
                 Span<byte> data = field.Data;
-                if (isArray) MigrationConverter.ConvertArrayInPlaceSameSize(data, arrayLength, valueType, target);
-                else MigrationConverter.ConvertScalarInPlace(data, valueType, target);
+                if (isArray) Migration.ConvertArrayInPlaceSameSize(data, arrayLength, valueType, target);
+                else Migration.ConvertScalarInPlace(data, valueType, target);
                 View[index].Header.FieldType = Pack(target, isArray);
             }
             // different size
@@ -304,11 +293,12 @@ namespace Amlos.Container
                     //    else b.AddFieldOf<T>(field.Name);
                     //});
                     ReschemeFor<T>(field.Name, isArray ? arrayLength : null);
+
                     var newIndex = IndexOf(name);
                     var newField = View[newIndex];
                     var newSpan = newField.Data;
                     // fill back
-                    MigrationConverter.MigrateValueFieldBytes(buffer, newSpan, valueType, target, true);
+                    Migration.MigrateValueFieldBytes(buffer, newSpan, valueType, target, true);
                     newField.Header.FieldType = Pack(target, isArray);
                 }
                 catch
@@ -376,8 +366,8 @@ namespace Amlos.Container
 
             // implicit conversion
             var srcSpan = MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref value, 1));
-            var view = new ValueView(srcSpan, srcType);
-            return view.TryWrite(dstSpan, dstType);
+            var view = new ReadOnlyValueView(srcSpan, srcType);
+            return view.TryWriteTo(dstSpan, dstType);
         }
 
         /// <summary>
@@ -402,8 +392,8 @@ namespace Amlos.Container
 
             // conversion
             var srcSpan = MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref value, 1));
-            var view = new ValueView(srcSpan, srcType);
-            return view.TryWrite(dstSpan, dstType, true);
+            var view = new ReadOnlyValueView(srcSpan, srcType);
+            return view.TryWriteTo(dstSpan, dstType, true);
         }
     }
 }

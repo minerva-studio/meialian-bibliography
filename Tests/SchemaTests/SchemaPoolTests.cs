@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 
 namespace Amlos.Container.Tests
 {
+    [Ignore("Abandoning Schema")]
     [TestFixture]
     public class SchemaPoolTests
     {

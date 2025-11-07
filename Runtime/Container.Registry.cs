@@ -5,12 +5,13 @@ namespace Amlos.Container
 {
     internal partial class Container
     {
-        private static Container _empty;
 
-        /// <summary>
-        /// The empty container instance
-        /// </summary>
-        public static Container Empty => _empty ??= CreateEmptyHeaderBytes();
+        //private static Container _empty;
+
+        ///// <summary>
+        ///// The empty container instance
+        ///// </summary>
+        //public static Container Empty => _empty ??= CreateEmptyHeaderBytes();
 
 
         internal class Registry
@@ -31,15 +32,15 @@ namespace Amlos.Container
             private readonly object _lock = new();
             private readonly Dictionary<ulong, Container> _table = new();
 
-            public void SetEmpty(Container container)
-            {
-                if (container is null) throw new ArgumentNullException(nameof(container));
-                lock (_lock)
-                {
-                    container._id = ID.Empty;
-                    _table[ID.Empty] = container;
-                }
-            }
+            //public void SetEmpty(Container container)
+            //{
+            //    if (container is null) throw new ArgumentNullException(nameof(container));
+            //    lock (_lock)
+            //    {
+            //        container._id = ID.Empty;
+            //        _table[ID.Empty] = container;
+            //    }
+            //}
 
             public void Register(Container container)
             {
@@ -56,7 +57,7 @@ namespace Amlos.Container
                 }
             }
 
-            public void Unregister(ref ulong idRef)
+            public void Unregister(ref ContainerReference idRef)
             {
                 // already unregistered or is null
                 if (idRef == 0UL) return;
@@ -71,17 +72,15 @@ namespace Amlos.Container
 
             public void Unregister(Container container)
             {
-                // this is the empty container, do nothing
-                if (container == Empty) return;
                 // should not happen, but just in case
                 if (container is null) return;
+                if (container._id == ID.Wild) return;
 
                 // 1) Remove self from registry and recycle its id under lock.
                 ulong id;
                 lock (_lock)
                 {
                     id = container._id;
-                    if (id == 0UL) return;           // already unregistered / never registered
                     if (!_table.Remove(id)) return;   // not found -> treat as done
                     _freed.Enqueue(id);               // recycle id now
                     container._id = 0UL;              // mark as unregistered
@@ -113,6 +112,7 @@ namespace Amlos.Container
 
                 // 3) Finally, dispose the container to return its pooled byte[] etc.
                 container.Dispose();
+                pool.Return(container);
             }
 
 
@@ -133,16 +133,17 @@ namespace Amlos.Container
 
             #region Create
 
-            public Container CreateAt(ref ContainerReference position, int size = 100)
+            public Container CreateAt(ref ContainerReference position) => CreateAt(ref position, ContainerLayout.Empty);
+
+            public Container CreateAt(ref ContainerReference position, ContainerLayout layout)
             {
                 // 1) If an old tracked container exists in the slot, unregister it first.
                 var old = GetContainer(position);
-                if (old != null && old.ID != ID.Empty)
+                if (old != null)
                     Unregister(old);
 
                 // 2) Create a new container and register it (assign a unique tracked ID).
-                var created = pool.Rent();
-                created.Initialize(size);
+                var created = CreateWild(layout, true);
                 Register(created);
 
                 // 3) Bind atomically: write ID into the slot.
@@ -150,36 +151,42 @@ namespace Amlos.Container
                 return created;
             }
 
+
+
+
+
+
+
+
             /// <summary>
             /// Create a wild container, which means that container is not tracked by anything
             /// </summary>
             /// <param name="position"></param>
             /// <param name="schema"></param>
             /// <exception cref="ArgumentNullException"></exception>
-            public Container CreateAt(ref ulong position, Schema_Old schema, ReadOnlySpan<byte> span)
+            public Container CreateWildWith(byte[] data)
             {
-                if (schema is null) throw new ArgumentNullException(nameof(schema));
-
-                // 1) If an old tracked container exists in the slot, unregister it first.
-                var old = Registry.Shared.GetContainer(position);
-                if (old != null)
-                    Registry.Shared.Unregister(old);
-
-                // 2) Create a new container and register it (assign a unique tracked ID).
-                var created = new Container(schema, span);
-                Registry.Shared.Register(created);
-
-                // 3) Bind atomically: write ID into the slot.
-                position = created.ID;
-                return created;
+                var container = pool.Rent();
+                container.Initialize(data);
+                container._id = ID.Wild;
+                return container;
             }
 
+
+
+
             /// <summary>
             /// Create a wild container, which means that container is not tracked by anything
             /// </summary>
             /// <param name="position"></param>
-            /// <param name="schema"></param>
-            /// <exception cref="ArgumentNullException"></exception>
+            /// <param name="schema"></param> 
+            public Container CreateWild() => CreateWild(ContainerHeader.Size);
+
+            /// <summary>
+            /// Create a wild container, which means that container is not tracked by anything
+            /// </summary>
+            /// <param name="position"></param>
+            /// <param name="schema"></param> 
             public Container CreateWild(int size)
             {
                 var container = pool.Rent();
@@ -187,6 +194,7 @@ namespace Amlos.Container
                 container._id = ID.Wild;
                 return container;
             }
+
 
             /// <summary>
             /// Create a wild container, which means that container is not tracked by anything
@@ -200,21 +208,30 @@ namespace Amlos.Container
                 span.CopyTo(container.Span);
                 return container;
             }
+
+            public Container CreateWild(ContainerLayout layout) => CreateWild(layout, false);
+            public Container CreateWild(ContainerLayout layout, bool zero)
+            {
+                var container = CreateWild(layout.TotalLength);
+                layout.Span.CopyTo(container.Span);
+                // clear data segment
+                if (zero) container.View.DataSegment.Clear();
+                return container;
+            }
             #endregion
 
         }
 
 
-        private static Container CreateEmptyHeaderBytes()
-        {
-            // container with only header bytes
-            var container = new Container(ContainerHeader.Size);
-            ContainerHeader.WriteEmptyHeader(container._buffer, Registry.ID.Empty, Version);
-            Registry.Shared.SetEmpty(container);
-            return container;
-        }
-
-
+        //private static Container CreateEmptyHeaderBytes()
+        //{
+        //    // container with only header bytes
+        //    var container = new Container(ContainerHeader.Size);
+        //    ContainerHeader.WriteEmptyHeader(container._buffer, Version);
+        //    container._id = Registry.ID.Empty;
+        //    Registry.Shared.SetEmpty(container);
+        //    return container;
+        //}
     }
 
     /// <summary>

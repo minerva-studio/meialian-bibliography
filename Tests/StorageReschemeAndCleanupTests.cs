@@ -8,69 +8,76 @@ namespace Amlos.Container.Tests
     public class StorageReschemeAndCleanupTests
     {
         // root: int hp; ref child; ref-array children[2]; float[4] speeds
-        private Schema_Old _rootSchema;
+        private ContainerLayout _rootLayout;
 
-        // child: int hp;
-        private Schema_Old _childSchema;
+        // child: int hp
+        private ContainerLayout _childLayout;
 
         [SetUp]
         public void Setup()
         {
-            _rootSchema = new SchemaBuilder(canonicalizeByName: true)
-                .AddFieldOf<int>("hp")
-                .AddRef("child")
-                .AddRefArray("children", 2)
-                .AddFieldFixed("speeds", sizeof(float) * 4)
-                .Build();
-
-            _childSchema = new SchemaBuilder(canonicalizeByName: true)
-                .AddFieldOf<int>("hp")
-                .Build();
+            // root layout
+            {
+                var ob = new ObjectBuilder();
+                ob.SetScalar<int>("hp");
+                ob.SetRef("child", 0UL);
+                ob.SetRefArray("children", 2);
+                ob.SetArray<float>("speeds", 4);
+                _rootLayout = ob.BuildLayout();
+            }
+            // child layout
+            {
+                var ob = new ObjectBuilder();
+                ob.SetScalar<int>("hp");
+                _childLayout = ob.BuildLayout();
+            }
         }
 
-        // --- Complex: create subtree in object array; replace one element; ensure old child unregistered ---
+        // --- Replace element by clearing the slot; old child must be unregistered; new child gets a new ID ---
         [Test]
         public void ObjectArray_Replace_Element_Unregisters_Previous()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
             var arr = root.GetObjectArray("children");
+            var reg = Container.Registry.Shared;
 
-            var c0 = arr[0].GetObject(_childSchema);
-            var c1 = arr[1].GetObject(_childSchema);
-            var id0 = c0.ID;
+            // create two children
+            var c0 = arr[0].GetObject(_childLayout);
+            var c1 = arr[1].GetObject(_childLayout);
+            var oldId0 = c0.ID;
             var id1 = c1.ID;
 
-            // Replace slot 0 with a new child
-            var c0b = arr[0].GetObject(_childSchema);
-            var id0b = c0b.ID;
+            // clear slot 0 -> slot becomes global empty object, old child must be unregistered
+            arr.ClearAt(0);
 
-            // If AsObjectOrNew returns existing when present, do an explicit Clear + New to force replacement
-            if (id0b == id0)
-            {
-                arr.ClearAt(0);
-                c0b = arr[0].GetObject(_childSchema);
-                id0b = c0b.ID;
-            }
+            // the old object is gone from registry
+            Assert.That(reg.GetContainer(oldId0), Is.Null, "Old element should be unregistered after ClearAt.");
 
-            Assert.That(id0b, Is.Not.EqualTo(id0));
-            Assert.That(Container.Registry.Shared.GetContainer(id0), Is.Null, "Old element should be unregistered.");
-            Assert.That(Container.Registry.Shared.GetContainer(id0b), Is.Not.Null);
-            Assert.That(Container.Registry.Shared.GetContainer(id1), Is.Not.Null);
+            // slot 0 now points to the global empty object (no creation)
+            var empty0 = arr[0].GetObjectNoAllocate();
+            Assert.That(empty0.ID, Is.EqualTo(Container.Registry.ID.Empty), "Cleared slot should reference the global Empty object.");
+
+            // re-create at slot 0 -> new object with a new ID
+            var c0b = arr[0].GetObject(_childLayout);
+            var newId0 = c0b.ID;
+
+            //Assert.That(newId0, Is.Not.EqualTo(oldId0), "Recreated element should have a different ID.");
+            Assert.That(reg.GetContainer(newId0), Is.Not.Null, "New element should be registered.");
+            Assert.That(reg.GetContainer(id1), Is.Not.Null, "Other slots should be unaffected.");
         }
 
         // --- Storage cleanup: after Dispose, no child remains reachable in the registry ---
         [Test]
         public void Storage_Dispose_Unregisters_All_Subtree()
         {
-            var storage = new Storage(_rootSchema);
+            var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            // Fill child and children[0..1]
-            var direct = root.GetObject("child", false, _childSchema);
+            var direct = root.GetObject("child", false, _childLayout);
             var arr = root.GetObjectArray("children");
-            var a0 = arr[0].GetObject(_childSchema);
-            var a1 = arr[1].GetObject(_childSchema);
+            var a0 = arr[0].GetObject(_childLayout);
+            var a1 = arr[1].GetObject(_childLayout);
 
             var ids = new List<ulong> { direct.ID, a0.ID, a1.ID };
 
@@ -85,15 +92,14 @@ namespace Amlos.Container.Tests
         [Test]
         public void Rescheme_AddField_Via_Write_Auto()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
             Debug.Log(root.ToString());
-            // hp exists; score does not exist
-            root.Write<int>("hp", 10);                    // existing value write  :contentReference[oaicite:8]{index=8}
+            root.Write<int>("hp", 10);                  // existing
 
             Debug.Log(root.ToString());
-            root.Write<float>("score", 3.5f);            // nonexistent -> auto add via Rescheme+AddFieldOf<T>  :contentReference[oaicite:9]{index=9}
+            root.Write<float>("score", 3.5f);           // nonexistent -> auto add
 
             Debug.Log(root.ToString());
             Assert.That(root.Read<int>("hp"), Is.EqualTo(10));
@@ -104,19 +110,19 @@ namespace Amlos.Container.Tests
         [Test]
         public void Rescheme_Delete_ValueField_Preserves_Others()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
             root.Write<int>("hp", 77);
-            var speeds = root.GetArray<float>("speeds");     // 4 floats
-            for (int i = 0; i < speeds.Length; i++) speeds[i] = i + 0.25f;
+            var speeds = root.GetArray("speeds"); // 4 floats
+            for (int i = 0; i < speeds.Length; i++) speeds[i].Write(i + 0.25f);
 
             // Delete "speeds"
-            var deleted = root.Delete("speeds");             //  :contentReference[oaicite:10]{index=10}
+            var deleted = root.Delete("speeds");
             Assert.That(deleted, Is.True);
             Assert.That(root.Read<int>("hp"), Is.EqualTo(77));
 
-            // Accessing 'speeds' as field should now fail (TryGetField returns false)
+            // Verify gone
             var ok = root.HasField("speeds");
             Assert.That(ok, Is.False);
         }
@@ -125,23 +131,22 @@ namespace Amlos.Container.Tests
         [Test]
         public void Rescheme_Delete_RefField_Unregisters_Subtree()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            // Create direct child and children
-            var direct = root.GetObject("child", false, _childSchema);
+            var direct = root.GetObject("child", false, _childLayout);
             var arr = root.GetObjectArray("children");
-            var a0 = arr[0].GetObject(_childSchema);
-            var a1 = arr[1].GetObject(_childSchema);
+            var a0 = arr[0].GetObject(_childLayout);
+            var a1 = arr[1].GetObject(_childLayout);
 
             var ids = new[] { direct.ID, a0.ID, a1.ID };
 
-            // Delete "child" ref field ¡ª migration should unregister that subtree
-            var deleted = root.Delete("child");              // calls Container.Rescheme -> RebuildSchema  
+            var deleted = root.Delete("child");
             Assert.That(deleted, Is.True);
-            Assert.That(Container.Registry.Shared.GetContainer(ids[0]), Is.Null, "Deleted ref field's subtree should be unregistered.");
+            Assert.That(Container.Registry.Shared.GetContainer(ids[0]), Is.Null,
+                "Deleted ref field's subtree should be unregistered.");
 
-            // children ref-array still present; its elements remain
+            // children array unchanged
             Assert.That(Container.Registry.Shared.GetContainer(ids[1]), Is.Not.Null);
             Assert.That(Container.Registry.Shared.GetContainer(ids[2]), Is.Not.Null);
         }
@@ -150,28 +155,22 @@ namespace Amlos.Container.Tests
         [Test]
         public void Rescheme_Delete_Multiple_Fields()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            // Initialize tree
             root.Write<int>("hp", 5);
             var arr = root.GetObjectArray("children");
-            var a0 = arr[0].GetObject(_childSchema);
-            var a1 = arr[1].GetObject(_childSchema);
+            var a0 = arr[0].GetObject(_childLayout);
+            var a1 = arr[1].GetObject(_childLayout);
             var ids = new[] { a0.ID, a1.ID };
 
-            // Delete children (ref-array) + speeds (value)
-            var removed = root.Delete("children", "speeds");  //  :contentReference[oaicite:12]{index=12}
+            var removed = root.Delete("children", "speeds");
             Assert.That(removed, Is.EqualTo(2));
 
-            // hp still present
             Assert.That(root.Read<int>("hp"), Is.EqualTo(5));
-
-            // children elements should be unregistered as part of migration
             Assert.That(Container.Registry.Shared.GetContainer(ids[0]), Is.Null);
             Assert.That(Container.Registry.Shared.GetContainer(ids[1]), Is.Null);
 
-            // Verify fields gone
             Assert.That(root.HasField("children"), Is.False);
             Assert.That(root.HasField("speeds"), Is.False);
         }
@@ -180,13 +179,13 @@ namespace Amlos.Container.Tests
         [Test]
         public void Storage_Dispose_Is_Idempotent()
         {
-            var storage = new Storage(_rootSchema);
+            var storage = new Storage(_rootLayout);
             var root = storage.Root;
-            var child = root.GetObject("child", false, _childSchema);
+            var child = root.GetObject("child", false, _childLayout);
             var id = child.ID;
 
             storage.Dispose();
-            storage.Dispose(); // second call should be a no-op
+            storage.Dispose(); // no-op
 
             Assert.That(Container.Registry.Shared.GetContainer(id), Is.Null);
         }

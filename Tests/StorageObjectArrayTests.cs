@@ -7,55 +7,58 @@ namespace Amlos.Container.Tests
     public class StorageObjectArrayTests
     {
         // root: int hp; ref-array children[3]; float[4] speeds
-        private Schema_Old _rootSchema;
+        private ContainerLayout _rootLayout;
 
         // child: int hp
-        private Schema_Old _childSchema;
+        private ContainerLayout _childLayout;
 
         [SetUp]
         public void Setup()
         {
-            _rootSchema = new SchemaBuilder(canonicalizeByName: true)
-                .AddFieldOf<int>("hp")
-                .AddRefArray("children", 3)
-                .AddFieldFixed("speeds", sizeof(float) * 4)
-                .Build();
+            // root layout
+            {
+                var ob = new ObjectBuilder();
+                ob.SetScalar<int>("hp");
+                ob.SetRefArray("children", 3);
+                ob.SetArray<float>("speeds", 4);
+                _rootLayout = ob.BuildLayout();
+            }
 
-            _childSchema = new SchemaBuilder(canonicalizeByName: true)
-                .AddFieldOf<int>("hp")
-                .Build();
+            // child layout
+            {
+                var ob = new ObjectBuilder();
+                ob.SetScalar<int>("hp");
+                _childLayout = ob.BuildLayout();
+            }
         }
 
         [Test]
         public void ObjectArray_Basic_Create_Read_Write()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            // Get the ref-array field via StorageObject
             var arr = root.GetObjectArray("children");
-            Assert.That(arr.Count, Is.EqualTo(3));
+            Assert.That(arr.Length, Is.EqualTo(3));
 
             // Initially all null/empty
-            for (int i = 0; i < arr.Count; i++)
+            for (int i = 0; i < arr.Length; i++)
             {
                 var ok = arr.TryGet(i, out var child);
                 Assert.That(ok, Is.False);
                 Assert.That(child.IsNull, Is.True);
             }
 
-            // Create three children via element API (AsObjectOrNew)
-            for (int i = 0; i < arr.Count; i++)
+            // Create three children
+            for (int i = 0; i < arr.Length; i++)
             {
-                var child = arr[i].GetObject(_childSchema);
+                var child = arr[i].GetObject(_childLayout);
                 Assert.That(child.IsNull, Is.False);
-
-                // Write a distinct hp
                 child.Write<int>("hp", (i + 1) * 10);
             }
 
             // Read back
-            for (int i = 0; i < arr.Count; i++)
+            for (int i = 0; i < arr.Length; i++)
             {
                 var ok = arr.TryGet(i, out var child);
                 Assert.That(ok, Is.True);
@@ -67,23 +70,23 @@ namespace Amlos.Container.Tests
         [Test]
         public void ObjectArray_AsField_View_Matches_Object_View()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
             // Create via StorageField view
             var arrField = root.GetObjectArray("children");
-            Assert.That(arrField.Count, Is.EqualTo(3));
+            Assert.That(arrField.Length, Is.EqualTo(3));
 
-            for (int i = 0; i < arrField.Count; i++)
+            for (int i = 0; i < arrField.Length; i++)
             {
-                var child = arrField[i].GetObject(_childSchema);
+                var child = arrField[i].GetObject(_childLayout);
                 Assert.That(child.IsNull, Is.False);
                 child.Write<int>("hp", 100 + i);
             }
 
             // Cross-check via StorageObject.GetObjectArray
             var arr = root.GetObjectArray("children");
-            for (int i = 0; i < arr.Count; i++)
+            for (int i = 0; i < arr.Length; i++)
             {
                 var c = arr.Get(i);
                 Assert.That(c.Read<int>("hp"), Is.EqualTo(100 + i));
@@ -93,14 +96,14 @@ namespace Amlos.Container.Tests
         [Test]
         public void ObjectArray_ClearAt_And_ClearAll()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
             var arr = root.GetObjectArray("children");
 
             // Create at 0,1,2
-            for (int i = 0; i < arr.Count; i++)
-                arr[i].GetObject(_childSchema);
+            for (int i = 0; i < arr.Length; i++)
+                arr[i].GetObject(_childLayout);
 
             // Clear a single slot
             arr.ClearAt(1);
@@ -119,7 +122,7 @@ namespace Amlos.Container.Tests
             // Clear all
             arr.ClearAll();
 
-            for (int i = 0; i < arr.Count; i++)
+            for (int i = 0; i < arr.Length; i++)
             {
                 var ok = arr.TryGet(i, out var child);
                 Assert.That(ok, Is.False);
@@ -130,29 +133,29 @@ namespace Amlos.Container.Tests
         [Test]
         public void ObjectArray_AsObject_ReturnsExisting_NotRecreate()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
             var arr = root.GetObjectArray("children");
 
             // Create once
-            var c0 = arr[0].GetObject(_childSchema);
+            var c0 = arr[0].GetObject(_childLayout);
             var id0 = c0.ID;
 
-            // Ask AsObject (get only) should return same ID
+            // Get existing without allocation
             var c0b = arr[0].GetObjectNoAllocate();
             Assert.That(c0b.IsNull, Is.False);
             Assert.That(c0b.ID, Is.EqualTo(id0));
 
-            // Ask AsObjectOrNew again should still return the same existing child
-            var c0c = arr[0].GetObject(_childSchema);
+            // GetObject again should still return the same
+            var c0c = arr[0].GetObject(_childLayout);
             Assert.That(c0c.ID, Is.EqualTo(id0));
         }
 
         [Test]
         public void ObjectArray_Index_OutOfRange_Throws()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
             var arr = root.GetObjectArray("children");
@@ -160,11 +163,8 @@ namespace Amlos.Container.Tests
             bool threw = false;
             try
             {
-                // The indexer builds a StorageObjectArrayElement; the exception will be thrown
-                // when the element attempts to access the Span at invalid index
-                // via AsObject/AsObjectOrNew (below).
-                var el = arr[arr.Count]; // create element
-                el.GetObjectNoAllocate();           // force access -> should throw
+                var el = arr[arr.Length]; // create element
+                el.GetObjectNoAllocate(); // force access -> should throw
             }
             catch (IndexOutOfRangeException)
             {
@@ -176,15 +176,15 @@ namespace Amlos.Container.Tests
         [Test]
         public void Storage_Dispose_Unregisters_All_ObjectArray_Children()
         {
-            var storage = new Storage(_rootSchema);
+            var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
             var arr = root.GetObjectArray("children");
-            var ids = new ulong[arr.Count];
+            var ids = new ulong[arr.Length];
 
-            for (int i = 0; i < arr.Count; i++)
+            for (int i = 0; i < arr.Length; i++)
             {
-                var child = arr[i].GetObject(_childSchema);
+                var child = arr[i].GetObject(_childLayout);
                 child.Write<int>("hp", 5 + i);
                 ids[i] = child.ID;
             }
@@ -196,68 +196,18 @@ namespace Amlos.Container.Tests
                 Assert.That(reg.GetContainer(ids[i]), Is.Null, $"Child {i} should be unregistered.");
         }
 
-        //[Test]
-        //public void StorageField_ValueArray_And_ObjectArray_Api_Contract()
-        //{
-        //    using var storage = new Storage(_rootSchema);
-        //    var root = storage.Root;
-
-        //    // Get value array and write values
-        //    var speeds = root.GetArray<float>("speeds");
-        //    Assert.That(speeds.Count, Is.EqualTo(4));
-        //    for (int i = 0; i < 4; i++) speeds[i] = i * 1.25f;
-
-        //    var roSpeeds = root.GetField("speeds").AsReadOnlySpan<float>();
-        //    CollectionAssert.AreEqual(new[] { 0f, 1.25f, 2.5f, 3.75f }, roSpeeds.ToArray());
-
-        //    // Trying to treat a ref-array as value array should throw
-        //    var childField = root.GetField("children");
-        //    bool threw = false;
-        //    try
-        //    {
-        //        childField.AsArray<int>(); // children is ref-array, not value field
-        //    }
-        //    catch (InvalidOperationException)
-        //    {
-        //        threw = true;
-        //    }
-        //    Assert.That(threw, Is.True, "Expected InvalidOperationException was not thrown.");
-        //}
-
-        //[Test]
-        //public void StorageObject_TryGetField_Works_And_Equality_Semantics()
-        //{
-        //    using var storage = new Storage(_rootSchema);
-        //    var root = storage.Root;
-
-        //    // TryGetField success
-        //    var ok = root.TryGetField("hp", out var hpField);
-        //    Assert.That(ok, Is.True);
-
-        //    // TryGetField fail
-        //    var ok2 = root.TryGetField("missing", out var missing);
-        //    Assert.That(ok2, Is.False);
-        //    Assert.That(missing == default, Is.True);
-
-        //    // Equality on StorageField compares (container, descriptor)
-        //    var hpField2 = root.GetField("hp");
-        //    Assert.That(hpField == hpField2, Is.True);
-        //    Assert.That(hpField != hpField2, Is.False);
-        //}
-
         // --- Object Array: index out of range throws IndexOutOfRangeException ---
         [Test]
         public void ObjectArray_Index_OutOfRange_Throws_IndexOutOfRangeException()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
             var arr = root.GetObjectArray("children");
             bool threw = false;
             try
             {
-                // Indexer yields element; actual out-of-range is thrown when element accesses the span
-                var el = arr[arr.Count];
+                var el = arr[arr.Length];
                 el.GetObjectNoAllocate(); // triggers span index
             }
             catch (IndexOutOfRangeException)
@@ -271,20 +221,20 @@ namespace Amlos.Container.Tests
         [Test]
         public void ObjectArray_FieldView_And_ObjectView_Stay_Consistent()
         {
-            using var storage = new Storage(_rootSchema);
+            using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
             var arrField = root.GetObjectArray("children");
-            Assert.That(arrField.Count, Is.EqualTo(3));
+            Assert.That(arrField.Length, Is.EqualTo(3));
 
-            for (int i = 0; i < arrField.Count; i++)
+            for (int i = 0; i < arrField.Length; i++)
             {
-                var child = arrField[i].GetObject(_childSchema);
+                var child = arrField[i].GetObject(_childLayout);
                 child.Write<int>("hp", 100 + i);
             }
 
             var arr = root.GetObjectArray("children");
-            for (int i = 0; i < arr.Count; i++)
+            for (int i = 0; i < arr.Length; i++)
                 Assert.That(arr.Get(i).Read<int>("hp"), Is.EqualTo(100 + i));
         }
     }

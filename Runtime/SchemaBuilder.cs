@@ -12,6 +12,7 @@ namespace Amlos.Container
     /// - Optional name-based canonicalization to make {a,b,c} == {c,b,a} (same layout).
     /// - Finalize by calling Build() to produce an immutable Schema; the builder can be reused.
     /// </summary>
+    [Obsolete]
     public sealed class SchemaBuilder
     {
         private readonly List<FieldDescriptor_Old> _pending = new();

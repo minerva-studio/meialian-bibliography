@@ -69,6 +69,11 @@ namespace Amlos.Container
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static FieldType FieldType<T>(bool isArray = false) where T : unmanaged => Pack(PrimOf<T>(), isArray);
+
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte WithArray(byte hint, bool isArray)
             => isArray ? (byte)(hint | IS_ARRAY_MASK) : (byte)(hint & ~IS_ARRAY_MASK);
 

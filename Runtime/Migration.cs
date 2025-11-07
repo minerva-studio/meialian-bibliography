@@ -4,9 +4,152 @@ using static Amlos.Container.TypeUtil;
 
 namespace Amlos.Container
 {
-    public static class MigrationConverter
+    public static class Migration
     {
-        // Place into MigrationConverter (keep your ReadElementAs/WriteElementAs/ElemSize helpers)
+        public static bool TryWriteTo(ReadOnlySpan<byte> src, ValueType srcType, Span<byte> dst, ValueType dstType, bool isExplicit)
+        {
+            if (srcType == dstType)
+            {
+                src.CopyTo(dst);
+                return true;
+            }
+
+            // If implicit-only and conversion not allowed by implicit table -> fail
+            if (!isExplicit && !TypeUtil.IsImplicitlyConvertible(srcType, dstType))
+                return false;
+
+            // classify types
+            bool srcIsInt = srcType.IsIntegral();
+            bool dstIsInt = dstType.IsIntegral();
+            bool srcIsFloat = srcType.IsFloatingPoint();
+            bool dstIsFloat = dstType.IsFloatingPoint();
+            bool srcIsBool = srcType == ValueType.Bool;
+            bool dstIsBool = dstType == ValueType.Bool;
+            bool srcIsChar = srcType == ValueType.Char16;
+            bool dstIsChar = dstType == ValueType.Char16;
+
+            try
+            {
+                // ---- Boolean conversions ----
+                if (srcIsBool && dstIsBool)
+                {
+                    dst[0] = (byte)(src.Length > 0 && src[0] != 0 ? 1 : 0);
+                    if (dst.Length > 1) dst.Slice(1).Clear();
+                    return true;
+                }
+
+                if (srcIsBool && !dstIsBool)
+                {
+                    bool b = src.Length > 0 && src[0] != 0;
+                    double d = b ? 1.0 : 0.0;
+                    WriteFromDouble(dst, dstType, d);
+                    return true;
+                }
+
+                if (!srcIsBool && dstIsBool)
+                {
+                    bool nonzero = !IsZero(src, srcType);
+                    dst[0] = (byte)(nonzero ? 1 : 0);
+                    if (dst.Length > 1) dst.Slice(1).Clear();
+                    return true;
+                }
+
+                // ---- Char16 handling (treat as unsigned 16-bit) ----
+                if (srcIsChar && dstIsChar)
+                {
+                    int copy = Math.Min(2, Math.Min(src.Length, dst.Length));
+                    if (copy > 0) src.Slice(0, copy).CopyTo(dst.Slice(0, copy));
+                    if (dst.Length > copy) dst.Slice(copy).Clear();
+                    return true;
+                }
+
+                if (srcIsChar && !dstIsChar)
+                {
+                    ushort u = BinaryPrimitives.ReadUInt16LittleEndian(src);
+                    WriteFromULong(dst, dstType, u);
+                    return true;
+                }
+
+                if (!srcIsChar && dstIsChar)
+                {
+                    if (srcIsFloat)
+                    {
+                        double d = ReadDouble(src, srcType);
+                        ushort u = (ushort)(int)Math.Truncate(d);
+                        BinaryPrimitives.WriteUInt16LittleEndian(dst, u);
+                    }
+                    else
+                    {
+                        ulong u = ReadULong(src, srcType);
+                        BinaryPrimitives.WriteUInt16LittleEndian(dst, (ushort)u);
+                    }
+                    return true;
+                }
+
+                // ---- Integer <-> Integer conversions ----
+                if (srcIsInt && dstIsInt)
+                {
+                    if (srcType.IsUnsignedInteger())
+                    {
+                        ulong u = ReadULong(src, srcType);
+                        WriteFromULong(dst, dstType, u);
+                    }
+                    else
+                    {
+                        long s = ReadLong(src, srcType);
+                        WriteFromLong(dst, dstType, s);
+                    }
+                    return true;
+                }
+
+                // ---- Integer -> Float conversions ----
+                if (srcIsInt && dstIsFloat)
+                {
+                    double d = srcType.IsUnsignedInteger() ? (double)ReadULong(src, srcType) : (double)ReadLong(src, srcType);
+                    WriteFromDouble(dst, dstType, d);
+                    return true;
+                }
+
+                // ---- Float -> Integer conversions ----
+                if (srcIsFloat && dstIsInt)
+                {
+                    double d = ReadDouble(src, srcType);
+                    long s = (long)Math.Truncate(d); // truncate toward zero
+                    WriteFromLong(dst, dstType, s);
+                    return true;
+                }
+
+                // ---- Float <-> Float conversions ----
+                if (srcIsFloat && dstIsFloat)
+                {
+                    if (dstType == ValueType.Float32)
+                    {
+                        float f = (float)ReadDouble(src, srcType);
+                        int bits = BitConverter.SingleToInt32Bits(f);
+                        BinaryPrimitives.WriteInt32LittleEndian(dst, bits);
+                    }
+                    else
+                    {
+                        double d = ReadDouble(src, srcType);
+                        long bits = BitConverter.DoubleToInt64Bits(d);
+                        BinaryPrimitives.WriteInt64LittleEndian(dst, bits);
+                    }
+                    return true;
+                }
+
+                // If we fell through, conversion is unsupported even with explicit permission
+                return false;
+            }
+            catch
+            {
+                // treat any unexpected error as conversion failure (caller should drop/clear)
+                return false;
+            }
+        }
+
+
+
+
         public static bool MigrateValueFieldBytes(ReadOnlySpan<byte> src, Span<byte> dst, byte oldHint, byte newHint)
         {
             var oldVt = TypeUtil.PrimOf(oldHint);
@@ -65,8 +208,8 @@ namespace Amlos.Container
                 var sSlice = src.Slice(sOff, oldElem);
                 var dSlice = dst.Slice(dOff, newElem);
 
-                var valueView = new ValueView(sSlice, oldVt);
-                if (!valueView.TryWrite(dSlice, newVt, isExplicit))
+                var valueView = new ReadOnlyValueView(sSlice, oldVt);
+                if (!valueView.TryWriteTo(dSlice, newVt, isExplicit))
                 {
                     dSlice.Clear();
                 }
@@ -121,8 +264,8 @@ namespace Amlos.Container
         {
             Span<byte> buffer = stackalloc byte[src.Length];
             src.CopyTo(buffer);
-            var view = new ValueView(buffer, from);
-            view.TryWrite(dst, to, isExplicit);
+            var view = new ReadOnlyValueView(buffer, from);
+            view.TryWriteTo(dst, to, isExplicit);
         }
 
 

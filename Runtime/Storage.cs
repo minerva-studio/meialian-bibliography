@@ -7,18 +7,25 @@ namespace Amlos.Container
     /// </summary>
     public sealed class Storage : IDisposable
     {
-        private ulong _id;
+        private ContainerReference _id;
         private Container _root;
         private bool _disposed;
 
         public StorageObject Root => new StorageObject(_root);
 
 
-        public Storage() : this(Schema_Old.Empty) { }
+        public Storage() : this(ContainerLayout.Empty) { }
+
+        public Storage(ContainerLayout rootSchema)
+        {
+            _root = Container.Registry.Shared.CreateAt(ref _id, rootSchema);
+            //_root = new Container(rootSchema);
+        }
 
         public Storage(Schema_Old rootSchema)
         {
-            _root = Container.CreateAt(ref _id, rootSchema);
+            throw new InvalidOperationException();
+            //_root = Container.CreateAt(ref _id, rootSchema);
             //_root = new Container(rootSchema);
         }
 

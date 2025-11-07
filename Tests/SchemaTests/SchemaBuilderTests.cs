@@ -5,6 +5,7 @@ using static Amlos.Container.Tests.SchemaTestUtils;
 
 namespace Amlos.Container.Tests
 {
+    [Ignore("Abandoning Schema")]
     [TestFixture]
     public class SchemaBuilderTests
     {

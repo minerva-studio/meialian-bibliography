@@ -20,7 +20,7 @@ namespace Amlos.Container
         /// <summary>
         /// Object ID   
         /// </summary>
-        public ulong ID => _container.ID;
+        public ulong ID => _container?.ID ?? 0;
 
         /// <summary>
         /// Is object null
@@ -37,14 +37,13 @@ namespace Amlos.Container
         /// </summary>
         public bool IsArray => _container.FieldCount == 1 && _container.View[0].IsArray;
 
-        [Obsolete]
-        internal Span<byte> HeaderSegment => _container.HeaderSegment_Old;
+        internal ref byte[] Buffer => ref _container.Buffer;
 
         public int FieldCount => _container.FieldCount;
 
         internal StorageObject(Container container)
         {
-            _container = container;
+            _container = container ?? throw new InvalidOperationException();
         }
 
 
@@ -55,6 +54,18 @@ namespace Amlos.Container
             if (_container is null)
                 throw new InvalidOperationException("This StorageObject is null.");
         }
+
+
+
+
+        internal FieldView GetFieldView(ReadOnlySpan<char> fieldName) => _container.View[fieldName];
+        internal FieldView GetFieldView(int index) => _container.View[index];
+
+
+
+
+        public int IndexOf(ReadOnlySpan<char> fieldName) => _container.IndexOf(fieldName);
+
 
 
 
@@ -156,7 +167,7 @@ namespace Amlos.Container
         public bool Delete(string fieldName)
         {
             bool result = false;
-            _container.Rescheme(b => result = b.RemoveField(fieldName));
+            _container.Rescheme(b => result = b.Remove(fieldName));
             return result;
         }
 
@@ -169,7 +180,11 @@ namespace Amlos.Container
         {
             EnsureNotNull();
             int result = 0;
-            _container.Rescheme(b => result = b.RemoveFields(names));
+            for (int i = 0; i < names.Length; i++)
+            {
+                string item = names[i];
+                _container.Rescheme(b => result += b.Remove(item) ? 1 : 0);
+            }
             return result;
         }
 
@@ -209,7 +224,7 @@ namespace Amlos.Container
             if (!IsArray)
                 throw new InvalidOperationException("This StorageObject does not represent an array.");
 
-            Rescheme(SchemaBuilder.BuildArray<T>(value.Length));
+            Rescheme(ContainerLayout.BuildArray<T>(value.Length));
             value.CopyTo(_container.GetSpan<T>(0));
         }
 
@@ -234,25 +249,26 @@ namespace Amlos.Container
 
 
 
+
         // Child navigation by reference field (single)
-        public StorageObject GetObject(string fieldName, bool reschemeOnMissing, Schema_Old newSchema)
+        public StorageObject GetObject(string fieldName, bool reschemeOnMissing, ContainerLayout layout)
         {
-            ref ulong idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
-            return newSchema != null ? StorageFactory.Get(ref idRef, newSchema) : StorageFactory.GetNoAllocate(idRef);
+            ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
+            return layout != null ? StorageFactory.Get(ref idRef, layout) : StorageFactory.GetNoAllocate(idRef);
         }
 
         // Child navigation by reference field (single)
-        public StorageObject GetObject(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, newSchema: Schema_Old.Empty);
-        public StorageObject GetObject(string fieldName, Schema_Old schema = null) => GetObject(fieldName, reschemeOnMissing: true, newSchema: schema ?? Schema_Old.Empty);
+        public StorageObject GetObject(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, layout: ContainerLayout.Empty);
+        public StorageObject GetObject(string fieldName, ContainerLayout layout = null) => GetObject(fieldName, reschemeOnMissing: true, layout: layout ?? ContainerLayout.Empty);
 
         // Child navigation by reference field (single)
-        public StorageObject GetObjectNoAllocate(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, newSchema: null);
+        public StorageObject GetObjectNoAllocate(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, layout: null);
 
         /// <summary>
         /// Get a stack-only view over a value array field T[].
         /// Field must be non-ref and length divisible by sizeof(T).
         /// </summary>
-        public StorageInlineArray<T> GetArray<T>(string fieldName) where T : unmanaged => StorageInlineArray<T>.CreateView(_container, Schema.IndexOf(fieldName));
+        public StorageInlineArray GetArray(string fieldName) => new(_container.View[fieldName]);
 
         /// <summary>
         /// Get a stack-only view over a child reference array (IDs).
@@ -260,8 +276,7 @@ namespace Amlos.Container
         /// </summary>
         public StorageObjectArray GetObjectArray(string fieldName)
         {
-            var f = _container.Schema.GetField(fieldName);
-            return new StorageObjectArray(_container, f);
+            return new StorageObjectArray(_container, _container.View[fieldName]);
         }
 
         /// <summary>
@@ -269,11 +284,11 @@ namespace Amlos.Container
         /// </summary>
         /// <param name="fieldName"></param>
         /// <returns></returns>
-        public ValueView GetValueView(string fieldName) => _container.GetValueView(fieldName);
+        public ReadOnlyValueView GetValueView(string fieldName) => _container.GetValueView(fieldName);
 
-        public FieldInfo GetField(string fieldName) => _container.View[fieldName].ToFieldInfo();
+        public FieldInfo GetField(string fieldName) => GetField(IndexOf(fieldName));
 
-        public FieldInfo GetField(int index) => _container.View[index].ToFieldInfo();
+        public FieldInfo GetField(int index) => GetFieldView(index).ToFieldInfo();
 
 
 
@@ -283,10 +298,8 @@ namespace Amlos.Container
         /// <summary>
         /// Rescheme the container to match the target schema.
         /// </summary>
-        /// <param name="target"></param>
-        [Obsolete]
-        public void Rescheme(Schema_Old target) => _container.Rescheme(target);
-
+        /// <param name="target"></param> 
+        public void Rescheme(ContainerLayout target) => _container.Rescheme(target);
 
 
 
@@ -297,6 +310,7 @@ namespace Amlos.Container
         public override bool Equals(object obj) => false;
         public override string ToString() => _container.ToString();
     }
+
 
 
     public static class StorageObjectExtension

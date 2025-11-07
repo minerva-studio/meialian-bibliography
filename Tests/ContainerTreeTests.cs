@@ -6,25 +6,30 @@ namespace Amlos.Container.Tests
     [TestFixture]
     public class ContainerTreeTests
     {
-        private Schema_Old _nodeSchema_1Child;
-        private Schema_Old _nodeSchema_3Children;
+        private ContainerLayout _nodeLayout_1Child;
+        private ContainerLayout _nodeLayout_3Children;
 
         [SetUp]
         public void Setup()
         {
-            // Schema A: one int value + one child ref slot ("child")
-            _nodeSchema_1Child = new SchemaBuilder(canonicalizeByName: true)
-                .AddFieldOf<int>("hp")
-                .AddRef("child")
-                .Build();
+            // Layout A: one int value + one child ref slot ("child")
+            {
+                var ob = new ObjectBuilder();
+                ob.SetScalar<int>("hp");
+                // ref slot with default id=0 (8 bytes)
+                ob.SetRef("child", 0UL);
+                _nodeLayout_1Child = ob.BuildLayout();
+            }
 
-            // Schema B: one int + three child ref slots ("c0","c1","c2")
-            _nodeSchema_3Children = new SchemaBuilder(canonicalizeByName: true)
-                .AddFieldOf<int>("hp")
-                .AddRef("c0")
-                .AddRef("c1")
-                .AddRef("c2")
-                .Build();
+            // Layout B: one int + three child ref slots ("c0","c1","c2")
+            {
+                var ob = new ObjectBuilder();
+                ob.SetScalar<int>("hp");
+                ob.SetRef("c0", 0UL);
+                ob.SetRef("c1", 0UL);
+                ob.SetRef("c2", 0UL);
+                _nodeLayout_3Children = ob.BuildLayout();
+            }
         }
 
         [TearDown]
@@ -38,16 +43,16 @@ namespace Amlos.Container.Tests
         {
             // root -> child -> grandchild (linked via "child" ref slot)
             var reg = Container.Registry.Shared;
-            Span<ulong> ids = stackalloc ulong[3];
+            Span<ContainerReference> ids = stackalloc ContainerReference[3];
 
-            var root = Container.CreateAt(ref ids[0], _nodeSchema_1Child);
-            var child = Container.CreateAt(ref ids[1], _nodeSchema_1Child);
-            var grand = Container.CreateAt(ref ids[2], _nodeSchema_1Child);
+            var root = reg.CreateAt(ref ids[0], _nodeLayout_1Child);
+            var child = reg.CreateAt(ref ids[1], _nodeLayout_1Child);
+            var grand = reg.CreateAt(ref ids[2], _nodeLayout_1Child);
 
             // write root.hp, child.hp, grand.hp
-            root.WriteNoRescheme<int>("hp", 10);
-            child.WriteNoRescheme<int>("hp", 20);
-            grand.WriteNoRescheme<int>("hp", 30);
+            root.Write("hp", 10, allowRescheme: false);
+            child.Write("hp", 20, allowRescheme: false);
+            grand.Write("hp", 30, allowRescheme: false);
 
             // chain child links
             root.WriteObject("child", child);
@@ -93,18 +98,18 @@ namespace Amlos.Container.Tests
         {
             // root has three children via ("c0","c1","c2")
             var reg = Container.Registry.Shared;
-            Span<ulong> ids = stackalloc ulong[4];
+            Span<ContainerReference> ids = stackalloc ContainerReference[4];
 
-            var root = Container.CreateAt(ref ids[0], _nodeSchema_3Children);
-            var c0 = Container.CreateAt(ref ids[1], _nodeSchema_1Child);
-            var c1 = Container.CreateAt(ref ids[2], _nodeSchema_1Child);
-            var c2 = Container.CreateAt(ref ids[3], _nodeSchema_1Child);
+            var root = reg.CreateAt(ref ids[0], _nodeLayout_3Children);
+            var c0 = reg.CreateAt(ref ids[1], _nodeLayout_1Child);
+            var c1 = reg.CreateAt(ref ids[2], _nodeLayout_1Child);
+            var c2 = reg.CreateAt(ref ids[3], _nodeLayout_1Child);
 
             // set hp
-            root.WriteNoRescheme<int>("hp", 1);
-            c0.WriteNoRescheme<int>("hp", 10);
-            c1.WriteNoRescheme<int>("hp", 20);
-            c2.WriteNoRescheme<int>("hp", 30);
+            root.Write("hp", 1, allowRescheme: false);
+            c0.Write("hp", 10, allowRescheme: false);
+            c1.Write("hp", 20, allowRescheme: false);
+            c2.Write("hp", 30, allowRescheme: false);
 
             // link children
             root.WriteObject("c0", c0);
@@ -138,10 +143,10 @@ namespace Amlos.Container.Tests
         public void Unregister_Ignores_Zero_Slots_And_Partial_Missing()
         {
             var reg = Container.Registry.Shared;
-            Span<ulong> ids = stackalloc ulong[2];
+            Span<ContainerReference> ids = stackalloc ContainerReference[2];
 
-            var root = Container.CreateAt(ref ids[0], _nodeSchema_3Children);
-            var c0 = Container.CreateAt(ref ids[1], _nodeSchema_1Child);
+            var root = reg.CreateAt(ref ids[0], _nodeLayout_3Children);
+            var c0 = reg.CreateAt(ref ids[1], _nodeLayout_1Child);
 
             // only set c0; leave c1/c2 as 0
             root.WriteObject("c0", c0);
@@ -167,11 +172,11 @@ namespace Amlos.Container.Tests
             var reg = Container.Registry.Shared;
             const int depth = 64; // reasonable depth to avoid stack concerns in test runner
 
-            Span<ulong> ids = stackalloc ulong[depth];
+            Span<ContainerReference> ids = stackalloc ContainerReference[depth];
 
             var nodes = new Container[depth];
             for (int i = 0; i < depth; i++)
-                nodes[i] = Container.CreateAt(ref ids[i], _nodeSchema_1Child);
+                nodes[i] = reg.CreateAt(ref ids[i], _nodeLayout_1Child);
 
             // link chain: nodes[i] -> nodes[i+1]
             for (int i = 0; i < depth - 1; i++)
@@ -192,9 +197,10 @@ namespace Amlos.Container.Tests
 
     public static class ContainerExtension
     {
+        // Convenience wrapper to match the old test semantics
         internal static void WriteNoRescheme<T>(this Container container, string fieldName, in T value) where T : unmanaged
         {
-            container.Write(fieldName, value, false);
+            container.Write(fieldName, value, allowRescheme: false);
         }
     }
 }

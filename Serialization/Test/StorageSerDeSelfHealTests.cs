@@ -24,11 +24,11 @@ namespace Amlos.Container.Serialization.Tests
         [Test]
         public void Serialize_SimpleRoot_HpChildrenSpeeds_CorrectJsonShape()
         {
-            var schema = new SchemaBuilder(canonicalizeByName: true)
-                .AddFieldOf<int>("hp")
-                .AddRefArray("children", 3)
-                .AddArrayOf<float>("speeds", 4)
-                .Build();
+            var schema = new ObjectBuilder()
+                .SetScalar<int>("hp")
+                .SetRefArray("children", 3)
+                .SetArray<float>("speeds", 4)
+                .BuildLayout();
 
             var storage = new Storage(schema);
             var root = storage.Root;
@@ -36,8 +36,8 @@ namespace Amlos.Container.Serialization.Tests
             root.Write("hp", 100);
 
             var speeds = new float[] { 1.5f, 3.33f, 2.0f, 74.0f };
-            var speedsSpan = root.GetArray<float>("speeds");
-            speeds.AsSpan().CopyTo(speedsSpan.AsSpan());
+            var speedsSpan = root.GetArray("speeds");
+            speedsSpan.CopyFrom<float>(speeds);
 
             var json = JsonSerialization.ToJson(storage, ParamsWithAdapter());
 
@@ -105,13 +105,13 @@ namespace Amlos.Container.Serialization.Tests
 
             // Ensure array field exists and is float[4] after self-heal on access if needed
             Debug.Log(JsonSerialization.ToJson(storage, ParamsWithAdapter()));
-            var span = root.GetArray<float>("speeds");
-            Debug.Log(string.Join(',', span.ToArray()));
+            var span = root.GetArray("speeds");
+            Debug.Log(string.Join(',', span.ToArray<float>()));
             Assert.That(span.Length, Is.EqualTo(4));
-            Assert.That(span[0], Is.EqualTo(1.5f).Within(1e-6));
-            Assert.That(span[1], Is.EqualTo(3.33f).Within(1e-6));
-            Assert.That(span[2], Is.EqualTo(2.0f).Within(1e-6));
-            Assert.That(span[3], Is.EqualTo(74.0f).Within(1e-6));
+            Assert.That(span[0].Read<float>(), Is.EqualTo(1.5f).Within(1e-6));
+            Assert.That(span[1].Read<float>(), Is.EqualTo(3.33f).Within(1e-6));
+            Assert.That(span[2].Read<float>(), Is.EqualTo(2.0f).Within(1e-6));
+            Assert.That(span[3].Read<float>(), Is.EqualTo(74.0f).Within(1e-6));
         }
 
         /// <summary>
@@ -126,7 +126,7 @@ namespace Amlos.Container.Serialization.Tests
             var root = storage.Root;
 
             var arr = root.GetObjectArray("children");
-            Assert.That(arr.Count, Is.EqualTo(3));
+            Assert.That(arr.Length, Is.EqualTo(3));
             Assert.That(arr[0].IsNull, Is.True);
             Assert.That(arr[1].IsNull, Is.True);
             Assert.That(arr[2].IsNull, Is.True);
@@ -139,18 +139,18 @@ namespace Amlos.Container.Serialization.Tests
         [Test]
         public void RoundTrip_RestoreValuesAndSchema()
         {
-            var schema = new SchemaBuilder(true)
-                .AddFieldOf<int>("hp")
-                .AddArrayOf<float>("speeds", 4)
-                .AddRefArray("children", 2)
-                .Build();
+            var schema = new ObjectBuilder()
+                .SetScalar<int>("hp")
+                .SetArray<float>("speeds", 4)
+                .SetRefArray("children", 2)
+                .BuildLayout();
 
             var s1 = new Storage(schema);
             var r1 = s1.Root;
 
             r1.Write("hp", 123);
-            var sp = r1.GetArray<float>("speeds");
-            new float[] { 0.1f, 0.2f, 0.3f, 0.4f }.AsSpan().CopyTo(sp.AsSpan());
+            var sp = r1.GetArray("speeds");
+            sp.CopyFrom<float>(new float[] { 0.1f, 0.2f, 0.3f, 0.4f });//.AsSpan().CopyTo(sp.AsSpan());
             // Leave children nulls
 
             var json = JsonSerialization.ToJson(s1, ParamsWithAdapter());
@@ -158,17 +158,18 @@ namespace Amlos.Container.Serialization.Tests
 
             var s2 = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var r2 = s2.Root;
-            Debug.Log(string.Join(',', r2.HeaderSegment.ToArray().Select(s => TypeUtil.ToString(s))));
+            //Debug.Log(string.Join(',', r2.HeaderSegment.ToArray().Select(s => TypeUtil.ToString(s))));
 
             Assert.That(r2.Read<int>("hp"), Is.EqualTo(123));
-            Debug.Log(string.Join(',', r2.HeaderSegment.ToArray().Select(s => TypeUtil.ToString(s))));
-            var sp2 = r2.GetArray<float>("speeds");
+            //Debug.Log(string.Join(',', r2.HeaderSegment.ToArray().Select(s => TypeUtil.ToString(s))));
+            var sp2 = r2.GetArray("speeds");
             Debug.Log(JsonSerialization.ToJson(s2, ParamsWithAdapter()));
-            Debug.Log(string.Join(',', sp2.ToArray()));
-            Assert.That(sp2.AsSpan().SequenceEqual(new float[] { 0.1f, 0.2f, 0.3f, 0.4f }), Is.True);
+            Assert.That(sp2[0].Read<float>(), Is.EqualTo(0.1f));
+            Debug.Log(string.Join(',', sp2.ToArray<float>()));
+            Assert.That(sp2.ToArray<float>().SequenceEqual(new float[] { 0.1f, 0.2f, 0.3f, 0.4f }), Is.True);
 
             var kids = r2.GetObjectArray("children");
-            Assert.That(kids.Count, Is.EqualTo(2));
+            Assert.That(kids.Length, Is.EqualTo(2));
             Assert.That(kids[0].IsNull && kids[1].IsNull, Is.True);
         }
 
@@ -211,13 +212,13 @@ namespace Amlos.Container.Serialization.Tests
             var root = storage.Root;
 
             // Access as int[5]; your array accessor should self-heal schema to new fixed length
-            var span5 = root.GetArray<int>("arr"); // If you don't have lengthed overload, adapt to your API
+            var span5 = root.GetArray("arr"); // If you don't have lengthed overload, adapt to your API
             Assert.That(span5.Length, Is.EqualTo(5));
-            Assert.That(span5[0], Is.EqualTo(10));
-            Assert.That(span5[1], Is.EqualTo(20));
-            Assert.That(span5[2], Is.EqualTo(30));
-            Assert.That(span5[3], Is.EqualTo(0));  // zero-filled
-            Assert.That(span5[4], Is.EqualTo(0));
+            Assert.That(span5[0].Read<int>(), Is.EqualTo(10));
+            Assert.That(span5[1].Read<int>(), Is.EqualTo(20));
+            Assert.That(span5[2].Read<int>(), Is.EqualTo(30));
+            Assert.That(span5[3].Read<int>(), Is.EqualTo(0));  // zero-filled
+            Assert.That(span5[4].Read<int>(), Is.EqualTo(0));
         }
 
         /// <summary>

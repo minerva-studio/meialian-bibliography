@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Drawing;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -13,7 +14,7 @@ namespace Amlos.Container
     internal sealed partial class Container : IDisposable
     {
         public const int Version = 0;
-        private static readonly ArrayPool<byte> DefaultPool = ArrayPool<byte>.Create();
+        public static readonly ArrayPool<byte> DefaultPool = ArrayPool<byte>.Create();
 
 
         [Obsolete]
@@ -24,21 +25,21 @@ namespace Amlos.Container
         private ulong _id;              // assigned by registry
 
         /// <summary> object id </summary>
-        internal ulong ID => _id;
+        public ulong ID => _id;
 
 
         [Obsolete]
         public Schema_Old Schema => _schema;
 
         /// <summary>Logical length in bytes (== Schema.Stride).</summary>
-        public int Length => _buffer.Length;
+        public int Length => View.Length;
 
         public int FieldCount => View.FieldCount;
 
         public ContainerView View => new ContainerView(_buffer);
 
-        /// <summary>Logical memory slice [0..Stride).</summary>
-        public Span<byte> Span => _buffer;
+        /// <summary>Logical memory slice [0..length).</summary>
+        public Span<byte> Span => View.Span;
 
         /// <summary>Data slice [DataBase..Stride).</summary>
         public Span<byte> DataSegment => View.DataSegment;
@@ -47,8 +48,7 @@ namespace Amlos.Container
         [Obsolete]
         public Span<byte> HeaderSegment_Old => Span[.._schema.HeaderSize];
 
-        [Obsolete]
-        private Header Header_Old => new(HeaderSegment_Old);
+        public ref byte[] Buffer => ref _buffer;
 
 
 
@@ -69,13 +69,6 @@ namespace Amlos.Container
             else
             {
                 _buffer = _schema.Pool.Rent(zeroInit);
-            }
-
-            for (int i = 0; i < schema.Fields.Count; i++)
-            {
-                var field = schema.Fields[i];
-                if (field.IsRef)
-                    SetRefType(i, field.RefCount > 1);
             }
         }
 
@@ -124,15 +117,19 @@ namespace Amlos.Container
             if (size < ContainerHeader.Size)
                 size = ContainerHeader.Size;
 
-            _buffer = DefaultPool.Rent((int)size);
             _disposed = false;
+            _buffer = DefaultPool.Rent((int)size);
+            ContainerHeader.WriteLength(_buffer, size);
+        }
+
+        private void Initialize(byte[] buffer)
+        {
+            _disposed = false;
+            _buffer = buffer;
         }
 
         public void Dispose()
         {
-            // never dispose empty
-            if (ID == Registry.ID.Empty) return;
-
             if (_disposed) return;
 
             // set disposed
@@ -381,15 +378,15 @@ namespace Amlos.Container
         }
 
 
-        public ValueView GetValueView(string fieldName)
+        public ReadOnlyValueView GetValueView(string fieldName)
         {
             int index = IndexOf(fieldName);
-            return new ValueView(GetSpan(index), View.Fields[index].FieldType.Type);
+            return new ReadOnlyValueView(GetSpan(index), View.Fields[index].FieldType.Type);
         }
 
-        public ValueView GetValueView(int index)
+        public ReadOnlyValueView GetValueView(int index)
         {
-            return new ValueView(GetSpan(index), View.Fields[index].FieldType.Type);
+            return new ReadOnlyValueView(GetSpan(index), View.Fields[index].FieldType.Type);
         }
 
         #endregion
@@ -397,27 +394,27 @@ namespace Amlos.Container
 
         #region Object
 
-        public ref ulong GetRef(string fieldName) => ref GetRef(GetFieldIndexOrReschemeObject(fieldName));
+        public ref ContainerReference GetRef(string fieldName) => ref GetRef(GetFieldIndexOrReschemeObject(fieldName));
 
-        public ref ulong GetRefNoRescheme(string fieldName) => ref GetRef(IndexOf(fieldName));
+        public ref ContainerReference GetRefNoRescheme(string fieldName) => ref GetRef(IndexOf(fieldName));
 
-        public ref ulong GetRef(int index)
+        public ref ContainerReference GetRef(int index)
         {
             var f = View.GetField(index);
             if (!f.IsRef)
                 throw new ArgumentException($"Field '{f.Name.ToString()}' is not a ref slot.");
-            return ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, ulong>(f.Data));
+            return ref f.GetSpan<ContainerReference>()[0];
         }
 
-        public Span<ulong> GetRefSpan(string fieldName) => GetRefSpan(IndexOf(fieldName));
+        public Span<ContainerReference> GetRefSpan(string fieldName) => GetRefSpan(IndexOf(fieldName));
 
-        public Span<ulong> GetRefSpan(int index)
+        public Span<ContainerReference> GetRefSpan(int index)
         {
             var f = View.GetField(index);
             if (!f.IsRef) throw new ArgumentException($"Field '{f.Name.ToString()}' is not a ref field.");
             if (f.Length % FieldDescriptor_Old.REF_SIZE != 0)
                 throw new ArgumentException($"Field '{f.Name.ToString()}' byte length is not multiple of {FieldDescriptor_Old.REF_SIZE}.");
-            return MemoryMarshal.Cast<byte, ulong>(f.Data);
+            return f.GetSpan<ContainerReference>();
         }
 
         [Obsolete]
@@ -443,19 +440,28 @@ namespace Amlos.Container
         #region Type Hint
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private ref FieldType HintRef(int fieldIndex) => ref View[fieldIndex].Header.FieldType;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void SetScalarType<T>(int fieldIndex) where T : unmanaged
-            => HintRef(fieldIndex) = TypeUtil.Pack(TypeUtil.PrimOf<T>(), isArray: false);
+        {
+            ref var header = ref View[fieldIndex].Header;
+            header.FieldType = TypeUtil.FieldType<T>(false);
+            header.ElemSize = (short)Unsafe.SizeOf<T>();
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void SetArrayType<T>(int fieldIndex) where T : unmanaged
-            => HintRef(fieldIndex) = TypeUtil.Pack(TypeUtil.PrimOf<T>(), isArray: true);
+        {
+            ref var header = ref View[fieldIndex].Header;
+            header.FieldType = TypeUtil.FieldType<T>(true);
+            header.ElemSize = (short)Unsafe.SizeOf<T>();
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void SetRefType(int fieldIndex, bool isArray)
-            => HintRef(fieldIndex) = TypeUtil.Pack(ValueType.Ref, isArray);
+        private void SetType(int fieldIndex, ValueType type, bool isArray, short elementSize)
+        {
+            ref var header = ref View[fieldIndex].Header;
+            header.FieldType = TypeUtil.Pack(type, isArray);
+            header.ElemSize = elementSize;
+        }
 
         #endregion
 
@@ -471,9 +477,7 @@ namespace Amlos.Container
         public Container Clone()
         {
             EnsureNotDisposed();
-            var c = new Container(Length);
-            Span.CopyTo(c.Span);
-            return c;
+            return Registry.Shared.CreateWild(_buffer);
         }
 
         public void CopyFrom(Container other)
@@ -496,79 +500,8 @@ namespace Amlos.Container
         #endregion
 
 
-        #region Create Old
 
-        public static Container CreateAt(ref ulong position, Schema_Old schema)
-        {
-            if (schema is null) throw new ArgumentNullException(nameof(schema));
 
-            // 1) If an old tracked container exists in the slot, unregister it first.
-            var old = Registry.Shared.GetContainer(position);
-            if (old != null)
-                Registry.Shared.Unregister(old);
-
-            // 2) Create a new container and register it (assign a unique tracked ID).
-            var created = new Container(schema);
-            Registry.Shared.Register(created);
-
-            // 3) Bind atomically: write ID into the slot.
-            position = created.ID;
-            return created;
-        }
-
-        /// <summary>
-        /// Create a wild container, which means that container is not tracked by anything
-        /// </summary>
-        /// <param name="position"></param>
-        /// <param name="schema"></param>
-        /// <exception cref="ArgumentNullException"></exception>
-        public static Container CreateAt(ref ulong position, Schema_Old schema, ReadOnlySpan<byte> span)
-        {
-            if (schema is null) throw new ArgumentNullException(nameof(schema));
-
-            // 1) If an old tracked container exists in the slot, unregister it first.
-            var old = Registry.Shared.GetContainer(position);
-            if (old != null)
-                Registry.Shared.Unregister(old);
-
-            // 2) Create a new container and register it (assign a unique tracked ID).
-            var created = new Container(schema, span);
-            Registry.Shared.Register(created);
-
-            // 3) Bind atomically: write ID into the slot.
-            position = created.ID;
-            return created;
-        }
-
-        /// <summary>
-        /// Create a wild container, which means that container is not tracked by anything
-        /// </summary>
-        /// <param name="position"></param>
-        /// <param name="schema"></param>
-        /// <exception cref="ArgumentNullException"></exception>
-        public static Container CreateWild(Schema_Old schema)
-        {
-            if (schema is null) throw new ArgumentNullException(nameof(schema));
-            Container newContainer = new(schema);
-            newContainer._id = ulong.MaxValue;
-            return newContainer;
-        }
-
-        /// <summary>
-        /// Create a wild container, which means that container is not tracked by anything
-        /// </summary>
-        /// <param name="position"></param>
-        /// <param name="schema"></param>
-        /// <exception cref="ArgumentNullException"></exception>
-        public static Container CreateWild(Schema_Old schema, ReadOnlySpan<byte> span)
-        {
-            if (schema is null) throw new ArgumentNullException(nameof(schema));
-            Container newContainer = new(schema, span);
-            newContainer._id = ulong.MaxValue;
-            return newContainer;
-        }
-
-        #endregion
 
         public override string ToString()
         {

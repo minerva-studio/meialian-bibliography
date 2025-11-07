@@ -12,6 +12,7 @@ namespace Amlos.Container
     /// - Schema instances are immutable once created.
     /// - No field kind/type is stored here by design; callers must use the correct read/write API.
     /// </summary>
+    [Obsolete]
     public sealed class Schema_Old : IEquatable<Schema_Old>
     {
         public static readonly int ALIGN = 8;

@@ -2,13 +2,13 @@ namespace Amlos.Container
 {
     internal static class StorageFactory
     {
-        internal static StorageObject Get(ref ulong position, Schema_Old defaultSchema)
+        internal static StorageObject Get(ref ContainerReference position, ContainerLayout layout)
         {
             ref var id = ref position;
             var child = Container.Registry.Shared.GetContainer(id);
             if (child is null)
             {
-                Container.CreateAt(ref position, defaultSchema ?? Schema_Old.Empty);
+                Container.Registry.Shared.CreateAt(ref position, layout ?? ContainerLayout.Empty);
                 child = Container.Registry.Shared.GetContainer(id);
             }
             return new StorageObject(child);
@@ -17,10 +17,10 @@ namespace Amlos.Container
         internal static StorageObject GetNoAllocate(ulong position)
         {
             var id = position;
-            if (id == 0UL) return default; // null-like
+            if (id == 0UL) return default;      // null-like
 
             var child = Container.Registry.Shared.GetContainer(id);
-            if (child is null) return default; // dangling -> treat as null
+            if (child is null) return default;  // dangling -> treat as null
 
             return new StorageObject(child);
         }

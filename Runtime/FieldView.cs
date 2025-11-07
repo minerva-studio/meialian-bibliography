@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Amlos.Container
 {
@@ -26,8 +27,9 @@ namespace Amlos.Container
         public int Index => index;
         public ValueType Type => Header.Type;
         public FieldType FieldType => Header.FieldType;
-        public ValueView ValueView => new ValueView(Data, Header.Type);
+        public ReadOnlyValueView ValueView => new ReadOnlyValueView(Data, Header.Type);
 
+        public readonly Span<T> GetSpan<T>() where T : unmanaged => MemoryMarshal.Cast<byte, T>(Data);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public FieldInfo ToFieldInfo() => new FieldInfo(Name, Header);

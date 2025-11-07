@@ -34,9 +34,33 @@ namespace Amlos.Container
 
         private struct Entry
         {
-            public FieldType Type;   // FieldType.b
+            public FieldType Type;  // FieldType.b
             public short ElemSize;  // element size
-            public byte[] Data;      // payload bytes (Length = total bytes). For refs: 8 bytes. 
+            public Data Data;       // payload bytes (Length = total bytes). For refs: 8 bytes. 
+        }
+
+        private struct Data
+        {
+            byte[] buffer;
+            int length;
+
+            public int Length => length;
+            public byte[] Buffer => buffer;
+
+            public Span<byte> GetBuffer()
+            {
+                return this.buffer ??= (length == 0 ? Array.Empty<byte>() : new byte[length]);
+            }
+
+            public static implicit operator Data(byte[] bytes)
+            {
+                return new Data { buffer = bytes, length = bytes.Length };
+            }
+
+            public static implicit operator Data(int length)
+            {
+                return new Data { buffer = null, length = length };
+            }
         }
 
 
@@ -51,92 +75,218 @@ namespace Amlos.Container
         // Mutating API
         // --------------------------
 
+
+
         /// <summary>Add or replace a raw byte payload.</summary>
-        public void SetRaw(ReadOnlyMemory<char> name, byte type, int elemSize, ReadOnlySpan<byte> data)
+        public ObjectBuilder SetRaw(string name, FieldType type, int elemSize, ReadOnlySpan<byte> data) => SetRaw(name, type, elemSize, data);
+        public ObjectBuilder SetRaw(ReadOnlyMemory<char> name, FieldType type, int elemSize, ReadOnlySpan<byte> data)
         {
             if (name.Length == 0) throw new ArgumentNullException(nameof(name));
             if (elemSize < 0 || elemSize > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(elemSize));
             var arr = data.ToArray(); // copy into cache
             _map[name] = new Entry { Type = type, ElemSize = (short)elemSize, Data = arr };
+            return this;
         }
 
+
+        /// <summary>Add or replace a raw byte payload.</summary>
+        public void SetRaw(string name, FieldHeader header) => SetRaw(name.AsMemory(), header);
+        public void SetRaw(ReadOnlyMemory<char> name, FieldHeader header)
+        {
+            if (name.Length == 0) throw new ArgumentNullException(nameof(name));
+            var elemSize = header.ElemSize;
+            if (elemSize < 0) throw new ArgumentOutOfRangeException(nameof(elemSize));
+            _map[name] = new Entry { Type = header.FieldType, ElemSize = (short)elemSize, Data = header.Length };
+        }
+
+
         /// <summary>Remove a field (no-op if absent).</summary>
+        public bool Remove(string name) => _map.Remove(name.AsMemory());
         public bool Remove(ReadOnlyMemory<char> name) => _map.Remove(name);
+
 
         public void Clear() => _map.Clear();
 
+
         // Convenience writers:
 
-        /// <summary>Set a scalar value of unmanaged T.</summary>
-        public unsafe void SetScalar<T>(ReadOnlyMemory<char> name, FieldType type) where T : unmanaged
-        {
-            int size = sizeof(T);
-            var buf = new byte[size];
-            fixed (byte* p = buf)
-                *(T*)p = default; // caller may prefer this overload with value; see below
-            _map[name] = new Entry { Type = type, ElemSize = (short)size, Data = buf };
-        }
+
+
 
         /// <summary>Set a scalar value of unmanaged T.</summary>
-        public unsafe void SetScalar(ReadOnlyMemory<char> name, FieldType type)
+        public ObjectBuilder SetScalar<T>(string name) where T : unmanaged => SetScalar<T>(name.AsMemory());
+        internal ObjectBuilder SetScalar<T>(ReadOnlyMemory<char> name) where T : unmanaged
+        {
+            int size = Unsafe.SizeOf<T>();
+            _map[name] = new Entry { Type = TypeUtil.FieldType<T>(), ElemSize = (short)size, Data = size };
+            return this;
+        }
+
+
+        /// <summary>Set a scalar value of unmanaged T.</summary>
+        public ObjectBuilder SetScalar(string name, FieldType type) => SetScalar(name.AsMemory(), type);
+        internal ObjectBuilder SetScalar(ReadOnlyMemory<char> name, FieldType type)
         {
             var size = TypeUtil.SizeOf(type.Type);
             if (size == 0)
                 throw new ArgumentOutOfRangeException(nameof(type));
+
             var buf = new byte[size];
             _map[name] = new Entry { Type = type, ElemSize = (short)size, Data = buf };
+            return this;
         }
+
 
         /// <summary>Set a scalar value of unmanaged T with value.</summary>
-        public unsafe void SetScalar<T>(ReadOnlyMemory<char> name, FieldType type, in T value) where T : unmanaged
+        public ObjectBuilder SetScalar<T>(string name, in T value) where T : unmanaged => SetScalar(name.AsMemory(), value);
+        internal ObjectBuilder SetScalar<T>(ReadOnlyMemory<char> name, in T value) where T : unmanaged
         {
-            int size = sizeof(T);
-            var buf = new byte[size];
-            fixed (byte* p = buf)
-                *(T*)p = value;
-            _map[name] = new Entry { Type = type, ElemSize = (short)size, Data = buf };
+            int size = Unsafe.SizeOf<T>();
+            var bytes = CreateDefaultValueBytes(value);
+            _map[name] = new Entry { Type = TypeUtil.FieldType<T>(), ElemSize = (short)size, Data = bytes };
+            return this;
         }
 
-        public void SetScalar(ReadOnlyMemory<char> name, FieldType type, Span<byte> value)
+
+        public ObjectBuilder SetScalar(string name, FieldType type, Span<byte> value) => SetScalar(name.AsMemory(), type, value);
+        internal ObjectBuilder SetScalar(ReadOnlyMemory<char> name, FieldType type, Span<byte> value)
         {
             int size = value.Length;
             var buf = new byte[size];
             value.CopyTo(buf);
             _map[name] = new Entry { Type = type, ElemSize = (short)size, Data = buf };
+            return this;
         }
+
+
+
 
 
         /// <summary>Set a reference id (8 bytes, little-endian).</summary>
-        public void SetRef(ReadOnlyMemory<char> name, ulong id, FieldType type /* should carry IsRef bit */)
+        public ObjectBuilder SetRef(string name) => SetRef(name.AsMemory());
+        public ObjectBuilder SetRef(ReadOnlyMemory<char> name)
+        {
+            _map[name] = new Entry { Type = FieldType.Ref, ElemSize = 8, Data = ContainerReference.Size };
+            return this;
+        }
+
+        /// <summary>Set a reference id (8 bytes, little-endian).</summary>
+        internal ObjectBuilder SetRef(string name, ulong id) => SetRef(name.AsMemory(), id);
+        internal ObjectBuilder SetRef(ReadOnlyMemory<char> name, ulong id)
         {
             var buf = new byte[8];
             BinaryPrimitives.WriteUInt64LittleEndian(buf, id);
-            _map[name] = new Entry { Type = type, ElemSize = 8, Data = buf };
+            _map[name] = new Entry { Type = FieldType.Ref, ElemSize = 8, Data = buf };
+            return this;
         }
 
+        /// <summary>Set a reference array (8 bytes, little-endian).</summary>
+        public ObjectBuilder SetRefArray(string name, int arraySize) => SetRefArray(name.AsMemory(), arraySize);
+        public ObjectBuilder SetRefArray(ReadOnlyMemory<char> name, int count)
+        {
+            var buf = new byte[checked(count * 8)];
+            _map[name] = new Entry { Type = FieldType.RefArray, ElemSize = 8, Data = buf };
+            return this;
+        }
+
+
+
+
+
         /// <summary>Set an array payload of unmanaged T.</summary>
-        public unsafe void SetArray(ReadOnlyMemory<char> name, FieldType type, int arraySize)
+        public ObjectBuilder SetArray(string name, FieldType type, int arraySize) => SetArray(name.AsMemory(), type, arraySize);
+        internal ObjectBuilder SetArray(ReadOnlyMemory<char> name, FieldType type, int arraySize)
         {
             int elem = type.Size;
             int length = elem * arraySize;
-            _map[name] = new Entry { Type = type, ElemSize = (short)elem, Data = new byte[length] };
+            _map[name] = new Entry { Type = type, ElemSize = (short)elem, Data = length };
+            return this;
         }
 
         /// <summary>Set an array payload of unmanaged T.</summary>
-        public unsafe void SetArray<T>(ReadOnlyMemory<char> name, FieldType type, ReadOnlySpan<T> items) where T : unmanaged
+        public ObjectBuilder SetArray<T>(string name, int arraySize) where T : unmanaged => SetArray<T>(name.AsMemory(), arraySize);
+        internal ObjectBuilder SetArray<T>(ReadOnlyMemory<char> name, int arraySize) where T : unmanaged
         {
-            int elem = sizeof(T);
-            int len = elem * items.Length;
-            var buf = new byte[len];
-            fixed (T* src = items)
-            fixed (byte* dst = buf)
-                Buffer.MemoryCopy(src, dst, len, len);
-            _map[name] = new Entry { Type = type, ElemSize = (short)elem, Data = buf };
+            FieldType type = new(TypeUtil.PrimOf<T>(), true);
+            int elem = type.Size;
+            int length = elem * arraySize;
+            _map[name] = new Entry { Type = type, ElemSize = (short)elem, Data = length };
+            return this;
         }
 
+        /// <summary>Set an array payload of unmanaged T.</summary>
+        public ObjectBuilder SetArray<T>(string name, ReadOnlySpan<T> items) where T : unmanaged => SetArray<T>(name.AsMemory(), items);
+        internal ObjectBuilder SetArray<T>(ReadOnlyMemory<char> name, ReadOnlySpan<T> items) where T : unmanaged
+        {
+            FieldType type = new(TypeUtil.PrimOf<T>(), true);
+            int elem = Unsafe.SizeOf<T>();
+            int len = elem * items.Length;
+            var buf = new byte[len];
+            MemoryMarshal.AsBytes(items).CopyTo(buf);
+            _map[name] = new Entry { Type = type, ElemSize = (short)elem, Data = buf };
+            return this;
+        }
+
+
+
+
         /// <summary>Set a raw byte array (ElemSize = 1).</summary>
-        public void SetBytes(ReadOnlyMemory<char> name, byte type, ReadOnlySpan<byte> bytes)
-            => SetRaw(name, type, 1, bytes);
+        public ObjectBuilder SetBytes(string name, byte type, ReadOnlySpan<byte> bytes) => SetBytes(name.AsMemory(), type, bytes);
+        internal ObjectBuilder SetBytes(ReadOnlyMemory<char> name, byte type, ReadOnlySpan<byte> bytes) => SetRaw(name, type, 1, bytes);
+
+
+
+        /// <summary>
+        /// Get field buffer
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        internal Span<byte> GetBuffer(string name)
+        {
+            ReadOnlyMemory<char> readOnlyMemory = name.AsMemory();
+            return GetBuffer(readOnlyMemory);
+        }
+
+        /// <summary>
+        /// Get field buffer
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        internal Span<byte> GetBuffer(ReadOnlyMemory<char> readOnlyMemory)
+        {
+            Entry entry = _map[readOnlyMemory];
+            var buffer = entry.Data.GetBuffer();
+            _map[readOnlyMemory] = entry;
+            return buffer;
+        }
+
+
+
+        /// <summary>
+        /// Get field buffer
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        internal Span<T> GetBuffer<T>(string name) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetBuffer(name));
+        /// <summary>
+        /// Get field buffer
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        internal Span<T> GetBuffer<T>(ReadOnlyMemory<char> name) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetBuffer(name));
+
+
+
+
+        public ObjectBuilder Variate(Action<ObjectBuilder> action)
+        {
+            action(this);
+            return this;
+        }
+
+
 
 
 
@@ -146,153 +296,182 @@ namespace Amlos.Container
         /// <returns></returns>
         internal int CountByte()
         {
-            if (_map.Count == 0)
-            {
+            int headerSize = CountHeader();
+
+            // Sum data length for total size
+            int totalDataBytes = 0;
+            for (int i = 0; i < _map.Count; i++)
+                totalDataBytes += _map.Values[i].Data.Length;
+
+            return headerSize + totalDataBytes;
+        }
+
+        internal int CountHeader()
+        {
+            var n = _map.Count;
+            if (n == 0)
                 return ContainerHeader.Size;
-            }
 
-            int n = _map.Count;
-
-            // 2) Names blob plan
+            // Names blob size (UTF-16)
             int namesBytes = 0;
             for (int i = 0; i < n; i++)
-            {
-                var name = _map.Keys[i];
-                namesBytes += name.Length * sizeof(char);
-            }
+                namesBytes += _map.Keys[i].Length * sizeof(char);
 
-            // 3) Fixed offsets
+            // Fixed offsets
             int fhSize = n * FieldHeader.Size;
             int nameStart = ContainerHeader.Size + fhSize;
-            int dataStart = nameStart + namesBytes;
-
-            // 4) Compute field headers (DataOffset relative to DataStart)
-            uint running = 0;
-            //var fhs = new FieldHeader[n];
-            for (int i = 0; i < n; i++)
-            {
-                var e = _map.Values[i];
-                running += (uint)e.Data.Length;
-            }
-
-            // 5) Allocate final buffer
-            int total = dataStart + (int)running;
-            return total;
+            return nameStart + namesBytes;
         }
+
+
+
 
         /// <summary>
         /// Materialize the container as a compact byte[] with fresh layout.
         /// Order: [ContainerHeader][FieldHeader...][Names][Data].
         /// </summary>
-        internal Container Build() => Build(null);
-        internal Container Build(byte[] target)
+        internal Container BuildContainer()
+        {
+            byte[] target = null;
+            WriteTo(ref target);
+            return Container.Registry.Shared.CreateWildWith(target);
+        }
+
+
+
+        internal void WriteTo(ref byte[] target)
         {
             if (_map.Count == 0)
             {
-                return Container.Empty;
+                ContainerHeader.WriteEmptyHeader(target, Version);
+                return;
             }
 
+            BuildLayout(ref target);
+            ContainerView view = new(target);
+
+            // Write Data payloads using ABSOLUTE offsets into full buffer
+            var buf = view.Span;      // whole buffer [0..total)
+            int dataCursor = view.Header.DataOffset;
+            for (int i = 0; i < _map.Count; i++)
+            {
+                var data = _map.Values[i].Data;
+                // absolute write
+                data.Buffer?.CopyTo(buf.Slice(dataCursor, data.Length));
+                dataCursor += data.Length;
+            }
+        }
+
+        public ContainerLayout BuildLayout()
+        {
+            byte[] header = null;
+            BuildLayout(ref header, false);
+            return new ContainerLayout(header);
+        }
+
+        internal void BuildLayout(ref byte[] target, bool includeData = true)
+        {
             int n = _map.Count;
 
-            // 2) Names blob plan
+            // Names blob size (UTF-16)
             int namesBytes = 0;
             for (int i = 0; i < n; i++)
-            {
-                var name = _map.Keys[i];
-                namesBytes += name.Length * sizeof(char);
-            }
+                namesBytes += _map.Keys[i].Length * sizeof(char);
 
-            // 3) Fixed offsets
+            // Fixed offsets
             int fhSize = n * FieldHeader.Size;
             int nameStart = ContainerHeader.Size + fhSize;
             int dataStart = nameStart + namesBytes;
 
-            // 4) Compute field headers (DataOffset relative to DataStart)
-            int running = 0;
-            //var fhs = new FieldHeader[n];
+            // Sum data length for total size
+            int totalDataBytes = 0;
             for (int i = 0; i < n; i++)
-            {
-                var e = _map.Values[i];
-                running += (int)e.Data.Length;
-            }
+                totalDataBytes += _map.Values[i].Data.Length;
 
-            // 5) Allocate final buffer
-            int total = dataStart + (int)running;
-            ContainerView view;
-            Container container = null;
-            if (target == null)
-            {
-                container = Container.Registry.Shared.CreateWild(total);
-                view = container.View;
-            }
-            else
-            {
-                view = new ContainerView(target);
-            }
+            int allocSize = dataStart;
+            if (includeData) allocSize += totalDataBytes;
 
-            // 6) Write ContainerHeader 
+            // Create buffer/view
+            if (target?.Length < allocSize)
+            {
+                Container.DefaultPool.Return(target);
+                target = null;
+            }
+            target ??= Container.DefaultPool.Rent(allocSize);
+            Array.Fill(target, (byte)0);
+            ContainerHeader.WriteLength(target, dataStart + totalDataBytes);
+            ContainerView view = new(target);
+
+            // Header
             ref var h2 = ref view.Header;
             h2.Version = Version;
-            h2.FieldCount = _map.Count;
-            h2.NameOffset = nameStart;
-            h2.DataOffset = dataStart;
+            h2.FieldCount = n;
+            h2.NameOffset = nameStart;  // absolute
+            h2.DataOffset = dataStart;  // absolute
 
-            // 7) Write FieldHeaders
+            // Field headers (absolute DataOffset)
             var fields = view.Fields;
-            int nameOffset = 0;
-            for (int i = 0; i < _map.Count; i++)
+            int nameOffset = 0;      // relative within Names blob
+            int running = dataStart; // absolute cursor in whole buffer
+            for (int i = 0; i < n; i++)
             {
                 var name = _map.Keys[i];
                 var e = _map.Values[i];
+
                 fields[i] = new FieldHeader
                 {
                     NameHash = ReadOnlyMemoryComparer.GetHashCode(name),
-                    NameOffset = (nameStart + nameOffset),
+                    NameOffset = nameStart + nameOffset,   // absolute
                     NameLength = (short)name.Length,
                     FieldType = e.Type,
                     Reserved = 0,
-                    DataOffset = running,
+                    DataOffset = running,                  // absolute (== start of this field payload)
                     ElemSize = e.ElemSize,
-                    Length = (int)e.Data.Length,
+                    Length = e.Data.Length,
                 };
+
                 nameOffset += name.Length * sizeof(char);
+                running += e.Data.Length;              // advance absolute cursor
             }
 
-            // 8) Write Names blob (UTF-16)
-            int nameCursor = 0;
-            var dst = view.NameSegment;
-            for (int i = 0; i < _map.Count; i++)
+            // Write Names blob (UTF-16) into NameSegment (relative slicing OK)
+            int nameCursor = 0; // relative within NameSegment
+            var nameDst = view.NameSegment;
+            for (int i = 0; i < n; i++)
             {
                 var s = _map.Keys[i];
-                var byteCount = s.Length * sizeof(char);
-                MemoryMarshal.AsBytes(s.Span).CopyTo(dst.Slice(nameCursor, byteCount));
+                int byteCount = s.Length * sizeof(char);
+                MemoryMarshal.AsBytes(s.Span).CopyTo(nameDst.Slice(nameCursor, byteCount));
                 nameCursor += byteCount;
             }
-
-            // 9) Write Data payloads
-            int dataCursor = dataStart;
-            for (int i = 0; i < _map.Count; i++)
-            {
-                var data = _map.Values[i].Data;
-                data.CopyTo(dst.Slice(dataCursor, data.Length));
-                dataCursor += data.Length;
-            }
-
-            return container;
         }
 
+
+
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static uint Hash32_FNV1a(string s)
+        private static byte[] CreateDefaultValueBytes<T>() where T : unmanaged => CreateDefaultValueBytes<T>(default);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static byte[] CreateDefaultValueBytes<T>(T value) where T : unmanaged
         {
-            const uint offset = 2166136261u;
-            const uint prime = 16777619u;
-            uint h = offset;
-            foreach (char c in s)
+            var buf = new byte[Unsafe.SizeOf<T>()];
+            MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref value, 1)).CopyTo(buf);
+            return buf;
+        }
+
+
+
+
+        internal static ObjectBuilder FromContainer(Container container)
+        {
+            var builder = new ObjectBuilder();
+            ContainerView view = container.View;
+            for (int i = 0; i < container.FieldCount; i++)
             {
-                h ^= (byte)c; h *= prime;
-                h ^= (byte)(c >> 8); h *= prime;
+                builder.SetRaw(view[i].Name.ToString(), view[i].Header);
             }
-            return h;
+            return builder;
         }
     }
 }

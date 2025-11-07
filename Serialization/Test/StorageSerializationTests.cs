@@ -1,5 +1,4 @@
 using NUnit.Framework;
-using System;
 using Unity.Serialization.Json;
 
 namespace Amlos.Container.Serialization.Tests
@@ -18,11 +17,11 @@ namespace Amlos.Container.Serialization.Tests
         public void Serialize_SimpleRoot_HpChildrenSpeeds_CorrectJsonShape()
         {
             // --- Arrange: schema ---
-            var schema = new SchemaBuilder(canonicalizeByName: true)
-                .AddFieldOf<int>("hp")
-                .AddRefArray("children", 3)
-                .AddArrayOf<float>("speeds", 4)
-                .Build();
+            var schema = new ObjectBuilder()
+                .SetScalar<int>("hp")
+                .SetRefArray("children", 3)
+                .SetArray<float>("speeds", 4)
+                .BuildLayout();
 
             // Create a storage + root object (adjust to your actual constructors).
             var storage = new Storage(schema);
@@ -38,8 +37,9 @@ namespace Amlos.Container.Serialization.Tests
             // speeds = [1.5, 3.33, 2.0, 74.0]
             // TODO: replace with your actual array write API.
             var speeds = new float[] { 1.5f, 3.33f, 2.0f, 74.0f };
-            StorageInlineArray<float> storageArray = root.GetArray<float>("speeds");
-            MemoryExtensions.CopyTo(speeds, storageArray.AsSpan());
+            StorageInlineArray storageArray = root.GetArray("speeds");
+            storageArray.CopyFrom<float>(speeds);
+            //MemoryExtensions.CopyTo(speeds, storageArray.AsSpan());
 
             var parameters = new JsonSerializationParameters
             {

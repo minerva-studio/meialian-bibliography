@@ -1,8 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using Unity.Serialization.Json;
-using static Amlos.Container.TypeUtil;
 
 namespace Amlos.Container.Serialization
 {
@@ -22,9 +20,7 @@ namespace Amlos.Container.Serialization
         {
             if (maxDepth <= 0) throw new InvalidOperationException("Max depth exceeded.");
 
-            // rebuild scehema
-            List<FieldDescriptor_Old> newFields = new();
-            Dictionary<string, byte> types = new();
+            ObjectBuilder b = new();
             foreach (var member in obj)
             {
                 var name = member.Name().ToString();
@@ -33,65 +29,41 @@ namespace Amlos.Container.Serialization
                 // 1) If field missing ¡ú infer FieldDescriptor and rebuild schema, then continue.
                 if (!target.HasField(name))
                 {
-                    InferField(name, val, out var hint, out FieldDescriptor_Old fd);
-                    newFields.Add(fd);
-                    types.Add(name, hint);
+                    InferField(name, val, b);
                 }
             }
-            Schema_Old schema = SchemaBuilder.FromFields(newFields);
-            target.Rescheme(schema);
-            foreach (var (name, t) in types)
-            {
-                target.HeaderSegment[schema.IndexOf(name)] = t;
-            }
+            b.WriteTo(ref target.Buffer);
 
-
+            // read child objects
             foreach (var member in obj)
             {
                 var name = member.Name().ToString();
                 var val = member.Value();
 
-                // 2) Dispatch by token and write.
-                switch (val.Type)
+                if (val.Type == TokenType.Object)
                 {
-                    case TokenType.Object:
-                        // Single ref: get/create child and recurse
-                        var child = target.GetObject(name);
-                        ReadObject(val.AsObjectView(), child, maxDepth - 1);
-                        break;
-
-                    case TokenType.Array:
-                        ReadArray(val.AsArrayView(), target, name, maxDepth - 1);
-                        break;
-
-                    case TokenType.String:
-                        // Char16 scalar or Char16[]
-                        var s = val.AsStringView().ToString();
-                        if (s.Length == 1)
-                            target.Write(name, s[0]);
-                        else
-                            target.WriteString(name, s);
-                        break;
-
-                    case TokenType.Primitive:
-                        ReadPrimitive(val.AsPrimitiveView(), target, name);
-                        break;
-
-                    default:
-                        // ignore comments/undefined
-                        break;
+                    // Single ref: get/create child and recurse
+                    var child = target.GetObject(name);
+                    ReadObject(val.AsObjectView(), child, maxDepth - 1);
+                }
+                else if (val.Type == TokenType.Object && target.GetFieldView(name).IsRef)
+                {
+                    var objArray = target.GetObjectArray(name);
+                    for (int i = 0; i < objArray.Length; i++)
+                    {
+                        var child = objArray[i];
+                        ReadObject(val.AsObjectView(), child.Object, maxDepth - 1);
+                    }
                 }
             }
         }
 
-        private void InferField(string name, SerializedValueView tok, out byte hint, out FieldDescriptor_Old fieldDescriptor)
+        private void InferField(string name, SerializedValueView tok, ObjectBuilder b)
         {
             switch (tok.Type)
             {
                 case TokenType.Object:
-                    // Single ref (8B)
-                    hint = Pack(ValueType.Ref, false);
-                    fieldDescriptor = FieldDescriptor_Old.Reference(name);
+                    b.SetRef(name);
                     return;
                 case TokenType.Array:
                     {
@@ -101,8 +73,7 @@ namespace Amlos.Container.Serialization
                         // empty array ¡ú zero-length fixed field
                         if (n == 0)
                         {
-                            hint = 0;
-                            fieldDescriptor = FieldDescriptor_Old.Fixed(name, 0);
+                            b.SetArray<byte>(name, 0);
                         }
                         // Find first non-null element
                         SerializedValueView first = default;
@@ -112,16 +83,14 @@ namespace Amlos.Container.Serialization
                         if (!found)
                         {
                             // all nulls ¡ú ref-array of size n
-                            hint = Pack(ValueType.Ref, true);
-                            fieldDescriptor = FieldDescriptor_Old.ReferenceArray(name, n);
+                            b.SetRefArray(name, n);
                             return;
                         }
 
                         if (first.Type == TokenType.Object)
                         {
                             // ref-array
-                            hint = Pack(ValueType.Ref, true);
-                            fieldDescriptor = FieldDescriptor_Old.ReferenceArray(name, n);
+                            b.SetRefArray(name, n);
                             return;
                         }
 
@@ -148,21 +117,17 @@ namespace Amlos.Container.Serialization
 
                         if (allBool)
                         {
-                            hint = Pack(ValueType.Bool, true);
-                            fieldDescriptor = FieldDescriptor_Old.Fixed(name, sizeof(bool) * n);
+                            ReadArrayContent(arr, n, v => v.AsBoolean());
                             return;
                         }
 
                         if (anyFloat)
                         {
-                            hint = Pack(ValueType.Float64, true);
-                            fieldDescriptor = FieldDescriptor_Old.Fixed(name, sizeof(double) * n); // conservative Float64
+                            ReadArrayContent(arr, n, v => v.AsDouble());
                             return;
                         }
 
-                        // integers only
-                        hint = Pack(ValueType.Int64, true);
-                        fieldDescriptor = FieldDescriptor_Old.Fixed(name, sizeof(long) * n); // conservative Float64
+                        ReadArrayContent(arr, n, v => v.AsInt64());
                         return;
                     }
 
@@ -172,13 +137,12 @@ namespace Amlos.Container.Serialization
                         if (s.Length == 1)
                         {
                             // Char16 scalar (2B)
-                            hint = Pack(ValueType.Char16, true);
-                            fieldDescriptor = FieldDescriptor_Old.Type<char>(name); // conservative Float64
+                            b.SetScalar<char>(name, s[0]);
                             return;
                         }
 
-                        hint = Pack(ValueType.Char16, true);
-                        fieldDescriptor = FieldDescriptor_Old.ArrayOf<char>(name, s.Length); // Char16 array
+                        // Char16 array
+                        b.SetArray<char>(name, s);
                         return;
                     }
 
@@ -187,178 +151,41 @@ namespace Amlos.Container.Serialization
                         var pv = tok.AsPrimitiveView();
                         if (pv.IsBoolean())
                         {
-                            hint = Pack(ValueType.Bool, false);
-                            fieldDescriptor = FieldDescriptor_Old.Type<bool>(name);
+                            b.SetScalar<bool>(name, pv.AsBoolean());
                             return;
                         }
                         else
                         if (pv.IsDecimal())
                         {
-                            hint = Pack(ValueType.Float64, false);
-                            fieldDescriptor = FieldDescriptor_Old.Type<double>(name);
+                            b.SetScalar<double>(name, pv.AsDouble());
                             return;
                         }
                         else if (pv.IsIntegral())
                         {
-                            hint = Pack(ValueType.Int64, false);
-                            fieldDescriptor = FieldDescriptor_Old.Type<long>(name);
+                            b.SetScalar<long>(name, pv.AsInt64());
                             return;
                         }
                         break;
                     }
             }
 
-            // Fallback: unknown/unsupported ¡ú zero-length field (safe no-op)
-            hint = 0;
-            fieldDescriptor = FieldDescriptor_Old.Fixed(name, 0);
+            // Fallback: unknown/unsupported ¡ú zero-length field (safe no-op) 
             return;
-        }
 
-
-        private void ReadArray(SerializedArrayView arr, StorageObject target, string name, int maxDepth)
-        {
-            // First non-null element decides ref-array vs value-array (sameÂß¼­ as above).
-            SerializedValueView first = default;
-            bool found = false;
-            foreach (var el in arr) { if (!el.IsNull()) { first = el; found = true; break; } }
-
-            if (!found)
+            void ReadArrayContent<T>(SerializedArrayView arr, int count, Func<SerializedValueView, T> getter) where T : unmanaged
             {
-                // all nulls ¡ú ref-array clear
-                var objArr = target.GetObjectArray(name);
-                for (int i = 0; i < objArr.Count; i++) objArr.ClearAt(i);
-                return;
-            }
-
-            if (first.Type == TokenType.Object)
-            {
-                // ref-array path
-                var objArr = target.GetObjectArray(name);
+                b.SetArray<T>(name, count);
+                var buffer = b.GetBuffer<T>(name);
                 int i = 0;
-                foreach (var el in arr)
+                foreach (SerializedValueView el in arr)
                 {
-                    if (i >= objArr.Count) break;
-                    if (el.IsNull()) objArr.ClearAt(i);
-                    else ReadObject(el.AsObjectView(), objArr[i], maxDepth - 1);
-                    i++;
+                    buffer[i++] = getter(el);
                 }
-                return;
-            }
-
-            // value-array path: write into fixed T[], truncate/zero-fill 
-            bool anyFloat = false, allBool = true;
-            foreach (var el in arr)
-            {
-                if (el.Type != TokenType.Primitive) { allBool = false; break; }
-                var pv = el.AsPrimitiveView();
-                if (pv.IsDecimal()) { anyFloat = true; allBool = false; }
-                else if (!pv.IsBoolean() && !pv.IsIntegral()) { allBool = false; }
-                else if (!pv.IsBoolean()) allBool = false;
-            }
-
-            if (allBool)
-            {
-                var dst = target.GetArray<bool>(name).AsSpan();
-                int i = 0;
-                foreach (var el in arr) { if (i >= dst.Length) break; dst[i++] = el.AsPrimitiveView().AsBoolean(); }
-                if (i < dst.Length) dst.Slice(i).Clear();
-                return;
-            }
-
-            if (anyFloat)
-            {
-                var dst = target.GetArray<double>(name).AsSpan();
-                int i = 0;
-                foreach (var el in arr) { if (i >= dst.Length) break; dst[i++] = el.AsPrimitiveView().AsDouble(); }
-                if (i < dst.Length) dst.Slice(i).Clear();
-                return;
-            }
-
-            // integers
-            {
-                var dst = target.GetArray<long>(name).AsSpan();
-                int i = 0;
-                foreach (var el in arr) { if (i >= dst.Length) break; dst[i++] = el.AsPrimitiveView().AsInt64(); }
-                if (i < dst.Length) dst.Slice(i).Clear();
-                return;
             }
         }
 
-        private void ReadPrimitive(SerializedPrimitiveView prim, StorageObject target, string name)
-        {
-            if (prim.IsBoolean()) { target.Write(name, prim.AsBoolean()); return; }
-            if (prim.IsDecimal()) { target.Write(name, prim.AsDouble()); return; }
-            if (prim.IsIntegral()) { target.Write(name, prim.AsInt64()); return; }
-        }
 
 
-        //public void Read(SerializedValueView view, StorageObject storageObject)
-        //{
-        //    switch (view.Type)
-        //    {
-        //        case TokenType.Object:
-        //            var objectView = view.AsObjectView();
-        //            ReadObject(storageObject, objectView);
-        //            break;
-        //        case TokenType.Array:
-        //            break;
-        //        case TokenType.String:
-        //            break;
-        //        case TokenType.Primitive:
-        //            break;
-        //        case TokenType.Comment:
-        //        default:
-        //        case TokenType.Undefined:
-        //            break;
-        //    }
-        //}
-
-        //private void ReadObject(StorageObject storageObject, SerializedObjectView objectView)
-        //{
-        //    foreach (var item in objectView)
-        //    {
-        //        var name = item.Name().ToString();
-        //        SerializedValueView valueView = item.Value();
-        //        switch (valueView.Type)
-        //        {
-        //            case TokenType.Object:
-        //                ReadObject(storageObject.GetObject(name), valueView.AsObjectView());
-        //                break;
-        //            case TokenType.Array:
-        //                ReadArray(storageObject, name, valueView.AsArrayView());
-        //                break;
-        //            // reading char array
-        //            case TokenType.String:
-        //                var str = valueView.AsStringView().ToString();
-        //                storageObject.WriteString(name, str);
-        //                break;
-        //            case TokenType.Primitive:
-        //                ReadPrimitive(storageObject, name, valueView.AsPrimitiveView());
-        //                break;
-        //            case TokenType.Comment:
-        //            default:
-        //            case TokenType.Undefined:
-        //                break;
-        //        }
-        //    }
-        //}
-
-        //private void ReadArray(StorageObject storageObject, string name, SerializedArrayView serializedArrayView)
-        //{
-        //    var collection = serializedArrayView.ToArray();
-        //    // determine array type and read accordingly
-        //}
-
-        //private void ReadPrimitive(StorageObject storageObject, string name, SerializedPrimitiveView serializedPrimitiveView)
-        //{
-        //    if (serializedPrimitiveView.IsBoolean())
-        //    {
-        //        storageObject.Write(name, serializedPrimitiveView.AsBoolean());
-        //        return;
-        //    }
-        //    //... Other primitive types to be handled here.
-
-        //}
 
 
         #region Serialize
@@ -390,11 +217,11 @@ namespace Amlos.Container.Serialization
             for (int i = 0; i < value.FieldCount; i++)
             {
                 var field = value.GetField(i);
-                var fieldName = field.Name;
+                var fieldName = field.Name.ToString();
 
-                byte hint = value.HeaderSegment[i];
-                var vt = TypeUtil.PrimOf(hint);
-                bool isArray = TypeUtil.IsArray(hint);
+                var t = field.FieldHeader.FieldType;
+                var vt = t.Type;
+                bool isArray = t.IsArray;
 
                 // Always write the key for now (no omit-default policy here)
                 writer.WriteKey(fieldName);
@@ -402,7 +229,7 @@ namespace Amlos.Container.Serialization
                 // Unknown: always emit raw bytes (byte array), regardless of isArray.
                 if (vt == ValueType.Unknown)
                 {
-                    WriteUnknownBytes(writer, value, field);
+                    WriteUnknownBytes(writer, value, fieldName);
                     continue;
                 }
 
@@ -455,7 +282,7 @@ namespace Amlos.Container.Serialization
         {
             using var arr = writer.WriteArrayScope();
             var objArray = value.GetObjectArray(fieldName);
-            for (int i = 0; i < objArray.Count; i++)
+            for (int i = 0; i < objArray.Length; i++)
             {
                 var element = objArray[i];
                 var obj = element.GetObjectNoAllocate();
@@ -492,17 +319,17 @@ namespace Amlos.Container.Serialization
         {
             // Note: interface-per-element incurs virtual calls; acceptable for now as a minimal change.
             IPrimitiveWriter<T> primitiveWriter = (PrimitiveWriter.Default as IPrimitiveWriter<T>);
-            var span = value.GetArray<T>(fieldName).AsSpan();
-            for (int i = 0; i < span.Length; i++)
-                primitiveWriter.WriteValue(writer, span[i]);
+            var array = value.GetArray(fieldName);
+            for (int i = 0; i < array.Length; i++)
+                primitiveWriter.WriteValue(writer, array[i].Read<T>());
         }
 
         // 3) Unknown bytes ¡ª always emit as byte array (no base64, per your rule)
 
-        private void WriteUnknownBytes(JsonWriter writer, StorageObject value, FieldInfo field)
+        private void WriteUnknownBytes(JsonWriter writer, StorageObject value, string str)
         {
             using var arr = writer.WriteArrayScope();
-            var bytes = value.GetArray<byte>(field.Name).AsSpan();
+            var bytes = value.GetFieldView(str).Data;
             for (int i = 0; i < bytes.Length; i++)
                 writer.WriteValue(bytes[i]);
         }

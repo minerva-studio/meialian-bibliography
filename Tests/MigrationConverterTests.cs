@@ -67,7 +67,7 @@ namespace Amlos.Container.Tests
             var srcBytes = Int32ArrayToBytes(src);
             var dst = new byte[srcBytes.Length];
 
-            MigrationConverter.MigrateValueFieldBytes(srcBytes, dst, ValueType.Int32, ValueType.Float32);
+            Migration.MigrateValueFieldBytes(srcBytes, dst, ValueType.Int32, ValueType.Float32);
 
             var got = BytesToFloatArray(dst);
             Assert.AreEqual(src.Length, got.Length);
@@ -92,7 +92,7 @@ namespace Amlos.Container.Tests
             float[] exp = src.Select(s => (float)s).ToArray();
 
             // ---- CALL MIGRATION FIRST ----
-            MigrationConverter.MigrateValueFieldBytes(srcBytes, dst, ValueType.Float64, ValueType.Float32, true);
+            Migration.MigrateValueFieldBytes(srcBytes, dst, ValueType.Float64, ValueType.Float32, true);
 
             // ---- THEN read back floats ----
             var got = BytesToFloatArray(dst);
@@ -123,7 +123,7 @@ namespace Amlos.Container.Tests
             var srcBytes = FloatArrayToBytes(src);
             var dst = new byte[srcBytes.Length];
 
-            MigrationConverter.MigrateValueFieldBytes(srcBytes, dst, ValueType.Float32, ValueType.Int32, true);
+            Migration.MigrateValueFieldBytes(srcBytes, dst, ValueType.Float32, ValueType.Int32, true);
 
             var got = BytesToInt32Array(dst);
             Assert.AreEqual(src.Length, got.Length);
@@ -143,7 +143,7 @@ namespace Amlos.Container.Tests
             var dst = new byte[5 * 4]; // larger target: 5 ints
             byte hint = Pack(PrimOf<int>(), isArray: true);
 
-            MigrationConverter.MigrateValueFieldBytes(srcBytes, dst, hint, hint);
+            Migration.MigrateValueFieldBytes(srcBytes, dst, hint, hint);
 
             var got = BytesToInt32Array(dst);
             Assert.AreEqual(5, got.Length);
@@ -162,7 +162,7 @@ namespace Amlos.Container.Tests
             byte unknown = 0; // ValueType.Unknown
             byte newHint = Pack(PrimOf<int>(), isArray: false);
 
-            MigrationConverter.MigrateValueFieldBytes(src, dst, unknown, newHint);
+            Migration.MigrateValueFieldBytes(src, dst, unknown, newHint);
 
             CollectionAssert.AreEqual(new byte[] { 1, 2, 3, 4, 0, 0, 0, 0 }, dst);
         }
@@ -173,7 +173,7 @@ namespace Amlos.Container.Tests
             var buf = new byte[4];
             BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(0, 4), 42);
 
-            MigrationConverter.ConvertScalarInPlace(buf.AsSpan(), PrimOf<int>(), PrimOf<float>());
+            Migration.ConvertScalarInPlace(buf.AsSpan(), PrimOf<int>(), PrimOf<float>());
 
             // verify bit-exact float representation of 42.0f
             int gotBits = BinaryPrimitives.ReadInt32LittleEndian(buf);
@@ -187,7 +187,7 @@ namespace Amlos.Container.Tests
             int[] src = new[] { 5, -6, 7 };
             var buf = Int32ArrayToBytes(src);
 
-            MigrationConverter.ConvertArrayInPlaceSameSize(buf.AsSpan(), src.Length, PrimOf<int>(), PrimOf<float>());
+            Migration.ConvertArrayInPlaceSameSize(buf.AsSpan(), src.Length, PrimOf<int>(), PrimOf<float>());
 
             var got = BytesToFloatArray(buf);
             Assert.AreEqual(src.Length, got.Length);
@@ -218,7 +218,7 @@ namespace Amlos.Container.Tests
             float[] exp = src.Select(d => (float)d).ToArray();
 
             // CALL migration THEN read
-            MigrationConverter.MigrateValueFieldBytes(srcBytes, dst, ValueType.Float64, ValueType.Float32, true);
+            Migration.MigrateValueFieldBytes(srcBytes, dst, ValueType.Float64, ValueType.Float32, true);
             var got = BytesToFloatArray(dst);
 
             Assert.AreEqual(exp.Length, got.Length);
@@ -239,7 +239,7 @@ namespace Amlos.Container.Tests
             byte oldHint = Pack(PrimOf<int>(), isArray: true);
             byte newHint = Pack(PrimOf<float>(), isArray: true);
 
-            MigrationConverter.MigrateValueFieldBytes(srcBytes, dst, oldHint, newHint);
+            Migration.MigrateValueFieldBytes(srcBytes, dst, oldHint, newHint);
 
             var got = BytesToFloatArray(dst);
             Assert.AreEqual(src.Length, got.Length);
@@ -259,7 +259,7 @@ namespace Amlos.Container.Tests
             var srcBytes = FloatArrayToBytes(src);
             var dst = new byte[srcBytes.Length];
 
-            MigrationConverter.MigrateValueFieldBytes(srcBytes, dst, ValueType.Float32, ValueType.Int32, true);
+            Migration.MigrateValueFieldBytes(srcBytes, dst, ValueType.Float32, ValueType.Int32, true);
 
             var got = BytesToInt32Array(dst);
             for (int i = 0; i < src.Length; i++)
@@ -277,7 +277,7 @@ namespace Amlos.Container.Tests
             var dst = new byte[5 * 4]; // larger target: 5 ints
             byte hint = Pack(PrimOf<int>(), isArray: true);
 
-            MigrationConverter.MigrateValueFieldBytes(srcBytes, dst, hint, hint);
+            Migration.MigrateValueFieldBytes(srcBytes, dst, hint, hint);
 
             var got = BytesToInt32Array(dst);
             Assert.AreEqual(10, got[0]);
@@ -300,7 +300,7 @@ namespace Amlos.Container.Tests
             // Use mismatched sizing: mark oldVt as Float64 (8) but src length 10 not divisible.
             byte oldDoubleHint = Pack(PrimOf<double>(), isArray: true);
 
-            MigrationConverter.MigrateValueFieldBytes(src, dst, oldDoubleHint, newHint);
+            Migration.MigrateValueFieldBytes(src, dst, oldDoubleHint, newHint);
 
             // Expect first min(len(src), len(dst)) bytes copied, remaining zeroed
             var expected = new byte[16];

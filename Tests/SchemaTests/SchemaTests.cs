@@ -4,6 +4,7 @@ using System.Collections.Generic;
 
 namespace Amlos.Container.Tests
 {
+    [Ignore("Abandoning Schema")]
     [TestFixture]
     public class SchemaTests
     {
