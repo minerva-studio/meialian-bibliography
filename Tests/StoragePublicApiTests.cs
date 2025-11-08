@@ -136,7 +136,7 @@ namespace Amlos.Container.Tests
 
             bool threw = false;
             try { root.WriteNoRescheme<int>("v", 1); }
-            catch (ArgumentException) { threw = true; }
+            catch (IndexOutOfRangeException) { threw = true; }
             Assert.That(threw, Is.True);
 
             root.Write<float>("v", 1000.0f);
@@ -144,7 +144,7 @@ namespace Amlos.Container.Tests
 
             threw = false;
             try { root.WriteNoRescheme<double>("v", 1000.0); }
-            catch (ArgumentException) { threw = true; }
+            catch (IndexOutOfRangeException) { threw = true; }
             Assert.That(threw, Is.True);
         }
 

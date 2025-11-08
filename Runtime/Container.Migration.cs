@@ -140,6 +140,7 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <param name="type"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int ReschemeForNew<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
 
         /// <summary>
@@ -149,6 +150,7 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <param name="type"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int ReschemeForNewObject(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) => ReschemeForField_Internal(fieldName, ValueType.Ref, inlineArrayLength);
 
         /// <summary>
@@ -158,12 +160,14 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <param name="type"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
 
         private int ReschemeForField_Internal(ReadOnlySpan<char> fieldName, ValueType valueType, int? inlineArrayLength = null)
         {
             var objectBuilder = new ObjectBuilder();
-            int minimumLength = View.Header.DataOffset - View.Header.NameOffset;
+            ref var containerHeader = ref this.Header;
+            int minimumLength = containerHeader.DataOffset - containerHeader.NameOffset;
 
             char[] fieldNameBuffer = ArrayPool<char>.Shared.Rent(fieldName.Length);
             char[] nameBuffer = ArrayPool<char>.Shared.Rent(minimumLength / sizeof(char));
@@ -178,7 +182,7 @@ namespace Amlos.Container
                 }
                 else objectBuilder.SetScalar(tempName, new FieldType(valueType, false));
 
-                int baseOffset = View.Header.NameOffset;
+                int baseOffset = containerHeader.NameOffset;
                 for (int i = 0; i < FieldCount; i++)
                 {
                     FieldView fieldView = View[i];
@@ -196,20 +200,19 @@ namespace Amlos.Container
                 int newSize = objectBuilder.CountByte();
                 byte[] newBuffer = DefaultPool.Rent(newSize);
                 objectBuilder.WriteTo(ref newBuffer);
+
                 // switch buffer now
                 var oldBuffer = this._buffer;
                 this._buffer = newBuffer;
                 DefaultPool.Return(oldBuffer);
+
+                return IndexOf(tempName.Span);
             }
             finally
             {
                 ArrayPool<char>.Shared.Return(fieldNameBuffer);
                 ArrayPool<char>.Shared.Return(nameBuffer);
             }
-
-            var index = IndexOf(fieldName);
-            View.Fields[index].FieldType.Type = valueType;
-            return index;
         }
 
 
@@ -388,7 +391,7 @@ namespace Amlos.Container
                     var p = GetFieldData_Unsafe(in field);
                     fixed (void* pdst = &value)
                     {
-                        Unsafe.Write(p, *(T*)p);
+                        Unsafe.Write(pdst, *(T*)p);
                         return true;
                     }
                 }

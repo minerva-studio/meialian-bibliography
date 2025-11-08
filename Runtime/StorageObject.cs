@@ -246,16 +246,6 @@ namespace Amlos.Container
 
 
 
-        public void Override<T>(string fieldName, T value)
-        {
-
-        }
-
-
-
-
-
-
         /// <summary>
         /// Delete a field from this object. Returns true if the field was found and deleted, false otherwise.
         /// </summary>

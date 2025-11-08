@@ -165,7 +165,6 @@ namespace Amlos.Container
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe bool TryGetFieldHeader(ReadOnlySpan<char> fieldName, out Span<FieldHeader> outHeader)
         {
-            EnsureNotDisposed();
             outHeader = default;
             int lo = 0;
             int hi = FieldCount - 1;
@@ -372,9 +371,9 @@ namespace Amlos.Container
 
         private void ReschemeAndWrite<T>(ref FieldHeader header, T value) where T : unmanaged
         {
-            ReschemeFor<T>(GetFieldName(in header));
+            int newIndex = ReschemeFor<T>(GetFieldName(in header));
             // update to new field
-            Write_Override(ref header, ref value);
+            Write_Override(ref GetFieldHeader(newIndex), ref value);
         }
 
         private void Write_Override<T>(ref FieldHeader header, ref T value) where T : unmanaged
