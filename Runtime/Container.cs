@@ -163,7 +163,7 @@ namespace Amlos.Container
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public unsafe bool TryGetIndexOf(ReadOnlySpan<char> fieldName, out Span<FieldHeader> outHeader)
+        public unsafe bool TryGetFieldHeader(ReadOnlySpan<char> fieldName, out Span<FieldHeader> outHeader)
         {
             EnsureNotDisposed();
             outHeader = default;
@@ -198,7 +198,7 @@ namespace Amlos.Container
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref FieldHeader GetFieldHeader<T>(ReadOnlySpan<char> fieldName, bool allowRescheme) where T : unmanaged
         {
-            if (TryGetIndexOf(fieldName, out var headerSpan))
+            if (TryGetFieldHeader(fieldName, out var headerSpan))
             {
                 return ref headerSpan[0];
             }
@@ -330,7 +330,7 @@ namespace Amlos.Container
         {
             EnsureNotDisposed();
             // nonexist
-            if (!TryGetIndexOf(fieldName, out var headerSpan)) return false;
+            if (!TryGetFieldHeader(fieldName, out var headerSpan)) return false;
             return TryWrite_Internal(ref headerSpan[0], value, allowRescheme) == 0;
         }
 
@@ -391,54 +391,37 @@ namespace Amlos.Container
 
 
 
-        public T Read<T>(string fieldName) where T : unmanaged
+        public T Read<T>(ReadOnlySpan<char> fieldName) where T : unmanaged
         {
             EnsureNotDisposed();
 
-            int index = GetFieldIndex<T>(fieldName, true);
-
-            if (TryReadScalarExplicit(index, out T result))
+            ref var f = ref GetFieldHeader<T>(fieldName, true);
+            if (TryReadScalarExplicit(ref f, out T result))
                 return result;
 
             throw new InvalidOperationException();
         }
 
-        public T Read<T>(int index) where T : unmanaged
+        public bool TryRead<T>(ReadOnlySpan<char> fieldName, out T value) where T : unmanaged
         {
             EnsureNotDisposed();
 
-            if (TryReadScalarExplicit(index, out T result))
-                return result;
-
-            throw new InvalidOperationException();
-        }
-
-        public bool TryRead<T>(string fieldName, out T value) where T : unmanaged
-        {
-            EnsureNotDisposed();
-
-            int index = IndexOf(fieldName);
-            if (index < 0)
+            if (!TryGetFieldHeader(fieldName, out var outHeader))
             {
                 value = default;
                 return false;
             }
 
-            if (TryReadScalarExplicit(index, out value))
+            if (TryReadScalarExplicit(ref outHeader[0], out value))
                 return true;
 
             return false;
         }
 
-        public T Read_Unsafe<T>(string fieldName) where T : unmanaged
-        {
-            return Read_Unsafe<T>(IndexOf(fieldName));
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe T Read_Unsafe<T>(ReadOnlySpan<char> fieldName) where T : unmanaged => Unsafe.Read<T>(GetFieldData_Unsafe(in GetFieldHeader<T>(fieldName, true)));
 
-        private T Read_Unsafe<T>(int index) where T : unmanaged
-        {
-            return MemoryMarshal.Read<T>(View.GetFieldBytes(index));
-        }
+
 
 
         public ReadOnlyValueView GetValueView(string fieldName)
@@ -605,5 +588,9 @@ namespace Amlos.Container
         [DoesNotReturn]
         [MethodImpl(MethodImplOptions.NoInlining)]
         public static void ThrowIndexOutOfRange() => throw new ArgumentOutOfRangeException("index");
+
+        [DoesNotReturn]
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void ThrowInvalidOperation() => throw new InvalidOperationException();
     }
 }

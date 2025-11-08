@@ -99,35 +99,6 @@ namespace Amlos.Container
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(int index, string value) => WriteString(index, (ReadOnlySpan<char>)value);
 
-
-        /// <summary>
-        /// Write a value to a field, if the field does not exist, it will be added to the schema.
-        /// </summary>   
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write<T>(int index, T value) where T : unmanaged
-        {
-            _container.EnsureNotDisposed(_generation);
-            _container.Write_Internal(ref _container.GetFieldHeader(index), value, true);
-        }
-        /// <summary>
-        /// Write a value to a field, if the field does not exist, it will be added to the schema.
-        /// </summary>   
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write<T>(int index, T value, bool allowResize = true) where T : unmanaged
-        {
-            _container.EnsureNotDisposed(_generation);
-            _container.Write_Internal(ref _container.GetFieldHeader(index), value, allowResize);
-        }
-        /// <summary>
-        /// Write a value to a field, if the field does not exist, it will be added to the schema.
-        /// </summary>   
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write_Unsafe<T>(int index, T value, bool allowResize = true) where T : unmanaged
-        {
-            _container.EnsureNotDisposed(_generation);
-            _container.Write_Internal(ref _container.GetFieldHeader_Unsafe(index), value, allowResize);
-        }
-
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
         /// </summary>
@@ -156,6 +127,19 @@ namespace Amlos.Container
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
             => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
+
+        /// <summary>
+        /// Write a value to a field, if the field does not exist, it will be added to the schema.
+        /// </summary>   
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write<T>(int index, T value) where T : unmanaged
+            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader(index), value, true);
+        /// <summary>
+        /// Write a value to a field, if the field does not exist, it will be added to the schema.
+        /// </summary>   
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write<T>(int index, T value, bool allowResize = true) where T : unmanaged
+            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader(index), value, allowResize);
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
@@ -195,7 +179,14 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T Read<T>(string fieldName) where T : unmanaged => _container.Read<T>(fieldName);
+        public T Read<T>(string fieldName) where T : unmanaged
+        {
+            if (_container.TryReadScalarExplicit(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, true), out T result))
+                return result;
+
+            ThrowHelper.ThrowInvalidOperation();
+            return default;
+        }
 
         /// <summary>
         /// Read the field
@@ -208,7 +199,14 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T Read<T>(int index) where T : unmanaged => _container.Read<T>(index);
+        public T Read<T>(int index) where T : unmanaged
+        {
+            if (_container.TryReadScalarExplicit(ref _container.EnsureNotDisposed(_generation).GetFieldHeader(index), out T result))
+                return result;
+
+            ThrowHelper.ThrowInvalidOperation();
+            return default;
+        }
 
         /// <summary>
         /// Try Read the field
@@ -222,7 +220,11 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryRead<T>(string fieldName, out T value) where T : unmanaged => _container.TryRead(fieldName, out value);
+        public bool TryRead<T>(ReadOnlySpan<char> fieldName, out T value) where T : unmanaged
+        {
+            value = default;
+            return _container.EnsureNotDisposed(_generation).TryGetFieldHeader(fieldName, out var outHeader) && _container.TryReadScalarExplicit(ref outHeader[0], out value);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T ReadOrDefault<T>(string fieldName) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : default;

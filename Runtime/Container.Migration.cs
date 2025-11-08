@@ -374,14 +374,12 @@ namespace Amlos.Container
         /// <summary>
         /// Try read scalar with explicit conversion if needed. will not change type hint if type known.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="index"></param>
+        /// <typeparam name="T"></typeparam> 
         /// <param name="value"></param>
-        /// <returns></returns>
-        public bool TryReadScalarExplicit<T>(int index, out T value) where T : unmanaged
+        /// <returns></returns> 
+        public bool TryReadScalarExplicit<T>(ref FieldHeader field, out T value) where T : unmanaged
         {
             var readType = TypeUtil.PrimOf<T>();
-            ref FieldHeader field = ref GetFieldHeader(index);
             // same type
             if ((byte)readType == field.FieldType.b)
             {
@@ -396,7 +394,7 @@ namespace Amlos.Container
                 }
             }
 
-            var view = GetValueView(index);
+            var view = new ValueView(GetFieldData(in field), field.Type);
             return view.TryRead(out value, true);
         }
 
