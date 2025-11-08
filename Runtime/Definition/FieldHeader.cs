@@ -54,6 +54,11 @@ namespace Amlos.Container
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => FieldType.Type;
         }
+        public readonly bool IsInlineArray
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => FieldType.IsInlineArray;
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ref FieldHeader FromSpan(Span<byte> span) => ref MemoryMarshal.Cast<byte, FieldHeader>(span)[0];

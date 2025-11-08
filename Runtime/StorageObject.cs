@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Amlos.Container
@@ -7,9 +8,10 @@ namespace Amlos.Container
     /// Stack-only view of a container within a Storage tree.
     /// Cannot be persisted; exposes only read/write and navigation helpers.
     /// </summary>
-    public readonly ref struct StorageObject
+    public readonly struct StorageObject
     {
         private readonly Container _container;
+        private readonly int _generation;
 
 
         /// <summary>
@@ -41,6 +43,7 @@ namespace Amlos.Container
         internal StorageObject(Container container)
         {
             _container = container ?? throw new InvalidOperationException();
+            _generation = container.Generation;
         }
 
 
@@ -55,22 +58,75 @@ namespace Amlos.Container
 
 
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal FieldView GetFieldView(ReadOnlySpan<char> fieldName) => _container.View[fieldName];
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal FieldView GetFieldView(int index) => _container.View[index];
 
 
 
 
-        public int IndexOf(ReadOnlySpan<char> fieldName) => _container.IndexOf(fieldName);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int GetFieldIndex<T>(string fieldName, bool allowRescheme) where T : unmanaged
+        {
+            int index = _container.IndexOf(fieldName);
+            if (index < 0 && allowRescheme)
+            {
+                index = _container.ReschemeForNew<T>(fieldName);
+            }
+
+            return index;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int GetFieldIndexOrReschemeObject(string fieldName)
+        {
+            int index = _container.IndexOf(fieldName);
+            if (index < 0) index = _container.ReschemeForNewObject(fieldName);
+            return index;
+        }
+
 
 
 
 
         // Basic read/write passthroughs (blittable)
 
-        public void Write(string fieldName, in string value) => WriteString(fieldName, (ReadOnlySpan<char>)value);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write(string fieldName, string value) => WriteString(fieldName, (ReadOnlySpan<char>)value);
 
-        public void Write(int index, in string value) => WriteString(index, (ReadOnlySpan<char>)value);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write(int index, string value) => WriteString(index, (ReadOnlySpan<char>)value);
+
+
+        /// <summary>
+        /// Write a value to a field, if the field does not exist, it will be added to the schema.
+        /// </summary>   
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write<T>(int index, T value) where T : unmanaged
+        {
+            _container.EnsureNotDisposed(_generation);
+            _container.Write_Internal(ref _container.GetFieldHeader(index), value, true);
+        }
+        /// <summary>
+        /// Write a value to a field, if the field does not exist, it will be added to the schema.
+        /// </summary>   
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write<T>(int index, T value, bool allowResize = true) where T : unmanaged
+        {
+            _container.EnsureNotDisposed(_generation);
+            _container.Write_Internal(ref _container.GetFieldHeader(index), value, allowResize);
+        }
+        /// <summary>
+        /// Write a value to a field, if the field does not exist, it will be added to the schema.
+        /// </summary>   
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write_Unsafe<T>(int index, T value, bool allowResize = true) where T : unmanaged
+        {
+            _container.EnsureNotDisposed(_generation);
+            _container.Write_Internal(ref _container.GetFieldHeader_Unsafe(index), value, allowResize);
+        }
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
@@ -87,12 +143,9 @@ namespace Amlos.Container
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
-        public void Write<T>(string fieldName, in T value) where T : unmanaged => _container.Write(fieldName, value, true);
-
-        /// <summary>
-        /// Write a value to a field, if the field does not exist, it will be added to the schema.
-        /// </summary>
-        public void Write<T>(int index, in T value) where T : unmanaged => _container.Write_Internal(index, value, true);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write<T>(string fieldName, T value) where T : unmanaged
+            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, true), value, true);
 
         /// <summary>
         /// Write a value to an existing field without rescheming, if the field does not exist, an exception is thrown.
@@ -100,7 +153,9 @@ namespace Amlos.Container
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
-        public void Write<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged => _container.Write(fieldName, value, allowRescheme);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Write<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
+            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
@@ -108,7 +163,9 @@ namespace Amlos.Container
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
-        public void TryWrite<T>(string fieldName, in T value) where T : unmanaged => _container.TryWrite(fieldName, value, true);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void TryWrite<T>(string fieldName, T value) where T : unmanaged
+            => _container.TryWrite_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, true), value, true);
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
@@ -116,7 +173,12 @@ namespace Amlos.Container
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
-        public void TryWrite<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged => _container.TryWrite(fieldName, value, allowRescheme);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void TryWrite<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
+            => _container.TryWrite_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
+
+
+
 
 
 
@@ -132,7 +194,21 @@ namespace Amlos.Container
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T Read<T>(string fieldName) where T : unmanaged => _container.Read<T>(fieldName);
+
+        /// <summary>
+        /// Read the field
+        /// </summary>
+        /// <remarks>
+        /// - If field does not exist, read <typeparamref name="T"/> default value and create the field
+        /// - Always return explicit conversion result, unless conversion is not supported, then exception will throw
+        /// </remarks>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T Read<T>(int index) where T : unmanaged => _container.Read<T>(index);
 
         /// <summary>
         /// Try Read the field
@@ -145,10 +221,13 @@ namespace Amlos.Container
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryRead<T>(string fieldName, out T value) where T : unmanaged => _container.TryRead(fieldName, out value);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T ReadOrDefault<T>(string fieldName) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : default;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T ReadOrDefault<T>(string fieldName, T defaultValue) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : defaultValue;
 
         /// <summary>
@@ -157,6 +236,7 @@ namespace Amlos.Container
         /// <typeparam name="T"></typeparam>
         /// <param name="fieldName"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T Read_Unsafe<T>(string fieldName) where T : unmanaged => _container.Read_Unsafe<T>(fieldName);
 
 
@@ -179,6 +259,7 @@ namespace Amlos.Container
         /// </summary>
         /// <param name="fieldName"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool Delete(string fieldName)
         {
             bool result = false;
@@ -191,6 +272,7 @@ namespace Amlos.Container
         /// </summary>
         /// <param name="names"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Delete(params string[] names)
         {
             EnsureNotNull();
@@ -207,22 +289,27 @@ namespace Amlos.Container
 
 
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteString(int index, ReadOnlySpan<char> value) => GetObject(index).WriteArray(value);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteString(string fieldName, ReadOnlySpan<char> value) => GetObject(fieldName).WriteArray(value);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteString(ReadOnlySpan<char> value) => WriteArray(value);
 
         /// <summary>
         /// Read as a string (UTF-16)
         /// </summary>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public string ReadString(string fieldName) => GetObject(fieldName).ReadString();
 
         /// <summary>
         /// Read entire container as a string (UTF-16)
         /// </summary>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public string ReadString()
         {
             if (!IsString)
@@ -241,8 +328,10 @@ namespace Amlos.Container
 
 
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteArray<T>(string fieldName, ReadOnlySpan<T> value) where T : unmanaged => GetObject(fieldName).WriteArray(value);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteArray<T>(ReadOnlySpan<T> value) where T : unmanaged
         {
             if (!IsArray)
@@ -259,12 +348,14 @@ namespace Amlos.Container
         /// Read as a string (UTF-16)
         /// </summary>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T[] ReadArray<T>(string fieldName) where T : unmanaged => GetObject(fieldName).ReadArray<T>();
 
         /// <summary>
         /// Read entire container as a string (UTF-16)
         /// </summary>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T[] ReadArray<T>() where T : unmanaged
         {
             if (!IsString)
@@ -284,12 +375,14 @@ namespace Amlos.Container
         /// </summary>
         /// <param name="fieldName"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject GetObject(int index) => GetObject(index, reschemeOnMissing: true, layout: ContainerLayout.Empty);
         /// <summary>
         /// Get child object (always not null)
         /// </summary>
         /// <param name="fieldName"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject GetObject(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, layout: ContainerLayout.Empty);
         /// <summary>
         /// Get child with layout, if null, create a new object with given layout
@@ -297,12 +390,14 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <param name="layout"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject GetObject(string fieldName, ContainerLayout layout = null) => GetObject(fieldName, reschemeOnMissing: true, layout: layout ?? ContainerLayout.Empty);
         /// <summary>
         /// Get without allocating a 
         /// </summary>
         /// <param name="fieldName"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject GetObjectNoAllocate(string fieldName) => GetObject(fieldName, reschemeOnMissing: false, layout: null);
         /// <summary>
         /// Get child object with layout
@@ -311,6 +406,7 @@ namespace Amlos.Container
         /// <param name="reschemeOnMissing"></param>
         /// <param name="layout"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject GetObject(int index, bool reschemeOnMissing, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(index) : ref _container.GetRefNoRescheme(index);
@@ -323,6 +419,7 @@ namespace Amlos.Container
         /// <param name="reschemeOnMissing"></param>
         /// <param name="layout"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject GetObject(string fieldName, bool reschemeOnMissing, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
@@ -334,12 +431,14 @@ namespace Amlos.Container
         /// Get a stack-only view over a value array field T[].
         /// Field must be non-ref and length divisible by sizeof(T).
         /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageInlineArray GetArray(string fieldName) => new(_container.View[fieldName]);
 
         /// <summary>
         /// Get a stack-only view over a child reference array (IDs).
         /// Field must be a ref field.
         /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObjectArray GetObjectArray(string fieldName)
         {
             return new StorageObjectArray(_container, _container.View[fieldName]);
@@ -350,21 +449,26 @@ namespace Amlos.Container
         /// </summary>
         /// <param name="fieldName"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlyValueView GetValueView(string fieldName) => _container.GetValueView(fieldName);
 
-        public FieldInfo GetField(string fieldName) => GetField(IndexOf(fieldName));
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public FieldInfo GetField(string fieldName) => GetField(_container.IndexOf(fieldName));
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public FieldInfo GetField(int index) => GetFieldView(index).ToFieldInfo();
 
 
 
         /// <summary>Check a field exist.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool HasField(string fieldName) => _container.IndexOf(fieldName) >= 0;
 
         /// <summary>
         /// Rescheme the container to match the target schema.
         /// </summary>
         /// <param name="target"></param> 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Rescheme(ContainerLayout target) => _container.Rescheme(target);
 
 

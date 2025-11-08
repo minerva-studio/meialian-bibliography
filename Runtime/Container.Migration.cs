@@ -115,10 +115,10 @@ namespace Amlos.Container
 
 
 
-        public int GetFieldIndexOrRescheme<T>(string fieldName) where T : unmanaged
+        public int GetFieldIndex<T>(string fieldName, bool allowRescheme) where T : unmanaged
         {
             int index = IndexOf(fieldName);
-            if (index < 0)
+            if (index < 0 && allowRescheme)
             {
                 index = ReschemeForNew<T>(fieldName);
             }
@@ -245,34 +245,35 @@ namespace Amlos.Container
 
         public bool Migrate<T>(int index, ValueType target) where T : unmanaged
         {
-            FieldType fieldType = View.Fields[index].FieldType;
-            bool isArray = fieldType.IsInlineArray;
-            ValueType valueType = fieldType.Type;
+            ref var fieldHeader = ref GetFieldHeader(index);
+            bool isArray = fieldHeader.IsInlineArray;
+            ValueType valueType = fieldHeader.Type;
 
 
-            var field = View[index];
+            //var field = View[index];
             // 2) Existing but ref ¡ú not allowed
-            if (field.IsRef)
-                throw new InvalidOperationException($"Field '{field.Name.ToString()}' is a reference; cannot read value T={typeof(T).Name}.");
+            if (fieldHeader.IsRef)
+                throw new InvalidOperationException($"Field '{GetFieldName(in fieldHeader).ToString()}' is a reference; cannot read value T={typeof(T).Name}.");
 
             int oldElementSize = TypeUtil.SizeOf(valueType);
             int newElementSize = TypeUtil.SizeOf(PrimOf<T>());
-            int dataLength = (int)field.Length;
+            int dataLength = (int)fieldHeader.Length;
             int arrayLength = isArray ? dataLength / oldElementSize : 1;
+            Span<byte> fieldData = GetFieldData(in fieldHeader);
 
             // inplace conversion, given element same size
             if (oldElementSize == newElementSize)
             {
-                Span<byte> data = field.Data;
-                if (isArray) Migration.ConvertArrayInPlaceSameSize(data, arrayLength, valueType, target);
-                else Migration.ConvertScalarInPlace(data, valueType, target);
-                View[index].Header.FieldType = Pack(target, isArray);
+                if (isArray) Migration.ConvertArrayInPlaceSameSize(fieldData, arrayLength, valueType, target);
+                else Migration.ConvertScalarInPlace(fieldData, valueType, target);
+                fieldHeader.FieldType = Pack(target, isArray);
             }
             // different size
             else
             {
                 // copy old data
-                int nameLength = field.Name.Length * sizeof(byte);
+                ReadOnlySpan<char> fieldName = GetFieldName(in fieldHeader);
+                int nameLength = fieldName.Length * sizeof(byte);
                 int minimumLength = nameLength + dataLength;
                 byte[] array = ArrayPool<byte>.Shared.Rent(minimumLength);
                 try
@@ -280,8 +281,8 @@ namespace Amlos.Container
                     Span<char> name = MemoryMarshal.Cast<byte, char>(array.AsSpan(0, nameLength));
                     Span<byte> buffer = array.AsSpan(nameLength);
                     // store name + data
-                    field.Name.CopyTo(name);
-                    field.Data.CopyTo(buffer);
+                    fieldName.CopyTo(name);
+                    fieldData.CopyTo(buffer);
 
                     // rescheme
                     //Rescheme(b =>
@@ -290,7 +291,7 @@ namespace Amlos.Container
                     //    if (isArray) b.AddArrayOf<T>(field.Name, arrayLength);
                     //    else b.AddFieldOf<T>(field.Name);
                     //});
-                    ReschemeFor<T>(field.Name, isArray ? arrayLength : null);
+                    ReschemeFor<T>(fieldName, isArray ? arrayLength : null);
 
                     var newIndex = IndexOf(name);
                     var newField = View[newIndex];
@@ -322,7 +323,7 @@ namespace Amlos.Container
         /// <param name="index"></param>
         /// <param name="value"></param>
         /// <returns></returns>
-        private bool TryReadScalarImplicit<T>(int index, out T value) where T : unmanaged
+        public bool TryReadScalarImplicit<T>(int index, out T value) where T : unmanaged
         {
             value = default;
             if (View[index].Type == ValueType.Unknown) return false;
@@ -338,34 +339,36 @@ namespace Amlos.Container
         /// <param name="index"></param>
         /// <param name="value"></param>
         /// <returns></returns>
-        private bool TryWriteScalarImplicit<T>(int index, T value) where T : unmanaged
+        public bool TryWriteScalarImplicit<T>(ref FieldHeader field, T value) where T : unmanaged
         {
-            var field = GetFieldHeader(index);
-            var dstType = field.Type;
-            var dstSpan = GetFieldData(index);
-            var srcType = TypeUtil.PrimOf<T>();
+            ValueType srcType = TypeUtil.PrimOf<T>();
             // type match, direct write
-            if (dstType == srcType)
+            if (field.FieldType.b == (byte)srcType)
             {
-                MemoryMarshal.Write(dstSpan, ref value);
-                return true;
+                unsafe
+                {
+                    var p = GetFieldData_Unsafe(in field);
+                    Unsafe.Write(p, value);
+                    return true;
+                }
             }
+            Span<byte> dstSpan = GetFieldData(in field);
             // current type unknown, update hint
-            if (dstType == ValueType.Unknown)
+            if (field.FieldType == FieldType.ScalarUnknown)
             {
                 // too large to fit
                 if (Unsafe.SizeOf<T>() > dstSpan.Length)
                     return false;
 
-                field.FieldType.Type = srcType;
-                MemoryMarshal.Write(dstSpan, ref Unsafe.AsRef(value));
+                field.FieldType = srcType;
+                MemoryMarshal.Write(dstSpan, ref value);
                 return true;
             }
 
             // implicit conversion
+            var dstType = field.Type;
             var srcSpan = MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref value, 1));
-            var view = new ReadOnlyValueView(srcSpan, srcType);
-            return view.TryWriteTo(dstSpan, dstType);
+            return Migration.TryWriteTo(srcSpan, srcType, dstSpan, dstType, false);
         }
 
         /// <summary>
@@ -375,17 +378,32 @@ namespace Amlos.Container
         /// <param name="index"></param>
         /// <param name="value"></param>
         /// <returns></returns>
-        private bool TryReadScalarExplicit<T>(int index, out T value) where T : unmanaged
+        public bool TryReadScalarExplicit<T>(int index, out T value) where T : unmanaged
         {
+            var readType = TypeUtil.PrimOf<T>();
+            ref FieldHeader field = ref GetFieldHeader(index);
+            // same type
+            if ((byte)readType == field.FieldType.b)
+            {
+                unsafe
+                {
+                    var p = GetFieldData_Unsafe(in field);
+                    fixed (void* pdst = &value)
+                    {
+                        Unsafe.Write(p, *(T*)p);
+                        return true;
+                    }
+                }
+            }
+
             var view = GetValueView(index);
             return view.TryRead(out value, true);
         }
 
-        private bool TryWriteScalarExplicit<T>(int index, T value) where T : unmanaged
+        public bool TryWriteScalarExplicit<T>(ref FieldHeader field, T value) where T : unmanaged
         {
-            var field = View[index];
             var dstType = field.Type;
-            var dstSpan = field.Data;
+            var dstSpan = GetFieldData(in field);
             var srcType = TypeUtil.PrimOf<T>();
 
             // conversion

@@ -4,11 +4,12 @@ using System.Runtime.InteropServices;
 namespace Amlos.Container
 {
     /// <summary>
-    /// Field Type | array bit 1 | type bit 4 | empty 2 |
+    /// Field Type | array bit 1 | empty 2 | type bit 4 |
     /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct FieldType
     {
+        public static readonly FieldType ScalarUnknown = 0;
         public static readonly FieldType Ref = new FieldType(ValueType.Ref, false);
         public static readonly FieldType RefArray = new FieldType(ValueType.Ref, true);
 
@@ -53,10 +54,12 @@ namespace Amlos.Container
             }
         }
 
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static FieldType Of<T>(bool isArray) where T : unmanaged => TypeUtil.Pack(TypeUtil.PrimOf<T>(), isArray);
 
         public static implicit operator FieldType(byte b) => new FieldType(b);
+        public static implicit operator FieldType(ValueType valueType) => new FieldType((byte)valueType);
         public static implicit operator byte(FieldType b) => b.b;
 
 

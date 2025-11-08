@@ -3,42 +3,60 @@ using System.Runtime.CompilerServices;
 
 namespace Amlos.Container
 {
-
+    /// <summary>
+    /// Bit layout (1 byte):
+    /// - bit7: Array flag
+    /// - bit6..5: Reserved for future flags (00 for now)
+    /// - bit4..0: ValueType code (no shift; direct cast)
+    /// </summary>
     public static class TypeUtil
     {
-        private const int IS_ARRAY_BIT = 7;         // bit7
-        private const int PRIM_SHIFT = 2;         // bits6..2
-        private const byte IS_ARRAY_MASK = 1 << IS_ARRAY_BIT;   // 0b1000_0000
-        private const byte PRIM_MASK = 0b1_1111;            // 5 bits
-        private const byte PRIM_FIELD = (byte)(PRIM_MASK << PRIM_SHIFT);
+        // --- Bit layout constants ---
+        private const int PRIM_BITS = 5;            // bits 0..4
+        private const byte PRIM_MASK = (1 << PRIM_BITS) - 1; // 0b0001_1111
+        private const int RESERVED_BITS = 2;            // bits 5..6
+        private const byte RESERVED_MASK = (byte)(0b11 << PRIM_BITS); // 0b0110_0000
+        private const int IS_ARRAY_BIT = 7;            // bit7
+        private const byte IS_ARRAY_MASK = (byte)(1 << IS_ARRAY_BIT); // 0b1000_0000
 
-
-        public const byte Ref = (byte)ValueType.Ref << PRIM_SHIFT;
-
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte Pack(ValueType valueType, bool isArray) => (byte)((isArray ? IS_ARRAY_MASK : 0) | (((byte)valueType & PRIM_MASK) << PRIM_SHIFT));
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte SetType(ref byte b, ValueType v) => (byte)((b & IS_ARRAY_MASK) | ((byte)v & PRIM_MASK) << PRIM_SHIFT);
+        // Now ValueType can be used directly in the low 5 bits.
+        // No shift needed anymore.
+        public const byte Ref = (byte)ValueType.Ref;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte SetArray(ref byte b, bool isArray) => (byte)((isArray ? IS_ARRAY_MASK : 0) | ((byte)b & PRIM_MASK) << PRIM_SHIFT);
+        public static byte Pack(ValueType valueType, bool isArray) => (byte)(((byte)valueType) | (isArray ? IS_ARRAY_MASK : (byte)0));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte SetType(ref byte b, ValueType v)
+        {
+            // Keep array flag (bit7) and reserved bits (5..6); replace low-5 prim bits.
+            b = (byte)((b & IS_ARRAY_MASK) | ((byte)v & PRIM_MASK));
+            return b;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static byte SetArray(ref byte b, bool isArray)
+        {
+            b = isArray ? (byte)(b | IS_ARRAY_MASK) : (byte)(b & ~IS_ARRAY_MASK);
+            return b;
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsArray(byte hint) => (hint & IS_ARRAY_MASK) != 0;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ValueType PrimOf(byte hint)
-            => (ValueType)((hint >> PRIM_SHIFT) & PRIM_MASK);
+            => (ValueType)(hint & PRIM_MASK); // No shift
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ValueType PrimOf<T>() where T : unmanaged => PrimCache<T>.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static FieldType FieldType<T>(bool isArray = false) where T : unmanaged => Pack(PrimOf<T>(), isArray);
+        internal static FieldType FieldType<T>(bool isArray) where T : unmanaged
+            => Pack(PrimOf<T>(), isArray);
 
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static FieldType FieldType<T>() where T : unmanaged => PrimOf<T>();
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte WithArray(byte hint, bool isArray)
@@ -46,13 +64,11 @@ namespace Amlos.Container
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte WithPrim(byte hint, ValueType valueType)
-            => (byte)((hint & ~PRIM_FIELD) | (((byte)valueType & PRIM_MASK) << PRIM_SHIFT));
+            => (byte)((hint & ~PRIM_MASK) | ((byte)valueType & PRIM_MASK));
 
         /// <summary>
         /// Map ValueType to element byte size; Unknown returns 1 for raw byte copy fallback.
         /// </summary>
-        /// <param name="vt"></param>
-        /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int SizeOf(ValueType vt) => vt switch
         {
@@ -73,78 +89,58 @@ namespace Amlos.Container
         };
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool IsIntegral(this ValueType vt) => vt == ValueType.UInt8 || vt == ValueType.UInt16 || vt == ValueType.UInt32 || vt == ValueType.UInt64 || vt == ValueType.Int8 || vt == ValueType.Int16 || vt == ValueType.Int32 || vt == ValueType.Int64;
+        public static bool IsIntegral(this ValueType vt)
+            => vt == ValueType.UInt8 || vt == ValueType.UInt16 || vt == ValueType.UInt32 || vt == ValueType.UInt64
+            || vt == ValueType.Int8 || vt == ValueType.Int16 || vt == ValueType.Int32 || vt == ValueType.Int64;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool IsUnsignedInteger(this ValueType vt) => vt == ValueType.UInt8 || vt == ValueType.UInt16 || vt == ValueType.UInt32 || vt == ValueType.UInt64;
+        public static bool IsUnsignedInteger(this ValueType vt)
+            => vt == ValueType.UInt8 || vt == ValueType.UInt16 || vt == ValueType.UInt32 || vt == ValueType.UInt64;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool IsSignedInteger(this ValueType vt) => vt == ValueType.Int8 || vt == ValueType.Int16 || vt == ValueType.Int32 || vt == ValueType.Int64;
+        public static bool IsSignedInteger(this ValueType vt)
+            => vt == ValueType.Int8 || vt == ValueType.Int16 || vt == ValueType.Int32 || vt == ValueType.Int64;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsFloatingPoint(this ValueType vt)
-        {
-            switch (vt)
-            {
-                case ValueType.Float32:
-                case ValueType.Float64:
-                    return true;
-                default:
-                    return false;
-            }
-        }
+            => vt == ValueType.Float32 || vt == ValueType.Float64;
 
         /// <summary>
-        /// Return true if a value of 'from' can be implicitly converted to 'to'
-        /// (a conservative subset matching C# numeric implicit conversions).
+        /// Conservative C#-like implicit numeric conversion table.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsImplicitlyConvertible(ValueType from, ValueType to)
         {
             if (from == to) return true;
-
             switch (from)
             {
-                case ValueType.Int8: // sbyte
+                case ValueType.Int8:
                     return to == ValueType.Int16 || to == ValueType.Int32 || to == ValueType.Int64
                         || to == ValueType.Float32 || to == ValueType.Float64;
-
-                case ValueType.UInt8: // byte
+                case ValueType.UInt8:
                     return to == ValueType.Int16 || to == ValueType.UInt16 || to == ValueType.Int32
                         || to == ValueType.UInt32 || to == ValueType.Int64 || to == ValueType.UInt64
                         || to == ValueType.Float32 || to == ValueType.Float64;
-
                 case ValueType.Int16:
                     return to == ValueType.Int32 || to == ValueType.Int64 || to == ValueType.Float32 || to == ValueType.Float64;
-
                 case ValueType.UInt16:
                     return to == ValueType.Int32 || to == ValueType.UInt32 || to == ValueType.Int64 || to == ValueType.UInt64
                         || to == ValueType.Float32 || to == ValueType.Float64;
-
                 case ValueType.Int32:
                     return to == ValueType.Int64 || to == ValueType.Float32 || to == ValueType.Float64;
-
                 case ValueType.UInt32:
                     return to == ValueType.Int64 || to == ValueType.UInt64 || to == ValueType.Float32 || to == ValueType.Float64;
-
                 case ValueType.Int64:
-                    return to == ValueType.Float32 || to == ValueType.Float64;
-
                 case ValueType.UInt64:
                     return to == ValueType.Float32 || to == ValueType.Float64;
-
                 case ValueType.Float32:
                     return to == ValueType.Float64;
-
                 case ValueType.Char16:
-                    // char -> numeric implicit conversions in C#: to int/uint/long/ulong/float/double
                     return to == ValueType.Int32 || to == ValueType.UInt32
                         || to == ValueType.Int64 || to == ValueType.UInt64
                         || to == ValueType.Float32 || to == ValueType.Float64;
-
                 case ValueType.Bool:
                     return to == ValueType.Bool;
-
                 default:
                     return false;
             }
@@ -153,22 +149,14 @@ namespace Amlos.Container
         public static string ToString(byte s)
         {
             var baseType = PrimOf(s).ToString();
-            return TypeUtil.IsArray(s) ? baseType + "[]" : baseType;
+            return IsArray(s) ? baseType + "[]" : baseType;
         }
 
-        /// <summary>
-        /// Per-T cache so that branching happens once per closed generic type T.
-        /// </summary>
         private static class PrimCache<T> where T : unmanaged
         {
             internal static readonly ValueType Value = Compute();
-
-            /// <summary>
-            /// Compute mapping once per T. Add special cases here if needed.
-            /// </summary>
             private static ValueType Compute()
             {
-                // Optional: treat enums by their underlying integral type
                 if (typeof(T).IsEnum)
                 {
                     var ut = Enum.GetUnderlyingType(typeof(T));
@@ -186,7 +174,6 @@ namespace Amlos.Container
                     }
                 }
 
-                // Fast exact-type mapping (executed once per T)
                 if (typeof(T) == typeof(bool)) return ValueType.Bool;
                 if (typeof(T) == typeof(sbyte)) return ValueType.Int8;
                 if (typeof(T) == typeof(byte)) return ValueType.UInt8;

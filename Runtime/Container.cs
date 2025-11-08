@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -17,27 +18,52 @@ namespace Amlos.Container
 
 
 
-        private byte[] _buffer;         // exact size == _schema.Stride (or Array.Empty for 0) 
-        private bool _disposed;
         private ulong _id;              // assigned by registry
-
+        private byte[] _buffer;         // exact size == _schema.Stride (or Array.Empty for 0)  
+        private bool _disposed;
+        private int _generation;
 
 
         /// <summary> object id </summary>
         public ulong ID => _id;
+        /// <summary> Generation </summary>
+        public int Generation => _generation;
 
-        /// <summary>Logical length in bytes (== Schema.Stride).</summary>
-        public unsafe ref ContainerHeader Header => ref *(ContainerHeader*)Unsafe.AsPointer(ref _buffer[0]);
 
-        /// <summary>Logical length in bytes (== Schema.Stride).</summary>
-        public unsafe ref int Length => ref *(int*)Unsafe.AsPointer(ref _buffer[0]);
+        /// <summary> Field Header <summary>
+        public unsafe ref ContainerHeader Header
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                return ref *(ContainerHeader*)Unsafe.AsPointer(ref _buffer[0]);
+            }
+        }
 
-        public int FieldCount => View.FieldCount;
+        /// <summary> Logical length in bytes (== Schema.Stride).</summary>
+        public unsafe ref int Length
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                return ref *(int*)Unsafe.AsPointer(ref _buffer[0]);
+            }
+        }
+
+        /// <summary> Number of fields </summary>
+        public unsafe int FieldCount
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                return *(int*)Unsafe.AsPointer(ref _buffer[ContainerHeader.FieldCountOffset]);
+            }
+        }
 
         public ContainerView View => new ContainerView(_buffer);
 
         /// <summary>Logical memory slice [0..length).</summary>
-        public Span<byte> Span => View.Span;
+        public Span<byte> Span => _buffer.AsSpan(0, Length);
 
         /// <summary>Data slice [DataBase..Stride).</summary>
         public Span<byte> DataSegment => View.DataSegment;
@@ -65,6 +91,7 @@ namespace Amlos.Container
             if (size < ContainerHeader.Size)
                 size = ContainerHeader.Size;
 
+            _generation++;
             _disposed = false;
             _buffer = DefaultPool.Rent((int)size);
             ContainerHeader.WriteLength(_buffer, size);
@@ -72,6 +99,7 @@ namespace Amlos.Container
 
         private void Initialize(byte[] buffer)
         {
+            _generation++;
             _disposed = false;
             _buffer = buffer;
         }
@@ -92,30 +120,123 @@ namespace Amlos.Container
             _buffer = Array.Empty<byte>();
         }
 
-        private void EnsureNotDisposed()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Container EnsureNotDisposed()
         {
-            if (_disposed) throw new ObjectDisposedException(nameof(Container));
+            return !_disposed ? this : ThrowHelper.ThrowDisposed();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Container EnsureNotDisposed(int generation)
+        {
+            return !_disposed && this._generation == generation ? this : ThrowHelper.ThrowDisposed();
+        }
 
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int IndexOf(ReadOnlySpan<char> fieldName)
         {
             EnsureNotDisposed();
-            return View.IndexOf(fieldName);
+            int lo = 0;
+            int hi = FieldCount - 1;
+            // Standard binary search (ordinal compare on UTF-16 chars)
+            while (lo <= hi)
+            {
+                // Unsigned shift to avoid overflow on large ranges
+                int mid = (int)((uint)(lo + hi) >> 1);
+
+                ref var header = ref GetFieldHeader(mid);
+                ReadOnlySpan<char> midName = GetFieldName(in header);
+
+                // Ordinal (code-point) lexicographic comparison
+                int cmp = midName.SequenceCompareTo(fieldName);
+
+                if (cmp == 0)
+                    return mid;
+
+                if (cmp < 0)
+                    lo = mid + 1;
+                else
+                    hi = mid - 1;
+            }
+
+            return -1;
         }
 
-        private unsafe ref FieldHeader GetFieldHeader(int index)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe bool TryGetIndexOf(ReadOnlySpan<char> fieldName, out Span<FieldHeader> outHeader)
         {
-            ref readonly var header = ref this.Header;
-            return ref *(FieldHeader*)Unsafe.AsPointer(ref _buffer[ContainerHeader.Size + index * FieldHeader.Size]);
+            EnsureNotDisposed();
+            outHeader = default;
+            int lo = 0;
+            int hi = FieldCount - 1;
+            // Standard binary search (ordinal compare on UTF-16 chars)
+            while (lo <= hi)
+            {
+                // Unsigned shift to avoid overflow on large ranges
+                int mid = (int)((uint)(lo + hi) >> 1);
+
+                ref var header = ref GetFieldHeader(mid);
+                ReadOnlySpan<char> midName = GetFieldName(in header);
+
+                // Ordinal (code-point) lexicographic comparison
+                int cmp = midName.SequenceCompareTo(fieldName);
+
+                if (cmp == 0)
+                {
+                    outHeader = MemoryMarshal.CreateSpan(ref header, 1);
+                    return true;
+                }
+
+                if (cmp < 0)
+                    lo = mid + 1;
+                else
+                    hi = mid - 1;
+            }
+            return false;
         }
 
-        private Span<byte> GetFieldData(int index)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ref FieldHeader GetFieldHeader<T>(ReadOnlySpan<char> fieldName, bool allowRescheme) where T : unmanaged
         {
-            ref FieldHeader header = ref GetFieldHeader(index);
-            return MemoryMarshal.CreateSpan(ref _buffer[header.DataOffset], header.Length);
+            if (TryGetIndexOf(fieldName, out var headerSpan))
+            {
+                return ref headerSpan[0];
+            }
+            if (allowRescheme)
+            {
+                var index = ReschemeForNew<T>(fieldName);
+                return ref GetFieldHeader(index);
+            }
+            throw new ArgumentException(nameof(fieldName));
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe ref FieldHeader GetFieldHeader(int index) => ref *(FieldHeader*)Unsafe.AsPointer(ref _buffer[ContainerHeader.Size + index * FieldHeader.Size]);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe ref FieldHeader GetFieldHeader_Unsafe(int index)
+        {
+            fixed (byte* ap = _buffer)
+            {
+                ref byte start = ref *ap;
+                ref byte at = ref Unsafe.Add(ref start, ContainerHeader.Size + index * FieldHeader.Size);
+                return ref Unsafe.As<byte, FieldHeader>(ref at);
+            }
+        }
+
+
+
+
+
+        public Span<byte> GetFieldData(in FieldHeader header) => MemoryMarshal.CreateSpan(ref _buffer[header.DataOffset], header.Length);
+
+        public unsafe void* GetFieldData_Unsafe(in FieldHeader header) => Unsafe.AsPointer(ref _buffer[header.DataOffset]);
+
+        /// <summary>Get UTF-16 field name by index without allocations.</summary>
+        public ReadOnlySpan<char> GetFieldName(int index) => GetFieldName(in GetFieldHeader(index));
+
+        /// <summary>Get UTF-16 field name by index without allocations.</summary>
+        public ReadOnlySpan<char> GetFieldName(in FieldHeader header) => MemoryMarshal.Cast<byte, char>(Span.Slice(header.NameOffset, header.NameLength * sizeof(char)));
 
 
 
@@ -197,90 +318,71 @@ namespace Amlos.Container
         #region Blittable T read/write (unmanaged) 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged
+        public void Write<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
         {
             EnsureNotDisposed();
-
             // nonexist
-            var index = IndexOf(fieldName);
-            if (index < 0)
-            {
-                if (allowRescheme)
-                    index = GetFieldIndexOrRescheme<T>(fieldName);
-                else
-                    throw new ArgumentException($"{fieldName} does not exist in object.", nameof(value));
-            }
-            Write_Internal(index, value, allowRescheme);
+            Write_Internal(ref GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryWrite<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged
+        public bool TryWrite<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
         {
+            EnsureNotDisposed();
             // nonexist
-            var index = IndexOf(fieldName);
-            if (index < 0) return false;
-            return TryWrite_Internal(index, value, allowRescheme) == 0;
+            if (!TryGetIndexOf(fieldName, out var headerSpan)) return false;
+            return TryWrite_Internal(ref headerSpan[0], value, allowRescheme) == 0;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write_Internal<T>(int index, T value, bool allowRescheme = true) where T : unmanaged
+        public void Write_Internal<T>(ref FieldHeader header, T value, bool allowResize = true) where T : unmanaged
         {
-            switch (TryWrite_Internal(index, value, allowRescheme))
-            {
-                case 0:
-                    return;
-                case 1:
-                    throw new ArgumentException($"Type {typeof(T).Name} cannot cast to {View[index].Type}.", nameof(value));
-                case 2:
-                    throw new ArgumentException($"Type {typeof(T).Name} exceeds field length and cannot write into {View.GetFieldName(index).ToString()} without rescheme.", nameof(value));
-                default:
-                    throw new ArgumentException($"Type {typeof(T).Name} cannot write to {View[index].Type}.", nameof(value));
-            }
+            int v = TryWrite_Internal(ref header, value, allowResize);
+            if (v == 0) return;
+            ThrowHelper.ThrowWriteError(v, typeof(T), this, -1, allowResize);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private int TryWrite_Internal<T>(int index, T value, bool allowRescheme = true) where T : unmanaged
+        public int TryWrite_Internal<T>(ref FieldHeader f, T value, bool allowResize) where T : unmanaged
         {
-            if (TryWriteScalarImplicit(index, value))
+            if (TryWriteScalarImplicit(ref f, value))
                 return 0;
 
             int sz = Unsafe.SizeOf<T>();
-            var f = View.Fields[index];
             // same size, override 
             if (f.Length == sz)
             {
-                Write_Override(index, value);
+                Write_Override(ref f, ref value);
                 return 0;
             }
             // too small? rescheme
             if (f.Length < sz)
             {
-                if (!allowRescheme) return 2;
+                if (!allowResize) return 2;
                 // currently can't contain the value, rescheme
-                ReschemeAndWrite(index, value);
+                ReschemeAndWrite(ref f, value);
                 return 0;
             }
             // too large? explicit cast
             else
             {
-                return TryWriteScalarExplicit(index, value) ? 0 : 1;
+                return TryWriteScalarExplicit(ref f, value) ? 0 : 1;
             }
         }
-        private void ReschemeAndWrite<T>(int index, T value) where T : unmanaged
-        {
-            var f = View.Fields[index];
-            index = ReschemeFor<T>(View.GetFieldName(index));
 
-            // update to new field
-            Write_Override(index, value);
-        }
-        private void Write_Override<T>(int index, T value) where T : unmanaged
+        private void ReschemeAndWrite<T>(ref FieldHeader header, T value) where T : unmanaged
         {
-            var f = View[index];
-            var span = f.Data;
-            if (Unsafe.SizeOf<T>() < f.Length) span.Clear(); // avoid stale trailing bytes
-            MemoryMarshal.Write(span, ref Unsafe.AsRef(value));
-            SetScalarType<T>(index);
+            ReschemeFor<T>(GetFieldName(in header));
+            // update to new field
+            Write_Override(ref header, ref value);
+        }
+
+        private void Write_Override<T>(ref FieldHeader header, ref T value) where T : unmanaged
+        {
+            var span = GetFieldData(in header);
+            if (Unsafe.SizeOf<T>() < header.Length) span.Clear(); // avoid stale trailing bytes
+            MemoryMarshal.Write(span, ref value);
+            header.FieldType = TypeUtil.PrimOf<T>();
         }
 
 
@@ -293,7 +395,17 @@ namespace Amlos.Container
         {
             EnsureNotDisposed();
 
-            int index = GetFieldIndexOrRescheme<T>(fieldName);
+            int index = GetFieldIndex<T>(fieldName, true);
+
+            if (TryReadScalarExplicit(index, out T result))
+                return result;
+
+            throw new InvalidOperationException();
+        }
+
+        public T Read<T>(int index) where T : unmanaged
+        {
+            EnsureNotDisposed();
 
             if (TryReadScalarExplicit(index, out T result))
                 return result;
@@ -378,7 +490,7 @@ namespace Amlos.Container
         #endregion 
 
 
-        #region Type Hint
+        #region Type Hint 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void SetScalarType<T>(int fieldIndex) where T : unmanaged
@@ -467,5 +579,31 @@ namespace Amlos.Container
             sb.AppendLine("}");
             return sb.ToString();
         }
+    }
+
+    static class ThrowHelper
+    {
+        private const string ParamName = "value";
+
+        [DoesNotReturn]
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void ThrowWriteError(int err, Type t, Container c, int index, bool allowRescheme)
+        {
+            throw err switch
+            {
+                1 => new ArgumentException($"Type {t.Name} cannot cast to {c.GetFieldHeader(index).Type}.", ParamName),
+                2 => new ArgumentException($"Type {t.Name} exceeds field length and cannot write into {c.GetFieldName(index).ToString()} without rescheme.", ParamName),
+                _ => new ArgumentException($"Type {t.Name} cannot write to {c.GetFieldHeader(index).Type}.", ParamName),
+            };
+        }
+
+        [DoesNotReturn]
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static Container ThrowDisposed() => throw new ObjectDisposedException(nameof(Container));
+
+
+        [DoesNotReturn]
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void ThrowIndexOutOfRange() => throw new ArgumentOutOfRangeException("index");
     }
 }

@@ -8,6 +8,7 @@ namespace Amlos.Container
     public unsafe struct ContainerHeader
     {
         public static readonly int Size = Unsafe.SizeOf<ContainerHeader>();
+        public static readonly int FieldCountOffset = sizeof(int) * 2;
 
         public int Length;
         public int Version;
