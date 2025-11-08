@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.CompilerServices;
 
 namespace Amlos.Container
@@ -32,22 +33,7 @@ namespace Amlos.Container
             => (ValueType)((hint >> PRIM_SHIFT) & PRIM_MASK);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ValueType PrimOf<T>() where T : unmanaged
-        {
-            if (typeof(T) == typeof(bool)) return Amlos.Container.ValueType.Bool;
-            if (typeof(T) == typeof(sbyte)) return Amlos.Container.ValueType.Int8;
-            if (typeof(T) == typeof(byte)) return Amlos.Container.ValueType.UInt8;
-            if (typeof(T) == typeof(char)) return Amlos.Container.ValueType.Char16; // UTF-16 code unit
-            if (typeof(T) == typeof(short)) return Amlos.Container.ValueType.Int16;
-            if (typeof(T) == typeof(ushort)) return Amlos.Container.ValueType.UInt16;
-            if (typeof(T) == typeof(int)) return Amlos.Container.ValueType.Int32;
-            if (typeof(T) == typeof(uint)) return Amlos.Container.ValueType.UInt32;
-            if (typeof(T) == typeof(long)) return Amlos.Container.ValueType.Int64;
-            if (typeof(T) == typeof(ulong)) return Amlos.Container.ValueType.UInt64;
-            if (typeof(T) == typeof(float)) return Amlos.Container.ValueType.Float32;
-            if (typeof(T) == typeof(double)) return Amlos.Container.ValueType.Float64;
-            return Amlos.Container.ValueType.Unknown;
-        }
+        public static ValueType PrimOf<T>() where T : unmanaged => PrimCache<T>.Value;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static FieldType FieldType<T>(bool isArray = false) where T : unmanaged => Pack(PrimOf<T>(), isArray);
@@ -168,6 +154,53 @@ namespace Amlos.Container
         {
             var baseType = PrimOf(s).ToString();
             return TypeUtil.IsArray(s) ? baseType + "[]" : baseType;
+        }
+
+        /// <summary>
+        /// Per-T cache so that branching happens once per closed generic type T.
+        /// </summary>
+        private static class PrimCache<T> where T : unmanaged
+        {
+            internal static readonly ValueType Value = Compute();
+
+            /// <summary>
+            /// Compute mapping once per T. Add special cases here if needed.
+            /// </summary>
+            private static ValueType Compute()
+            {
+                // Optional: treat enums by their underlying integral type
+                if (typeof(T).IsEnum)
+                {
+                    var ut = Enum.GetUnderlyingType(typeof(T));
+                    switch (Type.GetTypeCode(ut))
+                    {
+                        case TypeCode.SByte: return ValueType.Int8;
+                        case TypeCode.Byte: return ValueType.UInt8;
+                        case TypeCode.Int16: return ValueType.Int16;
+                        case TypeCode.UInt16: return ValueType.UInt16;
+                        case TypeCode.Int32: return ValueType.Int32;
+                        case TypeCode.UInt32: return ValueType.UInt32;
+                        case TypeCode.Int64: return ValueType.Int64;
+                        case TypeCode.UInt64: return ValueType.UInt64;
+                        default: return ValueType.Unknown;
+                    }
+                }
+
+                // Fast exact-type mapping (executed once per T)
+                if (typeof(T) == typeof(bool)) return ValueType.Bool;
+                if (typeof(T) == typeof(sbyte)) return ValueType.Int8;
+                if (typeof(T) == typeof(byte)) return ValueType.UInt8;
+                if (typeof(T) == typeof(char)) return ValueType.Char16; // UTF-16 code unit
+                if (typeof(T) == typeof(short)) return ValueType.Int16;
+                if (typeof(T) == typeof(ushort)) return ValueType.UInt16;
+                if (typeof(T) == typeof(int)) return ValueType.Int32;
+                if (typeof(T) == typeof(uint)) return ValueType.UInt32;
+                if (typeof(T) == typeof(long)) return ValueType.Int64;
+                if (typeof(T) == typeof(ulong)) return ValueType.UInt64;
+                if (typeof(T) == typeof(float)) return ValueType.Float32;
+                if (typeof(T) == typeof(double)) return ValueType.Float64;
+                return ValueType.Unknown;
+            }
         }
     }
 }

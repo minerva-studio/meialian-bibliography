@@ -22,10 +22,9 @@ namespace Amlos.Container
         {
             if (bytes.Length < ContainerHeader.Size)
                 throw new ArgumentException("Buffer too small for ContainerHeader.", nameof(bytes));
-            // write in first
-            this.bytes = bytes;
+            var length = Unsafe.ReadUnaligned<int>(ref bytes[0]);
+            int sizeNoExceed = bytes.Length > length ? length : bytes.Length;
             // read then, set to within length range
-            int sizeNoExceed = bytes.Length > Length ? Length : bytes.Length;
             this.bytes = bytes[..sizeNoExceed];
         }
 
@@ -33,7 +32,7 @@ namespace Amlos.Container
 
 
         /// <summary>Reference to the container header (on the same buffer).</summary>
-        public ref ContainerHeader Header => ref ContainerHeader.FromSpan(bytes[..ContainerHeader.Size]);
+        public ref ContainerHeader Header => ref ContainerHeader.FromSpan(bytes);
 
         /// <summary>
         /// Logical length of the container
@@ -62,8 +61,7 @@ namespace Amlos.Container
             get
             {
                 int count = FieldCount; // validates structure
-                return MemoryMarshal.Cast<byte, FieldHeader>(
-                    bytes.Slice(ContainerHeader.Size, count * FieldHeader.Size));
+                return MemoryMarshal.Cast<byte, FieldHeader>(bytes.Slice(ContainerHeader.Size, count * FieldHeader.Size));
             }
         }
 

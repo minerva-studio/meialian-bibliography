@@ -17,7 +17,7 @@ namespace Amlos.Container
 
 
 
-        private byte[] _buffer;         // exact size == _schema.Stride (or Array.Empty for 0)
+        private byte[] _buffer;         // exact size == _schema.Stride (or Array.Empty for 0) 
         private bool _disposed;
         private ulong _id;              // assigned by registry
 
@@ -27,7 +27,10 @@ namespace Amlos.Container
         public ulong ID => _id;
 
         /// <summary>Logical length in bytes (== Schema.Stride).</summary>
-        public int Length => View.Length;
+        public unsafe ref ContainerHeader Header => ref *(ContainerHeader*)Unsafe.AsPointer(ref _buffer[0]);
+
+        /// <summary>Logical length in bytes (== Schema.Stride).</summary>
+        public unsafe ref int Length => ref *(int*)Unsafe.AsPointer(ref _buffer[0]);
 
         public int FieldCount => View.FieldCount;
 
@@ -102,6 +105,17 @@ namespace Amlos.Container
             return View.IndexOf(fieldName);
         }
 
+        private unsafe ref FieldHeader GetFieldHeader(int index)
+        {
+            ref readonly var header = ref this.Header;
+            return ref *(FieldHeader*)Unsafe.AsPointer(ref _buffer[ContainerHeader.Size + index * FieldHeader.Size]);
+        }
+
+        private Span<byte> GetFieldData(int index)
+        {
+            ref FieldHeader header = ref GetFieldHeader(index);
+            return MemoryMarshal.CreateSpan(ref _buffer[header.DataOffset], header.Length);
+        }
 
 
 
@@ -182,6 +196,7 @@ namespace Amlos.Container
 
         #region Blittable T read/write (unmanaged) 
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged
         {
             EnsureNotDisposed();
@@ -198,6 +213,7 @@ namespace Amlos.Container
             Write_Internal(index, value, allowRescheme);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryWrite<T>(string fieldName, in T value, bool allowRescheme = true) where T : unmanaged
         {
             // nonexist
@@ -206,7 +222,7 @@ namespace Amlos.Container
             return TryWrite_Internal(index, value, allowRescheme) == 0;
         }
 
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write_Internal<T>(int index, T value, bool allowRescheme = true) where T : unmanaged
         {
             switch (TryWrite_Internal(index, value, allowRescheme))
@@ -221,6 +237,8 @@ namespace Amlos.Container
                     throw new ArgumentException($"Type {typeof(T).Name} cannot write to {View[index].Type}.", nameof(value));
             }
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int TryWrite_Internal<T>(int index, T value, bool allowRescheme = true) where T : unmanaged
         {
             if (TryWriteScalarImplicit(index, value))

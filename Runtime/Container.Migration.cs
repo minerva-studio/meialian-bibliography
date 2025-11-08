@@ -340,10 +340,16 @@ namespace Amlos.Container
         /// <returns></returns>
         private bool TryWriteScalarImplicit<T>(int index, T value) where T : unmanaged
         {
-            var field = View[index];
+            var field = GetFieldHeader(index);
             var dstType = field.Type;
-            var dstSpan = field.Data;
+            var dstSpan = GetFieldData(index);
             var srcType = TypeUtil.PrimOf<T>();
+            // type match, direct write
+            if (dstType == srcType)
+            {
+                MemoryMarshal.Write(dstSpan, ref value);
+                return true;
+            }
             // current type unknown, update hint
             if (dstType == ValueType.Unknown)
             {
@@ -351,13 +357,7 @@ namespace Amlos.Container
                 if (Unsafe.SizeOf<T>() > dstSpan.Length)
                     return false;
 
-                field.Header.FieldType.Type = srcType;
-                MemoryMarshal.Write(dstSpan, ref Unsafe.AsRef(value));
-                return true;
-            }
-            // type match, direct write
-            if (dstType == srcType)
-            {
+                field.FieldType.Type = srcType;
                 MemoryMarshal.Write(dstSpan, ref Unsafe.AsRef(value));
                 return true;
             }

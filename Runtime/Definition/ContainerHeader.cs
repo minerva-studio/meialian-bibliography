@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 namespace Amlos.Container
 {
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct ContainerHeader
+    public unsafe struct ContainerHeader
     {
         public static readonly int Size = Unsafe.SizeOf<ContainerHeader>();
 
@@ -45,7 +45,7 @@ namespace Amlos.Container
             if (span.Length < Size)
                 throw new ArgumentException("Buffer too small.", nameof(span));
             // first location of the header is the size
-            MemoryMarshal.Cast<byte, int>(span)[0] = size;
+            Unsafe.Write(Unsafe.AsPointer(ref span[0]), size);
         }
     }
 }
