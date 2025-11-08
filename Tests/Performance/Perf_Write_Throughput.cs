@@ -52,7 +52,7 @@ namespace Amlos.Container.Tests
         [Test, Performance]
         public void Dictionary_Write_Int()
         {
-            var dict = new Dictionary<string, int>(capacity: 4);
+            var dict = new Dictionary<string, object>(capacity: 4);
             dict["x"] = 0;
 
             Measure.Method(() =>
@@ -60,6 +60,75 @@ namespace Amlos.Container.Tests
                 dict["x"] = 42;
             })
                 .SampleGroup(new SampleGroup("Dictionary write(int)", SampleUnit.Microsecond))
+                .WarmupCount(20)
+                .MeasurementCount(50)
+                .IterationsPerMeasurement(100)
+                .GC()
+                .Run();
+        }
+
+        [Test, Performance]
+        public void Dictionary_Read_Int()
+        {
+            int arrLen = 1000;
+            int[] arr = new int[arrLen];
+            var dict = new Dictionary<string, object>(capacity: 4);
+            dict["x"] = 0;
+            int i = 0;
+
+            Measure.Method(() =>
+            {
+                arr[i++ % arrLen] = (int)dict["x"];
+            })
+                .SampleGroup(new SampleGroup("Dictionary write(int)", SampleUnit.Microsecond))
+                .WarmupCount(20)
+                .MeasurementCount(50)
+                .IterationsPerMeasurement(100)
+                .GC()
+                .Run();
+        }
+
+        [Test, Performance]
+        public void Read_Int_ByName()
+        {
+            int arrLen = 1000;
+            int[] arr = new int[arrLen];
+            using var s = new Storage(ContainerLayout.Empty);
+            var r = s.Root;
+            int i = 0;
+
+            // 初始化字段，避免测量期间触发建字段/促升
+            r.Write("x", 0);
+
+            Measure.Method(() =>
+            {
+                arr[i++ % arrLen] = s.Root.Read<int>("x");
+            })
+                .SampleGroup(new SampleGroup("Write(int) by name", SampleUnit.Microsecond)) // UPT会按“每次迭代”计时
+                .WarmupCount(20)
+                .MeasurementCount(50)
+                .IterationsPerMeasurement(100)
+                .GC()
+                .Run();
+        }
+
+        [Test, Performance]
+        public void Read_Int_ByIndex()
+        {
+            int arrLen = 1000;
+            int[] arr = new int[arrLen];
+            using var s = new Storage(ContainerLayout.Empty);
+            var r = s.Root;
+            int i = 0;
+
+            // 初始化字段，避免测量期间触发建字段/促升
+            r.Write("x", 0);
+
+            Measure.Method(() =>
+            {
+                arr[i++ % arrLen] = s.Root.Read<int>(0);
+            })
+                .SampleGroup(new SampleGroup("Write(int) by name", SampleUnit.Microsecond)) // UPT会按“每次迭代”计时
                 .WarmupCount(20)
                 .MeasurementCount(50)
                 .IterationsPerMeasurement(100)
