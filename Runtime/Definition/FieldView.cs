@@ -44,7 +44,7 @@ namespace Amlos.Container
         public bool IsInlineArray => FieldHeader.FieldType.IsInlineArray;
 
 
-        internal FieldInfo(ReadOnlySpan<char> name, FieldHeader fieldHeader)
+        internal FieldInfo(ReadOnlySpan<char> name, in FieldHeader fieldHeader)
         {
             Name = name.ToString();
             FieldHeader = fieldHeader;

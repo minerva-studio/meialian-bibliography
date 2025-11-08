@@ -27,12 +27,12 @@ namespace Amlos.Container
         /// <summary>
         /// True if this StorageObject represents a single string field, then this container is really just a string.
         /// </summary>
-        public bool IsString => IsArray && _container.View[0].Type == ValueType.Char16;
+        public bool IsString => IsArray && _container.GetFieldHeader(0).Type == ValueType.Char16;
 
         /// <summary>
         /// Is an array object
         /// </summary>
-        public bool IsArray => _container.FieldCount == 1 && _container.View[0].IsArray;
+        public bool IsArray => _container.FieldCount == 1 && _container.GetFieldHeader(0).IsInlineArray;
 
         public int FieldCount => _container.FieldCount;
 
@@ -49,43 +49,11 @@ namespace Amlos.Container
 
 
 
-        private void EnsureNotNull()
-        {
-            if (_container is null)
-                throw new InvalidOperationException("This StorageObject is null.");
-        }
-
-
-
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal FieldView GetFieldView(ReadOnlySpan<char> fieldName) => _container.View[fieldName];
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal FieldView GetFieldView(int index) => _container.View[index];
-
-
-
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int GetFieldIndex<T>(string fieldName, bool allowRescheme) where T : unmanaged
-        {
-            int index = _container.IndexOf(fieldName);
-            if (index < 0 && allowRescheme)
-            {
-                index = _container.ReschemeForNew<T>(fieldName);
-            }
-
-            return index;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int GetFieldIndexOrReschemeObject(string fieldName)
-        {
-            int index = _container.IndexOf(fieldName);
-            if (index < 0) index = _container.ReschemeForNewObject(fieldName);
-            return index;
-        }
 
 
 
@@ -227,10 +195,10 @@ namespace Amlos.Container
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T ReadOrDefault<T>(string fieldName) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : default;
+        public T ReadOrDefault<T>(string fieldName) where T : unmanaged => _container.EnsureNotDisposed(_generation).TryRead(fieldName, out T value) ? value : default;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T ReadOrDefault<T>(string fieldName, T defaultValue) where T : unmanaged => _container.TryRead(fieldName, out T value) ? value : defaultValue;
+        public T ReadOrDefault<T>(string fieldName, T defaultValue) where T : unmanaged => _container.EnsureNotDisposed(_generation).TryRead(fieldName, out T value) ? value : defaultValue;
 
         /// <summary>
         /// Read data regardless actual stored type
@@ -255,7 +223,7 @@ namespace Amlos.Container
         public bool Delete(string fieldName)
         {
             bool result = false;
-            _container.Rescheme(b => result = b.Remove(fieldName));
+            _container.EnsureNotDisposed(_generation).Rescheme(b => result = b.Remove(fieldName));
             return result;
         }
 
@@ -267,7 +235,7 @@ namespace Amlos.Container
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Delete(params string[] names)
         {
-            EnsureNotNull();
+            _container.EnsureNotDisposed(_generation);
             int result = 0;
             for (int i = 0; i < names.Length; i++)
             {
@@ -309,11 +277,11 @@ namespace Amlos.Container
                 if (FieldCount == 0)
                     throw new InvalidOperationException($"This StorageObject does not represent a single string field because object is empty.");
                 if (FieldCount == 1)
-                    throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field field is of type {_container.View.GetFieldHeader(0).FieldType}.");
+                    throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field field is of type {_container.GetFieldHeader(0).FieldType}.");
                 throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field count is {FieldCount}.");
             }
 
-            ReadOnlySpan<char> value = _container.GetReadOnlySpan<char>(0);
+            ReadOnlySpan<char> value = _container.GetFieldData<char>(in _container.GetFieldHeader(0));
             return new(value);
         }
 
@@ -321,7 +289,7 @@ namespace Amlos.Container
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteArray<T>(string fieldName, ReadOnlySpan<T> value) where T : unmanaged => GetObject(fieldName).WriteArray(value);
+        public void WriteArray<T>(ReadOnlySpan<char> fieldName, ReadOnlySpan<T> value) where T : unmanaged => GetObject(fieldName).WriteArray(value);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteArray<T>(ReadOnlySpan<T> value) where T : unmanaged
@@ -333,7 +301,7 @@ namespace Amlos.Container
             }
 
             Rescheme(ContainerLayout.BuildArray<T>(value.Length));
-            MemoryMarshal.AsBytes(value).CopyTo(_container.View[0].Data);
+            MemoryMarshal.AsBytes(value).CopyTo(_container.GetFieldData(in _container.GetFieldHeader(0)));
         }
 
         /// <summary>
@@ -341,7 +309,7 @@ namespace Amlos.Container
         /// </summary>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T[] ReadArray<T>(string fieldName) where T : unmanaged => GetObject(fieldName).ReadArray<T>();
+        public T[] ReadArray<T>(ReadOnlySpan<char> fieldName) where T : unmanaged => GetObject(fieldName).ReadArray<T>();
 
         /// <summary>
         /// Read entire container as a string (UTF-16)
@@ -353,7 +321,7 @@ namespace Amlos.Container
             if (!IsString)
                 throw new InvalidOperationException("This StorageObject does not represent a single string field.");
 
-            return _container.GetReadOnlySpan<T>(0).ToArray();
+            return _container.GetFieldData<T>(in _container.GetFieldHeader(0)).ToArray();
         }
 
 
@@ -375,7 +343,7 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageObject GetObject(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, layout: ContainerLayout.Empty);
+        public StorageObject GetObject(ReadOnlySpan<char> fieldName) => GetObject(fieldName, reschemeOnMissing: true, layout: ContainerLayout.Empty);
         /// <summary>
         /// Get child with layout, if null, create a new object with given layout
         /// </summary>
@@ -383,7 +351,7 @@ namespace Amlos.Container
         /// <param name="layout"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageObject GetObject(string fieldName, ContainerLayout layout = null) => GetObject(fieldName, reschemeOnMissing: true, layout: layout ?? ContainerLayout.Empty);
+        public StorageObject GetObject(ReadOnlySpan<char> fieldName, ContainerLayout layout = null) => GetObject(fieldName, reschemeOnMissing: true, layout: layout ?? ContainerLayout.Empty);
         /// <summary>
         /// Get without allocating a 
         /// </summary>
@@ -412,7 +380,7 @@ namespace Amlos.Container
         /// <param name="layout"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageObject GetObject(string fieldName, bool reschemeOnMissing, ContainerLayout layout)
+        public StorageObject GetObject(ReadOnlySpan<char> fieldName, bool reschemeOnMissing, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
             return layout != null ? StorageFactory.Get(ref idRef, layout) : StorageFactory.GetNoAllocate(idRef);
@@ -424,14 +392,14 @@ namespace Amlos.Container
         /// Field must be non-ref and length divisible by sizeof(T).
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageInlineArray GetArray(string fieldName) => new(_container.View[fieldName]);
+        public StorageInlineArray GetArray(ReadOnlySpan<char> fieldName) => new(_container.View[fieldName]);
 
         /// <summary>
         /// Get a stack-only view over a child reference array (IDs).
         /// Field must be a ref field.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageObjectArray GetObjectArray(string fieldName)
+        public StorageObjectArray GetObjectArray(ReadOnlySpan<char> fieldName)
         {
             return new StorageObjectArray(_container, _container.View[fieldName]);
         }
@@ -445,16 +413,25 @@ namespace Amlos.Container
         public ReadOnlyValueView GetValueView(string fieldName) => _container.GetValueView(fieldName);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public FieldInfo GetField(string fieldName) => GetField(_container.IndexOf(fieldName));
+        public FieldInfo GetField(ReadOnlySpan<char> fieldName)
+        {
+            _container.TryGetFieldHeader(fieldName, out var headerSpan);
+            var name = _container.GetFieldName(in headerSpan[0]);
+            return new FieldInfo(name, in headerSpan[0]);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public FieldInfo GetField(int index) => GetFieldView(index).ToFieldInfo();
-
+        public FieldInfo GetField(int index)
+        {
+            ref var header = ref _container.GetFieldHeader(index);
+            var name = _container.GetFieldName(in header);
+            return new FieldInfo(name, in header);
+        }
 
 
         /// <summary>Check a field exist.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool HasField(string fieldName) => _container.IndexOf(fieldName) >= 0;
+        public bool HasField(ReadOnlySpan<char> fieldName) => _container.IndexOf(fieldName) >= 0;
 
         /// <summary>
         /// Rescheme the container to match the target schema.

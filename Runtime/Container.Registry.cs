@@ -91,7 +91,7 @@ namespace Amlos.Container
                 //    No snapshot, no allocations. Assumes callers do not modify these fields
                 for (int i1 = 0; i1 < container.FieldCount; i1++)
                 {
-                    var field = container.View[i1];
+                    ref var field = ref container.GetFieldHeader(i1);
                     if (!field.IsRef) continue;
 
                     // This Span<ulong> views the parent's buffer. We only read it, not modify.
@@ -216,7 +216,7 @@ namespace Amlos.Container
                 var container = CreateWild(layout.TotalLength);
                 layout.Span.CopyTo(container.Span);
                 // clear data segment
-                if (zero) container.View.DataSegment.Clear();
+                if (zero) container.DataSegment.Clear();
                 return container;
             }
             #endregion

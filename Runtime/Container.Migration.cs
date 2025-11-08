@@ -32,7 +32,7 @@ namespace Amlos.Container
             EnsureNotDisposed();
 
             // same header
-            if (View.HeadersSegment.SequenceEqual(newSchema.Span))
+            if (HeadersSegment.SequenceEqual(newSchema.Span))
                 return;
 
             // Prepare destination buffer
@@ -115,24 +115,6 @@ namespace Amlos.Container
 
 
 
-        public int GetFieldIndex<T>(string fieldName, bool allowRescheme) where T : unmanaged
-        {
-            int index = IndexOf(fieldName);
-            if (index < 0 && allowRescheme)
-            {
-                index = ReschemeForNew<T>(fieldName);
-            }
-
-            return index;
-        }
-
-        public int GetFieldIndexOrReschemeObject(string fieldName)
-        {
-            int index = IndexOf(fieldName);
-            if (index < 0) index = ReschemeForNewObject(fieldName);
-            return index;
-        }
-
         /// <summary>
         /// Rescheme to add a new field of type T with given fieldName.
         /// </summary>
@@ -173,7 +155,7 @@ namespace Amlos.Container
             char[] nameBuffer = ArrayPool<char>.Shared.Rent(minimumLength / sizeof(char));
             try
             {
-                View.NameSegment.CopyTo(MemoryMarshal.AsBytes(nameBuffer.AsSpan()));
+                NameSegment.CopyTo(MemoryMarshal.AsBytes(nameBuffer.AsSpan()));
                 fieldName.CopyTo(fieldNameBuffer);
                 Memory<char> tempName = fieldNameBuffer.AsMemory(0, fieldName.Length);
                 if (inlineArrayLength.HasValue)
@@ -226,25 +208,26 @@ namespace Amlos.Container
         /// If it exists with same size but different type hint, convert the in-place bytes and update the hint,
         /// without rescheming. If it doesn't exist or size mismatches, rebuild schema to replace the field.
         /// </summary>
-        public void EnsureFieldForRead<T>(int index, bool isExplicit = false) where T : unmanaged
-        {
-            FieldType fieldType = View.Fields[index].FieldType;
-            FieldType targetType = FieldType.Of<T>(fieldType.IsInlineArray);
-            ValueType valueType = fieldType.Type;
-            ValueType target = targetType.Type;
+        //public void EnsureFieldForRead<T>(int index) where T : unmanaged
+        //{
+        //    ref var header = ref GetFieldHeader(index);
+        //    FieldType fieldType = header.FieldType;
+        //    FieldType targetType = FieldType.Of<T>(fieldType.IsInlineArray);
+        //    ValueType valueType = fieldType.Type;
+        //    ValueType target = targetType.Type;
 
-            // is same type
-            if (valueType == target)
-                return;
+        //    // is same type
+        //    if (valueType == target)
+        //        return;
 
-            // if we don't know current type, assume new type is valid
-            if (valueType == ValueType.Unknown)
-            {
-                View.Fields[index].FieldType = Pack(target, fieldType.IsInlineArray);
-                return;
-            }
-            Migrate<T>(index, target);
-        }
+        //    // if we don't know current type, assume new type is valid
+        //    if (valueType == ValueType.Unknown)
+        //    {
+        //        header.FieldType.Type = target;
+        //        return;
+        //    }
+        //    Migrate<T>(index, target);
+        //}
 
         public bool Migrate<T>(int index, ValueType target) where T : unmanaged
         {
@@ -297,11 +280,11 @@ namespace Amlos.Container
                     ReschemeFor<T>(fieldName, isArray ? arrayLength : null);
 
                     var newIndex = IndexOf(name);
-                    var newField = View[newIndex];
-                    var newSpan = newField.Data;
+                    ref var newField = ref GetFieldHeader(newIndex);// View[newIndex];
+                    var newSpan = GetFieldData(in newField);
                     // fill back
                     Migration.MigrateValueFieldBytes(buffer, newSpan, valueType, target, true);
-                    newField.Header.FieldType = Pack(target, isArray);
+                    newField.FieldType = new(target, isArray);
                 }
                 catch
                 {
@@ -319,21 +302,21 @@ namespace Amlos.Container
 
 
 
-        /// <summary>
-        /// Try read scalar with implicit conversion if needed. will not change type hint if type known.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="index"></param>
-        /// <param name="value"></param>
-        /// <returns></returns>
-        public bool TryReadScalarImplicit<T>(int index, out T value) where T : unmanaged
-        {
-            value = default;
-            if (View[index].Type == ValueType.Unknown) return false;
+        ///// <summary>
+        ///// Try read scalar with implicit conversion if needed. will not change type hint if type known.
+        ///// </summary>
+        ///// <typeparam name="T"></typeparam>
+        ///// <param name="index"></param>
+        ///// <param name="value"></param>
+        ///// <returns></returns>
+        //public bool TryReadScalarImplicit<T>(int index, out T value) where T : unmanaged
+        //{
+        //    value = default;
+        //    if (View[index].Type == ValueType.Unknown) return false;
 
-            var view = GetValueView(index);
-            return view.TryRead(out value);
-        }
+        //    var view = GetValueView(index);
+        //    return view.TryRead(out value);
+        //}
 
         /// <summary>
         /// Try write scalar with implicit conversion if needed. will not change type hint if type known.

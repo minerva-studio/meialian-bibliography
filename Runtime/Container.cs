@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -65,8 +66,38 @@ namespace Amlos.Container
         /// <summary>Logical memory slice [0..length).</summary>
         public Span<byte> Span => _buffer.AsSpan(0, Length);
 
+        /// <summary>Headers slice [0..DataBase).</summary>
+        public Span<byte> HeadersSegment
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                ref var header = ref this.Header;
+                return _buffer.AsSpan(0, header.DataOffset);
+            }
+        }
         /// <summary>Data slice [DataBase..Stride).</summary>
-        public Span<byte> DataSegment => View.DataSegment;
+        public Span<byte> DataSegment
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                ref var header = ref this.Header;
+                return _buffer.AsSpan(header.DataOffset, header.Length - header.DataOffset);
+            }
+        }
+
+        /// <summary>Data slice [NameBase..DataBase).</summary>
+        public Span<byte> NameSegment
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                ref var header = ref this.Header;
+                return _buffer.AsSpan(header.NameOffset, header.DataOffset - header.NameOffset);
+            }
+        }
+
 
         public ref byte[] Buffer => ref _buffer;
 
@@ -195,18 +226,26 @@ namespace Amlos.Container
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ref FieldHeader GetFieldHeader(ReadOnlySpan<char> fieldName)
+        {
+            if (!TryGetFieldHeader(fieldName, out var headerSpan))
+                ThrowHelper.ThrowArugmentException(nameof(fieldName));
+            return ref headerSpan[0];
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref FieldHeader GetFieldHeader<T>(ReadOnlySpan<char> fieldName, bool allowRescheme) where T : unmanaged
         {
-            if (TryGetFieldHeader(fieldName, out var headerSpan))
+            if (!TryGetFieldHeader(fieldName, out var headerSpan))
             {
-                return ref headerSpan[0];
+                if (allowRescheme)
+                {
+                    int index = ReschemeForNew<T>(fieldName);
+                    return ref GetFieldHeader(index);
+                }
+                else ThrowHelper.ThrowArugmentException(nameof(fieldName));
             }
-            if (allowRescheme)
-            {
-                var index = ReschemeForNew<T>(fieldName);
-                return ref GetFieldHeader(index);
-            }
-            throw new ArgumentException(nameof(fieldName));
+            return ref headerSpan[0];
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -229,6 +268,8 @@ namespace Amlos.Container
 
         public Span<byte> GetFieldData(in FieldHeader header) => MemoryMarshal.CreateSpan(ref _buffer[header.DataOffset], header.Length);
 
+        public Span<T> GetFieldData<T>(in FieldHeader header) where T : unmanaged => MemoryMarshal.Cast<byte, T>(MemoryMarshal.CreateSpan(ref _buffer[header.DataOffset], header.Length));
+
         public unsafe void* GetFieldData_Unsafe(in FieldHeader header) => Unsafe.AsPointer(ref _buffer[header.DataOffset]);
 
         /// <summary>Get UTF-16 field name by index without allocations.</summary>
@@ -239,75 +280,45 @@ namespace Amlos.Container
 
 
 
-        #region Byte-span accessors
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private Span<byte> GetSpan(int offset, int length) => _buffer.AsSpan(offset, length);
-
-        /// <summary>Returns a writable span for the given field.</summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Span<byte> GetSpan(int fieldIndex) => View.GetFieldBytes(fieldIndex);
-
-        /// <summary>Returns a writable span for the given field.</summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Span<byte> GetReadOnlySpan(int fieldIndex) => GetSpan(fieldIndex);
-
-        /// <summary>Returns a read-only span for the given field.</summary>
-        public Span<T> GetSpan<T>(int index) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetSpan(index));
-
-        /// <summary>Returns a read-only span for the given field.</summary>
-        public ReadOnlySpan<T> GetReadOnlySpan<T>(int index) where T : unmanaged => GetSpan<T>(index);
-
-        public Span<byte> GetSpan(ReadOnlySpan<char> fieldName) => GetSpan(IndexOf(fieldName));
-
-        public ReadOnlySpan<byte> GetReadOnlySpan(ReadOnlySpan<char> fieldName) => GetReadOnlySpan<byte>(IndexOf(fieldName));
-
-        /// <summary>Returns a read-only span for the given field.</summary>
-        public Span<T> GetSpan<T>(string fieldName) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetSpan(fieldName));
-
-        /// <summary>Returns a read-only span for the given field.</summary>
-        public ReadOnlySpan<T> GetReadOnlySpan<T>(string fieldName) where T : unmanaged => GetSpan<T>(fieldName);
-
-        #endregion
 
 
         #region Raw byte read/write by name
 
         public void WriteBytes(string fieldName, ReadOnlySpan<byte> src)
         {
-            var index = IndexOf(fieldName);
-            var f = View.Fields[index];
+            ref var f = ref GetFieldHeader(fieldName);
             if (src.Length != f.Length)
                 throw new ArgumentException($"Source length {src.Length} must equal field length {f.Length}.", nameof(src));
-            src.CopyTo(GetSpan(index));
+            src.CopyTo(GetFieldData(in f));
         }
 
         public void ReadBytes(string fieldName, Span<byte> dst)
         {
-            var index = IndexOf(fieldName);
-            var f = View.Fields[index];
+            ref var f = ref GetFieldHeader(fieldName);
             if (dst.Length != f.Length)
                 throw new ArgumentException($"Destination length {dst.Length} must equal field length {f.Length}.", nameof(dst));
-            GetReadOnlySpan(index).CopyTo(dst);
+            GetFieldData(in f).CopyTo(dst);
         }
 
         public bool TryWriteBytes(string fieldName, ReadOnlySpan<byte> src)
         {
-            var index = IndexOf(fieldName);
-            if (index < 0) return false;
-            var f = View.Fields[index];
-            if (src.Length != f.Length) return false;
-            src.CopyTo(GetSpan(index));
+            if (!TryGetFieldHeader(fieldName, out var outHeader))
+                return false;
+            ref var f = ref outHeader[0];
+            if (src.Length != f.Length)
+                return false;
+            src.CopyTo(GetFieldData(in f));
             return true;
         }
 
         public bool TryReadBytes(string fieldName, Span<byte> dst)
         {
-            var index = IndexOf(fieldName);
-            if (index < 0) return false;
-            var f = View.Fields[index];
-            if (dst.Length != f.Length) return false;
-            GetReadOnlySpan(index).CopyTo(dst);
+            if (!TryGetFieldHeader(fieldName, out var outHeader))
+                return false;
+            ref var f = ref outHeader[0];
+            if (dst.Length != f.Length)
+                return false;
+            GetFieldData(in f).CopyTo(dst);
             return true;
         }
 
@@ -423,15 +434,16 @@ namespace Amlos.Container
 
 
 
-        public ReadOnlyValueView GetValueView(string fieldName)
+        public ReadOnlyValueView GetValueView(ReadOnlySpan<char> fieldName)
         {
-            int index = IndexOf(fieldName);
-            return new ReadOnlyValueView(GetSpan(index), View.Fields[index].FieldType.Type);
+            ref FieldHeader f = ref GetFieldHeader(fieldName);
+            return new ReadOnlyValueView(GetFieldData(in f), f.Type);
         }
 
         public ReadOnlyValueView GetValueView(int index)
         {
-            return new ReadOnlyValueView(GetSpan(index), View.Fields[index].FieldType.Type);
+            ref FieldHeader f = ref GetFieldHeader(index);
+            return new ReadOnlyValueView(GetFieldData(in f), f.Type);
         }
 
         #endregion
@@ -439,66 +451,47 @@ namespace Amlos.Container
 
         #region Object
 
-        public ref ContainerReference GetRef(string fieldName) => ref GetRef(GetFieldIndexOrReschemeObject(fieldName));
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ref ContainerReference GetRef(ReadOnlySpan<char> fieldName)
+        {
+            int index = IndexOf(fieldName);
+            if (index < 0) index = ReschemeForNewObject(fieldName);
+            return ref GetRef(index);
+        }
 
-        public ref ContainerReference GetRefNoRescheme(string fieldName) => ref GetRef(IndexOf(fieldName));
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ref ContainerReference GetRefNoRescheme(ReadOnlySpan<char> fieldName) => ref GetRef(IndexOf(fieldName));
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref ContainerReference GetRefNoRescheme(int index) => ref GetRef(index);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref ContainerReference GetRef(int index)
         {
-            var f = View.GetField(index);
+            ref var f = ref GetFieldHeader(index);
             if (!f.IsRef)
-                throw new ArgumentException($"Field '{f.Name.ToString()}' is not a ref slot.");
-            return ref f.GetSpan<ContainerReference>()[0];
+                throw new ArgumentException($"Field '{GetFieldName(in f).ToString()}' is not a ref slot.");
+            return ref GetFieldData<ContainerReference>(in f)[0];
         }
 
-        public Span<ContainerReference> GetRefSpan(string fieldName) => GetRefSpan(IndexOf(fieldName));
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Span<ContainerReference> GetRefSpan(ReadOnlySpan<char> fieldName) => GetRefSpan(IndexOf(fieldName));
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Span<ContainerReference> GetRefSpan(int index)
         {
-            var f = View.GetField(index);
-            if (!f.IsRef) throw new ArgumentException($"Field '{f.Name.ToString()}' is not a ref field.");
+            ref var f = ref GetFieldHeader(index);
+            if (!f.IsRef) throw new ArgumentException($"Field '{GetFieldName(in f).ToString()}' is not a ref field.");
             if (f.Length % ContainerReference.Size != 0)
-                throw new ArgumentException($"Field '{f.Name.ToString()}' byte length is not multiple of {ContainerReference.Size}.");
-            return f.GetSpan<ContainerReference>();
-        }
-
-        public void WriteObject(string fieldName, Container container)
-        {
-            GetRefNoRescheme(fieldName) = container.ID;
-        }
-
-        #endregion 
-
-
-        #region Type Hint 
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal void SetScalarType<T>(int fieldIndex) where T : unmanaged
-        {
-            ref var header = ref View[fieldIndex].Header;
-            header.FieldType = TypeUtil.FieldType<T>(false);
-            header.ElemSize = (short)Unsafe.SizeOf<T>();
+                throw new ArgumentException($"Field '{GetFieldName(in f).ToString()}' byte length is not multiple of {ContainerReference.Size}.");
+            return GetFieldData<ContainerReference>(in f);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal void SetArrayType<T>(int fieldIndex) where T : unmanaged
-        {
-            ref var header = ref View[fieldIndex].Header;
-            header.FieldType = TypeUtil.FieldType<T>(true);
-            header.ElemSize = (short)Unsafe.SizeOf<T>();
-        }
+        public void WriteObject(ReadOnlySpan<char> fieldName, Container container) => GetRefNoRescheme(fieldName) = container.ID;
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void SetType(int fieldIndex, ValueType type, bool isArray, short elementSize)
-        {
-            ref var header = ref View[fieldIndex].Header;
-            header.FieldType = TypeUtil.Pack(type, isArray);
-            header.ElemSize = elementSize;
-        }
+        #endregion  
 
-        #endregion
 
 
         #region Whole-record helpers
@@ -542,13 +535,13 @@ namespace Amlos.Container
         {
             StringBuilder sb = new();
             sb.Append("{");
-            for (int i = 0; i < View.FieldCount; i++)
+            for (int i = 0; i < FieldCount; i++)
             {
-                var field = View[i];
+                ref var field = ref GetFieldHeader(i);
                 var valueView = GetValueView(i);
                 sb.AppendLine();
                 sb.Append("\"");
-                sb.Append(field.Name);
+                sb.Append(GetFieldName(in field));
                 sb.Append("\"");
                 sb.Append(": ");
                 sb.Append(valueView.ToString());
@@ -591,5 +584,9 @@ namespace Amlos.Container
         [DoesNotReturn]
         [MethodImpl(MethodImplOptions.NoInlining)]
         public static void ThrowInvalidOperation() => throw new InvalidOperationException();
+
+        [DoesNotReturn]
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void ThrowArugmentException(string v) => throw new ArgumentException(v);
     }
 }
