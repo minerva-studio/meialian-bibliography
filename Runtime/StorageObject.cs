@@ -70,6 +70,8 @@ namespace Amlos.Container
 
         public void Write(string fieldName, in string value) => WriteString(fieldName, (ReadOnlySpan<char>)value);
 
+        public void Write(int index, in string value) => WriteString(index, (ReadOnlySpan<char>)value);
+
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
         /// </summary>
@@ -86,6 +88,11 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
         public void Write<T>(string fieldName, in T value) where T : unmanaged => _container.Write(fieldName, value, true);
+
+        /// <summary>
+        /// Write a value to a field, if the field does not exist, it will be added to the schema.
+        /// </summary>
+        public void Write<T>(int index, in T value) where T : unmanaged => _container.Write_Internal(index, value, true);
 
         /// <summary>
         /// Write a value to an existing field without rescheming, if the field does not exist, an exception is thrown.
@@ -200,6 +207,8 @@ namespace Amlos.Container
 
 
 
+        public void WriteString(int index, ReadOnlySpan<char> value) => GetObject(index).WriteArray(value);
+
         public void WriteString(string fieldName, ReadOnlySpan<char> value) => GetObject(fieldName).WriteArray(value);
 
         public void WriteString(ReadOnlySpan<char> value) => WriteArray(value);
@@ -275,6 +284,12 @@ namespace Amlos.Container
         /// </summary>
         /// <param name="fieldName"></param>
         /// <returns></returns>
+        public StorageObject GetObject(int index) => GetObject(index, reschemeOnMissing: true, layout: ContainerLayout.Empty);
+        /// <summary>
+        /// Get child object (always not null)
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <returns></returns>
         public StorageObject GetObject(string fieldName) => GetObject(fieldName, reschemeOnMissing: true, layout: ContainerLayout.Empty);
         /// <summary>
         /// Get child with layout, if null, create a new object with given layout
@@ -289,6 +304,18 @@ namespace Amlos.Container
         /// <param name="fieldName"></param>
         /// <returns></returns>
         public StorageObject GetObjectNoAllocate(string fieldName) => GetObject(fieldName, reschemeOnMissing: false, layout: null);
+        /// <summary>
+        /// Get child object with layout
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <param name="reschemeOnMissing"></param>
+        /// <param name="layout"></param>
+        /// <returns></returns>
+        public StorageObject GetObject(int index, bool reschemeOnMissing, ContainerLayout layout)
+        {
+            ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(index) : ref _container.GetRefNoRescheme(index);
+            return layout != null ? StorageFactory.Get(ref idRef, layout) : StorageFactory.GetNoAllocate(idRef);
+        }
         /// <summary>
         /// Get child object with layout
         /// </summary>

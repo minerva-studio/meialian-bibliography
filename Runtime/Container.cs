@@ -207,7 +207,7 @@ namespace Amlos.Container
         }
 
 
-        private void Write_Internal<T>(int index, T value, bool allowRescheme = true) where T : unmanaged
+        public void Write_Internal<T>(int index, T value, bool allowRescheme = true) where T : unmanaged
         {
             switch (TryWrite_Internal(index, value, allowRescheme))
             {
@@ -330,6 +330,8 @@ namespace Amlos.Container
         public ref ContainerReference GetRef(string fieldName) => ref GetRef(GetFieldIndexOrReschemeObject(fieldName));
 
         public ref ContainerReference GetRefNoRescheme(string fieldName) => ref GetRef(IndexOf(fieldName));
+
+        public ref ContainerReference GetRefNoRescheme(int index) => ref GetRef(index);
 
         public ref ContainerReference GetRef(int index)
         {
