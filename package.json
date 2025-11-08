@@ -1,0 +1,20 @@
+{
+  "name": "com.minervastudio.meialianbibliography",
+  "version": "0.0.1",
+  "displayName": "Meialian Bibliography",
+  "description": "Dynamic Serializable/Deserialzable buffer used for a game scoreboard and stat system.",
+  "unity": "2021.3",
+  "dependencies": {},
+  "keywords": [
+    "external",
+    "utilities",
+    "C#",
+    "minerva studio",
+    "minerva game studio"
+  ],
+  "author": {
+    "name": "Minerva Game Studio",
+    "email": "library.of.meialia@gmail.com",
+    "url": "https://github.com/minerva-studio/meialian-bibliography"
+  }
+}
