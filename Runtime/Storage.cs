@@ -1,5 +1,4 @@
 using System;
-using System.Runtime.CompilerServices;
 
 namespace Amlos.Container
 {
@@ -20,6 +19,13 @@ namespace Amlos.Container
         public Storage(ContainerLayout rootSchema)
         {
             _root = Container.Registry.Shared.CreateAt(ref _id, rootSchema);
+        }
+
+        internal Storage(Container wildContainer)
+        {
+            Container.Registry.Shared.Register(_root);
+            _root = wildContainer;
+            _id = wildContainer.ID;
         }
 
         ~Storage() { Dispose(false); }

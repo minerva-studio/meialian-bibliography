@@ -29,7 +29,6 @@ namespace Amlos.Container
                     h.Add(c);
                 return h.ToHashCode();
             }
-
         }
 
         private struct Entry
@@ -90,8 +89,8 @@ namespace Amlos.Container
 
 
         /// <summary>Add or replace a raw byte payload.</summary>
-        public void SetRaw(string name, FieldHeader header) => SetRaw(name.AsMemory(), header);
-        public void SetRaw(ReadOnlyMemory<char> name, FieldHeader header)
+        public void SetRaw(string name, in FieldHeader header) => SetRaw(name.AsMemory(), header);
+        public void SetRaw(ReadOnlyMemory<char> name, in FieldHeader header)
         {
             if (name.Length == 0) throw new ArgumentNullException(nameof(name));
             var elemSize = header.ElemSize;
@@ -325,20 +324,6 @@ namespace Amlos.Container
 
 
 
-
-        /// <summary>
-        /// Materialize the container as a compact byte[] with fresh layout.
-        /// Order: [ContainerHeader][FieldHeader...][Names][Data].
-        /// </summary>
-        internal Container BuildContainer()
-        {
-            byte[] target = null;
-            WriteTo(ref target);
-            return Container.Registry.Shared.CreateWildWith(target);
-        }
-
-
-
         internal void WriteTo(ref byte[] target)
         {
             if (_map.Count == 0)
@@ -360,13 +345,6 @@ namespace Amlos.Container
                 data.Buffer?.CopyTo(buf.Slice(dataCursor, data.Length));
                 dataCursor += data.Length;
             }
-        }
-
-        public ContainerLayout BuildLayout()
-        {
-            byte[] header = null;
-            BuildLayout(ref header, false);
-            return new ContainerLayout(header);
         }
 
         internal void BuildLayout(ref byte[] target, bool includeData = true)
@@ -449,8 +427,39 @@ namespace Amlos.Container
 
 
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static byte[] CreateDefaultValueBytes<T>() where T : unmanaged => CreateDefaultValueBytes<T>(default);
+
+
+
+        /// <summary>
+        /// Materialize the container as a compact byte[] with fresh layout.
+        /// Order: [ContainerHeader][FieldHeader...][Names][Data].
+        /// </summary>
+        internal Container BuildContainer()
+        {
+            byte[] target = null;
+            WriteTo(ref target);
+            return Container.Registry.Shared.CreateWildWith(target);
+        }
+
+        /// <summary>
+        /// Build a container layout that can be use to create multiple new objects with same layout
+        /// </summary>
+        /// <returns></returns>
+        public ContainerLayout BuildLayout()
+        {
+            byte[] header = null;
+            BuildLayout(ref header, false);
+            return new ContainerLayout(header);
+        }
+
+        /// <summary>
+        /// Create a new storage
+        /// </summary>
+        /// <returns></returns>
+        public Storage BuildStorage() => new Storage(BuildContainer());
+
+
+
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static byte[] CreateDefaultValueBytes<T>(T value) where T : unmanaged
@@ -469,7 +478,7 @@ namespace Amlos.Container
             ContainerView view = container.View;
             for (int i = 0; i < container.FieldCount; i++)
             {
-                builder.SetRaw(view[i].Name.ToString(), view[i].Header);
+                builder.SetRaw(view[i].Name.ToString(), in view[i].Header);
             }
             return builder;
         }
