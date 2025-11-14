@@ -1,6 +1,6 @@
 ﻿using NUnit.Framework;
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
     [TestFixture, Category("Perf"), Explicit]
     public class Perf_Latency_Distribution

@@ -1,6 +1,6 @@
 using Unity.Serialization.Json;
 
-namespace Amlos.Container.Serialization
+namespace Minerva.DataStorage.Serialization
 {
     public interface IPrimitiveWriter<T> where T : unmanaged
     {

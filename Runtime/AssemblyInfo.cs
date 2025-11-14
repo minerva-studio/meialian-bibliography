@@ -1,5 +1,5 @@
 using System.Runtime.CompilerServices;
 
-[assembly: InternalsVisibleTo("Amlos.Container.Tests")]
-[assembly: InternalsVisibleTo("Amlos.Container.Serialization")]
-[assembly: InternalsVisibleTo("Amlos.Container.Serialization.Tests")]
+[assembly: InternalsVisibleTo("Minerva.DataStorage.Tests")]
+[assembly: InternalsVisibleTo("Minerva.DataStorage.Serialization")]
+[assembly: InternalsVisibleTo("Minerva.DataStorage.Serialization.Tests")]

@@ -1,7 +1,7 @@
 using System;
-using static Amlos.Container.StorageFactory;
+using static Minerva.DataStorage.StorageFactory;
 
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     /// <summary>
     /// Stack-only view over an array of child references (IDs) stored inside a container field.

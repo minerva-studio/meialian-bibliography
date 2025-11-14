@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using Unity.PerformanceTesting;
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
     [TestFixture, Category("Perf"), Explicit] // 手动跑
     public class Perf_Write_Throughput_UTP

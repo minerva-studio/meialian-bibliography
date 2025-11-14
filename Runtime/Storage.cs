@@ -1,6 +1,6 @@
 using System;
 
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     /// <summary>
     /// User-facing root owner that ensures the whole tree is unregistered/disposed when done.

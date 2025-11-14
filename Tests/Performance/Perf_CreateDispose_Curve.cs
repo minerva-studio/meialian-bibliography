@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
     [TestFixture, Category("Perf"), Explicit, Timeout(20000)]
     public class Perf_CreateDispose_Curve

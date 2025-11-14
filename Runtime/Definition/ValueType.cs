@@ -1,4 +1,4 @@
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     public enum ValueType : byte
     {

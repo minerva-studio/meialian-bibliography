@@ -7,9 +7,9 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
-    [Timeout(15000)] // 15s ±£»¤£¬±ÜÃâ CI ¹ÒËÀ
+    [Timeout(15000)] // 15s ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ CI ï¿½ï¿½ï¿½ï¿½
     [TestFixture]
     public class MemorySafetyTests
     {
@@ -39,7 +39,7 @@ namespace Amlos.Container.Tests
         public void ApiSurface_DoesNotExpose_Container()
         {
             var asm = typeof(Storage).Assembly;
-            var containerType = asm.GetType("Amlos.Container.Container", throwOnError: true)!;
+            var containerType = asm.GetType("Minerva.DataStorage.Container", throwOnError: true)!;
 
             // Exported public types in the assembly
             foreach (var t in asm.GetExportedTypes())
@@ -210,7 +210,7 @@ namespace Amlos.Container.Tests
             var resolved = ids.Select(id => reg.GetContainer(id)).ToArray();
             Assert.That(resolved.All(x => x != null), Is.True);
 
-            // Instance uniqueness (dict makes id¡úinstance unique)
+            // Instance uniqueness (dict makes idï¿½ï¿½instance unique)
             Assert.That(resolved.Distinct(ReferenceEqualityComparer<object>.Instance).Count(),
                         Is.EqualTo(resolved.Length),
                         "Two different ids resolved to same container instance unexpectedly.");
@@ -434,14 +434,14 @@ namespace Amlos.Container.Tests
                         {
                             var n = strNames[rnd.Next(strNames.Length)];
                             int len = rnd.Next(0, 4096);
-                            root.Write(n, new string('x', len)); // ÄãµÄ Write(string,string) ÒÑÓ³Éäµ½ WriteString
+                            root.Write(n, new string('x', len)); // ï¿½ï¿½ï¿½ Write(string,string) ï¿½ï¿½Ó³ï¿½äµ½ WriteString
                             break;
                         }
                     case 3: // object leaf: ensure children materialize
                         {
                             var n = objNames[rnd.Next(objNames.Length)];
                             var child = root.GetObject(n);
-                            // Çá´¥×Ó¶ÔÏó£¬ÖÆÔìµãÐ´Èë
+                            // ï¿½á´¥ï¿½Ó¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð´ï¿½ï¿½
                             if ((i & 3) == 0) child.Write("k", i);
                             break;
                         }
@@ -452,7 +452,7 @@ namespace Amlos.Container.Tests
                     uniqueParent.Add(root.Buffer);
             }
 
-            // ¸¸ÈÝÆ÷ÔÚ¡°ÍâÁª×Ö·û´®¶¶¶¯ + ÊýÖµÖØÐ´ + ×Ó¶ÔÏóÐ´Èë¡±ÏÂ²»Ó¦³öÏÖÎÞÏÞ buffer ÖÖÀàÔö³¤
+            // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ + ï¿½ï¿½Öµï¿½ï¿½Ð´ + ï¿½Ó¶ï¿½ï¿½ï¿½Ð´ï¿½ë¡±ï¿½Â²ï¿½Ó¦ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ buffer ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
             Assert.That(uniqueParent.Count, Is.LessThanOrEqualTo(256),
                 $"Unique parent buffers too many: {uniqueParent.Count}");
         }
@@ -798,7 +798,7 @@ namespace Amlos.Container.Tests
         {
             if (double.IsNaN(expected) || double.IsInfinity(expected))
             {
-                // Èç¹ûÄãÔÊÐíÐ´Èë NaN/Inf£¬¿ÉÔÚ´Ë·Å¿ª±È½Ï£»·ñÔò°´²»Ó¦³öÏÖ´¦Àí
+                // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð´ï¿½ï¿½ NaN/Infï¿½ï¿½ï¿½ï¿½ï¿½Ú´Ë·Å¿ï¿½ï¿½È½Ï£ï¿½ï¿½ï¿½ï¿½ò°´²ï¿½Ó¦ï¿½ï¿½ï¿½Ö´ï¿½ï¿½ï¿½
                 Assert.Fail("Unexpected NaN/Infinity in expected value");
             }
             double tol = relEps * Math.Max(1.0, Math.Abs(expected));

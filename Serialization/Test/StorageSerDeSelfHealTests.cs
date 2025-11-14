@@ -4,7 +4,7 @@ using System.Linq;
 using Unity.Serialization.Json;
 using UnityEngine;
 
-namespace Amlos.Container.Serialization.Tests
+namespace Minerva.DataStorage.Serialization.Tests
 {
     [TestFixture]
     public class StorageSerDeSelfHealTests
@@ -191,7 +191,7 @@ namespace Amlos.Container.Serialization.Tests
             int vInt = root.Read<int>("v");
             Assert.That(vInt, Is.EqualTo(42));
 
-            // Now read as float ¡ú should convert in place, not change AbsLength (still 4)
+            // Now read as float ï¿½ï¿½ should convert in place, not change AbsLength (still 4)
             float vFloat = root.Read<float>("v");
             Assert.That(vFloat, Is.EqualTo(42.0f).Within(1e-6));
 

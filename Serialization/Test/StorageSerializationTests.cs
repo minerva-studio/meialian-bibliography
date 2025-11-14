@@ -1,7 +1,7 @@
 using NUnit.Framework;
 using Unity.Serialization.Json;
 
-namespace Amlos.Container.Serialization.Tests
+namespace Minerva.DataStorage.Serialization.Tests
 {
     [TestFixture]
     public class StorageSerializationTests

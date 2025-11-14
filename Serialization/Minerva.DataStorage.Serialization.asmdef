@@ -1,7 +1,10 @@
 {
-    "name": "Amlos.Container",
+    "name": "Minerva.DataStorage.Serialization",
     "rootNamespace": "",
-    "references": [],
+    "references": [
+        "GUID:2765e68924a08a94ea0ea66b31c0168f",
+        "GUID:91187b945be6192408f45e5d7cbc471a"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": true,
@@ -10,5 +13,5 @@
     "autoReferenced": true,
     "defineConstraints": [],
     "versionDefines": [],
-    "noEngineReferences": true
+    "noEngineReferences": false
 }

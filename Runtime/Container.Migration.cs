@@ -2,9 +2,9 @@ using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using static Amlos.Container.TypeUtil;
+using static Minerva.DataStorage.TypeUtil;
 
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     internal sealed partial class Container
     {
@@ -237,7 +237,7 @@ namespace Amlos.Container
 
 
             //var field = View[index];
-            // 2) Existing but ref ¡ú not allowed
+            // 2) Existing but ref ï¿½ï¿½ not allowed
             if (fieldHeader.IsRef)
                 throw new InvalidOperationException($"Field '{GetFieldName(in fieldHeader).ToString()}' is a reference; cannot read value T={typeof(T).Name}.");
 

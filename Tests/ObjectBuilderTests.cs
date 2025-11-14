@@ -5,7 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
     [TestFixture]
     public class ObjectBuilderTests

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
     internal static class Perf
     {

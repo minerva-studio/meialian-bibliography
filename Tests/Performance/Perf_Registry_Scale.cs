@@ -2,7 +2,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
     [TestFixture, Category("Perf"), Explicit, Timeout(30000)]
     public class Perf_Registry_Scale

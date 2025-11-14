@@ -2,7 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     // =========================
     // Container view (no copies)

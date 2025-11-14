@@ -4,7 +4,7 @@ using System.Buffers.Binary;
 using System.Linq;
 using UnityEngine;
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
     [TestFixture]
     public class ContainerTests

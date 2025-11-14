@@ -2,9 +2,9 @@
 using System;
 using System.Buffers.Binary;
 using NUnit.Framework;
-using Amlos.Container;
+using Minerva.DataStorage;
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
     /// <summary>
     /// Tests for the new non-generic StorageInlineArray API only.

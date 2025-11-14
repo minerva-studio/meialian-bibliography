@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     /// <summary>
     /// Bit layout (1 byte):

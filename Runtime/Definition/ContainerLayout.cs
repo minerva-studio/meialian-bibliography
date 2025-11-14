@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     /// <summary>
     /// Header-only, schema-like layout built from ObjectBuilder.

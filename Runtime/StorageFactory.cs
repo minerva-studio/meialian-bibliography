@@ -1,4 +1,4 @@
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     internal static class StorageFactory
     {

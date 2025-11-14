@@ -2,7 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     /// <summary>
     /// Stack-only view over a value array stored inside a container field.

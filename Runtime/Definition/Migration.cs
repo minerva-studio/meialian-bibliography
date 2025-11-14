@@ -1,8 +1,8 @@
 using System;
 using System.Buffers.Binary;
-using static Amlos.Container.TypeUtil;
+using static Minerva.DataStorage.TypeUtil;
 
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     public static class Migration
     {
@@ -228,7 +228,7 @@ namespace Amlos.Container
         /// </summary> 
         public static bool ConvertScalarInPlace(Span<byte> bytes, ValueType oldVt, ValueType newVt)
         {
-            // Unknown on either side ¡ú keep bytes unchanged (but caller may still update hint).
+            // Unknown on either side ï¿½ï¿½ keep bytes unchanged (but caller may still update hint).
             if (oldVt == ValueType.Unknown || newVt == ValueType.Unknown)
                 return false;
 

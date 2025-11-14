@@ -1,6 +1,6 @@
 using System;
 
-namespace Amlos.Container
+namespace Minerva.DataStorage
 {
     public static class StorageObjectExtesnion
     {

@@ -1,12 +1,11 @@
 {
-    "name": "Amlos.Container.Serialization.Tests",
+    "name": "Minerva.DataStorage.Tests",
     "rootNamespace": "",
     "references": [
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "Amlos.Container",
-        "Amlos.Container.Serialization",
-        "Unity.Serialization"
+        "Unity.PerformanceTesting",
+        "Minerva.DataStorage"
     ],
     "includePlatforms": [
         "Editor"

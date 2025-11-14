@@ -2,7 +2,7 @@
 
 Dynamic serializable/deserializable byte container — used as the backing store for scoreboards, stat systems, and other structured game data.
 
-`Amlos.Container` gives you:
+`Minerva.DataStorage` gives you:
 
 - A **schema-driven, fixed-layout byte container**, backed by pooled buffers.
 - A **tree-shaped storage** API (`Storage` / `StorageObject`) for nested objects.
@@ -156,7 +156,7 @@ using `ObjectBuilder` to define a `ContainerLayout` once and reuse it is faster 
 Example of defining a root layout:
 
 ```csharp
-using Amlos.Container;
+using Minerva.DataStorage;
 
 ObjectBuilder builder = new ObjectBuilder();
 
@@ -229,8 +229,8 @@ Register `StorageAdapter` with Unity’s JSON serialization so `Storage` can be 
 
 ```csharp
 using System.Collections.Generic;
-using Amlos.Container;
-using Amlos.Container.Serialization;
+using Minerva.DataStorage;
+using Minerva.DataStorage.Serialization;
 using Unity.Serialization.Json;
 
 var parameters = new JsonSerializationParameters
@@ -370,7 +370,7 @@ Typical usages:
 
 ### JSON adapter
 
-Namespace: `Amlos.Container.Serialization`
+Namespace: `Minerva.DataStorage.Serialization`
 
 * **`StorageAdapter`**
 

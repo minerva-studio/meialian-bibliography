@@ -1,7 +1,7 @@
 using NUnit.Framework;
 using System;
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
     [TestFixture]
     public class StoragePublicApiTests

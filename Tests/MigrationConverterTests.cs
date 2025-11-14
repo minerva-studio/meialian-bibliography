@@ -2,9 +2,9 @@ using System;
 using System.Buffers.Binary;
 using System.Linq;
 using NUnit.Framework;
-using static Amlos.Container.TypeUtil; // Pack, PrimOf<T>()
+using static Minerva.DataStorage.TypeUtil; // Pack, PrimOf<T>()
 
-namespace Amlos.Container.Tests
+namespace Minerva.DataStorage.Tests
 {
     [TestFixture]
     public class MigrationConverterElementwiseTests

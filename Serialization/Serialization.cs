@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using Unity.Serialization.Json;
 
-namespace Amlos.Container.Serialization
+namespace Minerva.DataStorage.Serialization
 {
     public class StorageAdapter : IJsonAdapter<Storage>, IJsonAdapter
     {
@@ -26,7 +26,7 @@ namespace Amlos.Container.Serialization
                 var name = member.Name().ToString();
                 var val = member.Value();
 
-                // 1) If field missing ¡ú infer FieldDescriptor and rebuild schema, then continue.
+                // 1) If field missing ï¿½ï¿½ infer FieldDescriptor and rebuild schema, then continue.
                 if (!target.HasField(name))
                 {
                     InferField(name, val, b);
@@ -70,7 +70,7 @@ namespace Amlos.Container.Serialization
                         var arr = tok.AsArrayView();
                         int n = arr.Count();
 
-                        // empty array ¡ú zero-length fixed field
+                        // empty array ï¿½ï¿½ zero-length fixed field
                         if (n == 0)
                         {
                             b.SetArray<byte>(name, 0);
@@ -82,7 +82,7 @@ namespace Amlos.Container.Serialization
 
                         if (!found)
                         {
-                            // all nulls ¡ú ref-array of size n
+                            // all nulls ï¿½ï¿½ ref-array of size n
                             b.SetRefArray(name, n);
                             return;
                         }
@@ -169,7 +169,7 @@ namespace Amlos.Container.Serialization
                     }
             }
 
-            // Fallback: unknown/unsupported ¡ú zero-length field (safe no-op) 
+            // Fallback: unknown/unsupported ï¿½ï¿½ zero-length field (safe no-op) 
             return;
 
             void ReadArrayContent<T>(SerializedArrayView arr, int count, Func<SerializedValueView, T> getter) where T : unmanaged
@@ -286,7 +286,7 @@ namespace Amlos.Container.Serialization
             {
                 var element = objArray[i];
                 var obj = element.GetObjectNoAllocate();
-                // Write() handles IsNull¡únull already
+                // Write() handles IsNullï¿½ï¿½null already
                 Write(writer, obj);
             }
         }
@@ -324,7 +324,7 @@ namespace Amlos.Container.Serialization
                 primitiveWriter.WriteValue(writer, array[i].Read<T>());
         }
 
-        // 3) Unknown bytes ¡ª always emit as byte array (no base64, per your rule)
+        // 3) Unknown bytes ï¿½ï¿½ always emit as byte array (no base64, per your rule)
 
         private void WriteUnknownBytes(JsonWriter writer, StorageObject value, string str)
         {
