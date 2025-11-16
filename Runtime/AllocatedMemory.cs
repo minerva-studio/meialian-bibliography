@@ -35,7 +35,7 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Current logical size (length of the visible region).
         /// </summary>
-        public readonly int Size
+        public readonly int Length
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => _data.Length;
@@ -236,6 +236,19 @@ namespace Minerva.DataStorage
 
             var buffer = DefaultPool.Rent(size);
             return new AllocatedMemory(buffer, size);
+        }
+
+        /// <summary>
+        /// Rents a new buffer of at least the requested size from the default pool
+        /// and returns an AllocatedMemory instance that owns it.
+        /// The logical Size is set to exactly the size of <paramref name="buffer"/>.
+        /// Note that the actual underlying buffer length may be larger than 'size'.
+        /// </summary>
+        public static AllocatedMemory Create(ReadOnlySpan<byte> buffer)
+        {
+            var m = Create(buffer.Length);
+            buffer.CopyTo(m.Span);
+            return m;
         }
     }
 }

@@ -7,6 +7,8 @@ namespace Minerva.DataStorage
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public unsafe struct ContainerHeader
     {
+        public static readonly int LengthOffset = 0;
+        public static readonly int LengthSize = 4;
         public static readonly int Size = Unsafe.SizeOf<ContainerHeader>();
         public static readonly int FieldCountOffset = sizeof(int) * 2;
 

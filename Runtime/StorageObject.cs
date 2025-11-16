@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -691,7 +692,7 @@ namespace Minerva.DataStorage
         public StorageObject GetObject(int index, bool reschemeOnMissing, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(index) : ref _container.GetRefNoRescheme(index);
-            return layout != null ? StorageFactory.Get(ref idRef, layout) : StorageFactory.GetNoAllocate(idRef);
+            return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
         }
         /// <summary>
         /// Get child object with layout
@@ -704,7 +705,7 @@ namespace Minerva.DataStorage
         public StorageObject GetObject(ReadOnlySpan<char> fieldName, bool reschemeOnMissing, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
-            return layout != null ? StorageFactory.Get(ref idRef, layout) : StorageFactory.GetNoAllocate(idRef);
+            return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
         }
 
 

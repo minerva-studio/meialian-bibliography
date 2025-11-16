@@ -463,12 +463,14 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Span<ContainerReference> GetRefSpan(ReadOnlySpan<char> fieldName) => GetRefSpan(IndexOf(fieldName));
+        public Span<ContainerReference> GetRefSpan(ReadOnlySpan<char> fieldName) => GetRefSpan(in GetFieldHeader(fieldName));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Span<ContainerReference> GetRefSpan(int index)
+        public Span<ContainerReference> GetRefSpan(int index) => GetRefSpan(in GetFieldHeader(index));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Span<ContainerReference> GetRefSpan(in FieldHeader f)
         {
-            ref var f = ref GetFieldHeader(index);
             if (!f.IsRef) throw new ArgumentException($"Field '{GetFieldName(in f).ToString()}' is not a ref field.");
             if (f.Length % ContainerReference.Size != 0)
                 throw new ArgumentException($"Field '{GetFieldName(in f).ToString()}' byte length is not multiple of {ContainerReference.Size}.");
@@ -541,6 +543,11 @@ namespace Minerva.DataStorage
             sb.AppendLine();
             sb.AppendLine("}");
             return sb.ToString();
+        }
+
+        public string ToBase64()
+        {
+            return Convert.ToBase64String(_memory.Span);
         }
     }
 

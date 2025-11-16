@@ -1,5 +1,4 @@
 using System;
-using static Minerva.DataStorage.StorageFactory;
 
 namespace Minerva.DataStorage
 {
@@ -34,10 +33,10 @@ namespace Minerva.DataStorage
 
 
         /// <summary>Get a child as a StorageObject (throws if not found).</summary>
-        public StorageObject Get(int index) => StorageFactory.Get(ref Ids[index], ContainerLayout.Empty);
+        public StorageObject Get(int index) => StorageObjectFactory.GetOrCreate(ref Ids[index], ContainerLayout.Empty);
 
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
-        public bool TryGet(int index, out StorageObject child) => StorageFactory.TryGet(_ids[index], out child);
+        public bool TryGet(int index, out StorageObject child) => StorageObjectFactory.TryGet(_ids[index], out child);
 
         /// <summary>Clear the slot (set ID to 0).</summary>
         public void ClearAt(int index) => Container.Registry.Shared.Unregister(ref _ids[index]);
@@ -61,7 +60,7 @@ namespace Minerva.DataStorage
         /// Is a null slot (ID == 0)
         /// </summary>
         public bool IsNull => Position == 0UL;
-        public StorageObject Object => Get(ref Position, ContainerLayout.Empty);
+        public StorageObject Object => Position.GetOrCreate(ContainerLayout.Empty);
 
 
         /// <summary>
@@ -69,9 +68,9 @@ namespace Minerva.DataStorage
         /// </summary>
         private ref ContainerReference Position => ref _array.Ids[_index];
 
-        public StorageObject GetObjectNoAllocate() => GetNoAllocate(Position);
+        public StorageObject GetObjectNoAllocate() => Position.GetNoAllocate();
 
-        public StorageObject GetObject(ContainerLayout schema) => Get(ref Position, schema);
+        public StorageObject GetObject(ContainerLayout schema) => Position.GetOrCreate(schema);
 
 
         public static implicit operator StorageObject(StorageObjectArrayElement element) => element.GetObjectNoAllocate();

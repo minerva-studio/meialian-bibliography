@@ -130,7 +130,7 @@ namespace Minerva.DataStorage
 
         /// <summary>Get a reference to a field header by index.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ref FieldHeader GetFieldHeader(int index) => ref Fields[index];
+        public ref FieldHeader GetFieldHeader(int index) => ref Unsafe.As<byte, FieldHeader>(ref bytes[ContainerHeader.Size + FieldHeader.Size * index]);
 
         /// <summary>Get UTF-16 field name by index without allocations.</summary>
         public ReadOnlySpan<char> GetFieldName(int index)

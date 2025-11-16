@@ -51,10 +51,7 @@ namespace Minerva.DataStorage
                     if (container.ID != ID.Wild)
                         throw new InvalidOperationException("Container already registered.");
 
-                    container._disposed = false;
-                    ulong id = Next_NoLock();
-                    container._id = id;
-                    _table[id] = container;
+                    Assign_NoLock(container);
                 }
             }
 
@@ -95,7 +92,7 @@ namespace Minerva.DataStorage
                     if (!field.IsRef) continue;
 
                     // This Span<ulong> views the parent's buffer. We only read it, not modify.
-                    var ids = container.GetRefSpan(i1);
+                    var ids = container.GetRefSpan(in field);
                     for (int i = 0; i < ids.Length; i++)
                     {
                         ulong cid = ids[i];
@@ -121,6 +118,25 @@ namespace Minerva.DataStorage
             {
                 if (id == 0UL) return null;
                 lock (_lock) return _table.GetValueOrDefault(id);
+            }
+
+
+            public ContainerReference AssignNewID(Container container)
+            {
+                if (container is null) throw new ArgumentNullException(nameof(container));
+                lock (_lock)
+                {
+                    Assign_NoLock(container);
+                    return container.ID;
+                }
+            }
+
+            private void Assign_NoLock(Container container)
+            {
+                container._disposed = false;
+                ulong id = Next_NoLock();
+                container._id = id;
+                _table[id] = container;
             }
 
             private ulong Next_NoLock()
@@ -240,9 +256,6 @@ namespace Minerva.DataStorage
     /// - Rent(): get an instance (create via factory if empty)
     /// - Return(): give it back (optionally reset, optionally cap size)
     /// - Count: how many are currently cached
-    /// Notes:
-    /// * Not thread-safe by design (keep it simple). Wrap with a lock if needed.
-    /// * LIFO via Stack<T> for better cache locality.
     /// </summary>
     public sealed class ObjectPool<T>
     {

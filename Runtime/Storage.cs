@@ -21,11 +21,13 @@ namespace Minerva.DataStorage
             _root = Container.Registry.Shared.CreateAt(ref _id, rootSchema);
         }
 
-        internal Storage(Container wildContainer)
+        internal Storage(Container container)
         {
-            Container.Registry.Shared.Register(_root);
-            _root = wildContainer;
-            _id = wildContainer.ID;
+            if (container.ID == Container.Registry.ID.Wild)
+                Container.Registry.Shared.Register(container);
+
+            _root = container;
+            _id = container.ID;
         }
 
         ~Storage() { Dispose(false); }
@@ -48,7 +50,5 @@ namespace Minerva.DataStorage
                 _root = null;
             }
         }
-
-
     }
 }

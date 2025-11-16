@@ -1,8 +1,8 @@
 namespace Minerva.DataStorage
 {
-    internal static class StorageFactory
+    internal static class StorageObjectFactory
     {
-        internal static StorageObject Get(ref ContainerReference position, ContainerLayout layout)
+        internal static StorageObject GetOrCreate(this ref ContainerReference position, ContainerLayout layout)
         {
             ref var id = ref position;
             var child = Container.Registry.Shared.GetContainer(id);
@@ -14,7 +14,7 @@ namespace Minerva.DataStorage
             return new StorageObject(child);
         }
 
-        internal static StorageObject GetNoAllocate(ulong position)
+        internal static StorageObject GetNoAllocate(this ContainerReference position)
         {
             var id = position;
             if (id == 0UL) return default;      // null-like
@@ -25,7 +25,7 @@ namespace Minerva.DataStorage
             return new StorageObject(child);
         }
 
-        internal static bool TryGet(ulong position, out StorageObject obj)
+        internal static bool TryGet(this ContainerReference position, out StorageObject obj)
         {
             obj = default;
 

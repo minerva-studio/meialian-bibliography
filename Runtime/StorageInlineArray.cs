@@ -64,10 +64,10 @@ namespace Minerva.DataStorage
 
 
         /// <summary>Get a child as a StorageObject (throws if not found).</summary>
-        public StorageObject Get(int index) => StorageFactory.Get(ref Ids[index], ContainerLayout.Empty);
+        public StorageObject Get(int index) => StorageObjectFactory.GetOrCreate(ref Ids[index], ContainerLayout.Empty);
 
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
-        public bool TryGet(int index, out StorageObject child) => StorageFactory.TryGet(Ids[index], out child);
+        public bool TryGet(int index, out StorageObject child) => StorageObjectFactory.TryGet(Ids[index], out child);
 
 
 
