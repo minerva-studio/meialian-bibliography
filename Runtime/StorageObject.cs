@@ -333,21 +333,21 @@ namespace Minerva.DataStorage
         }
 
         /// <summary>
-        /// Read as a string (UTF-16)
+        /// Read an array from a child field.
         /// </summary>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T[] ReadArray<T>(ReadOnlySpan<char> fieldName) where T : unmanaged => GetObject(fieldName).ReadArray<T>();
 
         /// <summary>
-        /// Read entire container as a string (UTF-16)
+        /// Read entire container as an array of unmanaged type T.
         /// </summary>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T[] ReadArray<T>() where T : unmanaged
         {
-            if (!IsString)
-                throw new InvalidOperationException("This StorageObject does not represent a single string field.");
+            if (!IsArray)
+                throw new InvalidOperationException("This StorageObject does not represent an array.");
 
             return _container.GetFieldData<T>(in _container.GetFieldHeader(0)).ToArray();
         }
