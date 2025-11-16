@@ -454,7 +454,6 @@ You can run them via Unity Test Runner:
 * [ ] Higher-level typed wrapper API (e.g., generated strongly-typed views).
 * [ ] Editor inspectors for debugging storages in the Unity Editor.
 * [ ] Additional backends (e.g., file-based persistence helpers).
-* [ ] Unity ECS compatible
 
 ---
 

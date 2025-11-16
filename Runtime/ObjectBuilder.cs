@@ -324,20 +324,19 @@ namespace Minerva.DataStorage
 
 
 
-        internal void WriteTo(ref byte[] target)
+        internal void WriteTo(ref AllocatedMemory target)
         {
             if (_map.Count == 0)
             {
-                ContainerHeader.WriteEmptyHeader(target, Version);
+                ContainerHeader.WriteEmptyHeader(target.Span, Version);
                 return;
             }
 
             BuildLayout(ref target);
-            ContainerView view = new(target);
 
             // Write Data payloads using ABSOLUTE offsets into full buffer
-            var buf = view.Span;      // whole buffer [0..total)
-            int dataCursor = view.Header.DataOffset;
+            var buf = target.Span;
+            int dataCursor = ContainerHeader.FromSpan(buf).DataOffset; //view.Header.DataOffset;
             for (int i = 0; i < _map.Count; i++)
             {
                 var data = _map.Values[i].Data;
@@ -347,7 +346,7 @@ namespace Minerva.DataStorage
             }
         }
 
-        internal void BuildLayout(ref byte[] target, bool includeData = true)
+        internal void BuildLayout(ref AllocatedMemory target, bool includeData = true)
         {
             int n = _map.Count;
 
@@ -370,15 +369,10 @@ namespace Minerva.DataStorage
             if (includeData) allocSize += totalDataBytes;
 
             // Create buffer/view
-            if (target?.Length < allocSize)
-            {
-                Container.DefaultPool.Return(target);
-                target = null;
-            }
-            target ??= Container.DefaultPool.Rent(allocSize);
-            Array.Fill(target, (byte)0);
-            ContainerHeader.WriteLength(target, dataStart + totalDataBytes);
-            ContainerView view = new(target);
+            target.Expand(allocSize);
+            target.Clear();
+            ContainerHeader.WriteLength(target.Span, dataStart + totalDataBytes);
+            ContainerView view = new(target.Span);
 
             // Header
             ref var h2 = ref view.Header;
@@ -429,16 +423,16 @@ namespace Minerva.DataStorage
 
 
 
-
         /// <summary>
         /// Materialize the container as a compact byte[] with fresh layout.
         /// Order: [ContainerHeader][FieldHeader...][Names][Data].
         /// </summary>
         internal Container BuildContainer()
         {
-            byte[] target = null;
-            WriteTo(ref target);
-            return Container.Registry.Shared.CreateWildWith(target);
+            //byte[] target = null;
+            AllocatedMemory m = default;
+            WriteTo(ref m);
+            return Container.Registry.Shared.CreateWildWith(in m);
         }
 
         /// <summary>
@@ -447,9 +441,9 @@ namespace Minerva.DataStorage
         /// <returns></returns>
         public ContainerLayout BuildLayout()
         {
-            byte[] header = null;
+            AllocatedMemory header = default;
             BuildLayout(ref header, false);
-            return new ContainerLayout(header);
+            return new ContainerLayout(header.Array);
         }
 
         /// <summary>

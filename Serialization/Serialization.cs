@@ -32,7 +32,7 @@ namespace Minerva.DataStorage.Serialization
                     InferField(name, val, b);
                 }
             }
-            b.WriteTo(ref target.Buffer);
+            b.WriteTo(ref target.Memory);
 
             // read child objects
             foreach (var member in obj)

@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace Minerva.DataStorage.Tests
 {
-    [Timeout(15000)] // 15s ���������� CI ����
+    [Timeout(15000)] // 15s 
     [TestFixture]
     public class MemorySafetyTests
     {
@@ -93,7 +93,7 @@ namespace Minerva.DataStorage.Tests
                 root.Write("c", "hello");
 
                 var inner = root.Container;
-                var buf = inner.Buffer;
+                var buf = inner.Memory.Array;
                 uniqueBuffers.Add(buf);
             }
 
@@ -112,7 +112,7 @@ namespace Minerva.DataStorage.Tests
                 root.Write("z", $"k{i}");
 
                 var inner = root.Container;
-                var buf = inner.Buffer;
+                var buf = inner.Memory.Array;
                 uniqueBuffers.Add(buf);
             }
 
@@ -240,7 +240,7 @@ namespace Minerva.DataStorage.Tests
                 root.Write("n", i);
 
                 var inner = root.Container;
-                var buf = inner.Buffer;
+                var buf = inner.Memory.Array;
                 uniqueBuffers.Add(buf);
             }
 
@@ -280,7 +280,7 @@ namespace Minerva.DataStorage.Tests
 
                     if ((i & 31) == 0)
                     {
-                        var buf = root.Buffer;
+                        var buf = root.Memory.Array;
                         localUnique.Add(buf);
                     }
                 }
@@ -320,7 +320,7 @@ namespace Minerva.DataStorage.Tests
                     root.Write("f", i * 0.5f);
                     root.Write("s", "abcdefg");
 
-                    unique.Add(root.Container.Buffer);
+                    unique.Add(root.Container.Memory.Array);
                 }
 
                 uniquePerWindow.Add(unique.Count);
@@ -449,10 +449,9 @@ namespace Minerva.DataStorage.Tests
 
                 // periodically snapshot parent buffer identity
                 if ((i & 31) == 0)
-                    uniqueParent.Add(root.Buffer);
+                    uniqueParent.Add(root.Memory.Array);
             }
 
-            // �������ڡ������ַ������� + ��ֵ��д + �Ӷ���д�롱�²�Ӧ�������� buffer ��������
             Assert.That(uniqueParent.Count, Is.LessThanOrEqualTo(256),
                 $"Unique parent buffers too many: {uniqueParent.Count}");
         }
@@ -532,8 +531,8 @@ namespace Minerva.DataStorage.Tests
             c0.Write("x", 1);
             c1.Write("y", 2);
 
-            var b0 = c0.Buffer;
-            var b1 = c1.Buffer;
+            var b0 = c0.Memory.Array;
+            var b1 = c1.Memory.Array;
 
             Assert.False(ReferenceEquals(b0, b1), "Siblings unexpectedly share the same byte[] buffer while both alive");
         }
@@ -595,7 +594,7 @@ namespace Minerva.DataStorage.Tests
             {
                 // Huge string then tiny string to same field
                 root.Write("S", new string('Y', (i % 2 == 0) ? 64 * 1024 : 1));
-                var buf = root.Buffer;
+                var buf = root.Memory.Array;
                 uniqueParent.Add(buf);
             }
 
@@ -633,10 +632,10 @@ namespace Minerva.DataStorage.Tests
                 // vary keys to force layout work
                 r.Write($"k{round % 5}", round * 7);
 
-                unique.Add(r.Buffer);
-                unique.Add(a.Buffer);
-                unique.Add(b.Buffer);
-                unique.Add(c.Buffer);
+                unique.Add(r.Memory.Array);
+                unique.Add(a.Memory.Array);
+                unique.Add(b.Memory.Array);
+                unique.Add(c.Memory.Array);
             }
 
             SpinGCSoft();
@@ -794,11 +793,10 @@ namespace Minerva.DataStorage.Tests
         }
 
         // ULP/relative tolerant compare for doubles
-        private static void AssertNearlyEqual(double actual, double expected, double relEps, string? message = null)
+        private static void AssertNearlyEqual(double actual, double expected, double relEps, string message = null)
         {
             if (double.IsNaN(expected) || double.IsInfinity(expected))
             {
-                // ���������д�� NaN/Inf�����ڴ˷ſ��Ƚϣ����򰴲�Ӧ���ִ���
                 Assert.Fail("Unexpected NaN/Infinity in expected value");
             }
             double tol = relEps * Math.Max(1.0, Math.Abs(expected));

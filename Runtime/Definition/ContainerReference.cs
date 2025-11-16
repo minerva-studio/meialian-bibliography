@@ -18,7 +18,7 @@ namespace Minerva.DataStorage
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             readonly get => Container.Registry.Shared.GetContainer(id);
-            set => id = value?.ID ?? 0UL;
+            set => id = value?.ID ?? Container.Registry.ID.Empty;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

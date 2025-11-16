@@ -346,6 +346,7 @@ namespace Minerva.DataStorage.Tests
             Assert.AreEqual(9, BitConverter.ToInt32(cv.GetFieldBytes(1)));
 
             // CopyTo
+            Assert.AreEqual(c.Length, c.Memory.Size);
             var dst = new byte[c.Length];
             c.CopyTo(dst);
             var c2 = Container.Registry.Shared.CreateWild(dst.Length);

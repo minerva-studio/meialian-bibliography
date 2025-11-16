@@ -1,6 +1,4 @@
 using System;
-using System.Buffers;
-using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -15,12 +13,10 @@ namespace Minerva.DataStorage
     internal sealed partial class Container : IDisposable
     {
         public const int Version = 0;
-        public static readonly ArrayPool<byte> DefaultPool = ArrayPool<byte>.Create();
 
 
-
-        private ulong _id;              // assigned by registry
-        private byte[] _buffer;         // exact size == _schema.Stride (or Array.Empty for 0)  
+        private ulong _id;              // assigned by registry 
+        private AllocatedMemory _memory;
         private bool _disposed;
         private int _generation;
 
@@ -37,7 +33,7 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                return ref *(ContainerHeader*)Unsafe.AsPointer(ref _buffer[0]);
+                return ref Unsafe.As<byte, ContainerHeader>(ref _memory[0]);
             }
         }
 
@@ -47,7 +43,7 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                return ref *(int*)Unsafe.AsPointer(ref _buffer[0]);
+                return ref Unsafe.As<byte, int>(ref _memory[0]);
             }
         }
 
@@ -57,14 +53,18 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                return *(int*)Unsafe.AsPointer(ref _buffer[ContainerHeader.FieldCountOffset]);
+                return *(int*)Unsafe.AsPointer(ref _memory[ContainerHeader.FieldCountOffset]);
             }
         }
 
-        public ContainerView View => new ContainerView(_buffer);
+        public ContainerView View => new ContainerView(Span);
 
         /// <summary>Logical memory slice [0..length).</summary>
-        public Span<byte> Span => _buffer.AsSpan(0, Length);
+        public Span<byte> Span
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _memory.Span;
+        }
 
         /// <summary>Headers slice [0..DataBase).</summary>
         public Span<byte> HeadersSegment
@@ -73,9 +73,10 @@ namespace Minerva.DataStorage
             get
             {
                 ref var header = ref this.Header;
-                return _buffer.AsSpan(0, header.DataOffset);
+                return _memory.AsSpan(0, header.DataOffset);
             }
         }
+
         /// <summary>Data slice [DataBase..Stride).</summary>
         public Span<byte> DataSegment
         {
@@ -83,7 +84,7 @@ namespace Minerva.DataStorage
             get
             {
                 ref var header = ref this.Header;
-                return _buffer.AsSpan(header.DataOffset, header.Length - header.DataOffset);
+                return _memory.AsSpan(header.DataOffset, header.Length - header.DataOffset);
             }
         }
 
@@ -94,12 +95,11 @@ namespace Minerva.DataStorage
             get
             {
                 ref var header = ref this.Header;
-                return _buffer.AsSpan(header.NameOffset, header.DataOffset - header.NameOffset);
+                return _memory.AsSpan(header.NameOffset, header.DataOffset - header.NameOffset);
             }
         }
 
-
-        public ref byte[] Buffer => ref _buffer;
+        public ref AllocatedMemory Memory => ref _memory;
 
 
 
@@ -124,15 +124,15 @@ namespace Minerva.DataStorage
 
             _generation++;
             _disposed = false;
-            _buffer = DefaultPool.Rent((int)size);
-            ContainerHeader.WriteLength(_buffer, size);
+            _memory = AllocatedMemory.Create(size);
+            ContainerHeader.WriteLength(_memory.Span, size);
         }
 
-        private void Initialize(byte[] buffer)
+        private void Initialize(in AllocatedMemory m)
         {
             _generation++;
             _disposed = false;
-            _buffer = buffer;
+            _memory = m;
         }
 
         public void Dispose()
@@ -141,27 +141,20 @@ namespace Minerva.DataStorage
 
             // set disposed
             _disposed = true;
-
-            // return buffer to pool
-            if (_buffer.Length != 0 && !ReferenceEquals(_buffer, Array.Empty<byte>()))
-            {
-                // Clear only the logical slice (avoid clearing entire array for perf)
-                DefaultPool.Return(_buffer);
-            }
-            _buffer = Array.Empty<byte>();
+            _memory.Dispose();
+            _memory = default;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Container EnsureNotDisposed()
-        {
-            return !_disposed ? this : ThrowHelper.ThrowDisposed();
-        }
+        public Container EnsureNotDisposed() => !_disposed ? this : ThrowHelper.ThrowDisposed<Container>();
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Container EnsureNotDisposed(int generation)
-        {
-            return !_disposed && this._generation == generation ? this : ThrowHelper.ThrowDisposed();
-        }
+        public Container EnsureNotDisposed(int generation) => !_disposed && this._generation == generation ? this : ThrowHelper.ThrowDisposed<Container>();
+
+
+
+
+
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int IndexOf(ReadOnlySpan<char> fieldName)
@@ -249,33 +242,28 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public unsafe ref FieldHeader GetFieldHeader(int index) => ref *(FieldHeader*)Unsafe.AsPointer(ref _buffer[ContainerHeader.Size + index * FieldHeader.Size]);
+        public unsafe ref FieldHeader GetFieldHeader(int index) => ref Unsafe.As<byte, FieldHeader>(ref _memory[ContainerHeader.Size + index * FieldHeader.Size]);
+
+
+
+
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Span<byte> GetFieldData(in FieldHeader header) => _memory.AsSpan(header.DataOffset, header.Length);// MemoryMarshal.CreateSpan(ref _memory[header.DataOffset], header.Length);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public unsafe ref FieldHeader GetFieldHeader_Unsafe(int index)
-        {
-            fixed (byte* ap = _buffer)
-            {
-                ref byte start = ref *ap;
-                ref byte at = ref Unsafe.Add(ref start, ContainerHeader.Size + index * FieldHeader.Size);
-                return ref Unsafe.As<byte, FieldHeader>(ref at);
-            }
-        }
+        public Span<T> GetFieldData<T>(in FieldHeader header) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetFieldData(in header));
 
-
-
-
-
-        public Span<byte> GetFieldData(in FieldHeader header) => MemoryMarshal.CreateSpan(ref _buffer[header.DataOffset], header.Length);
-
-        public Span<T> GetFieldData<T>(in FieldHeader header) where T : unmanaged => MemoryMarshal.Cast<byte, T>(MemoryMarshal.CreateSpan(ref _buffer[header.DataOffset], header.Length));
-
-        public unsafe void* GetFieldData_Unsafe(in FieldHeader header) => Unsafe.AsPointer(ref _buffer[header.DataOffset]);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public unsafe void* GetFieldData_Unsafe(in FieldHeader header) => _memory.GetPointer(header.DataOffset);
 
         /// <summary>Get UTF-16 field name by index without allocations.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlySpan<char> GetFieldName(int index) => GetFieldName(in GetFieldHeader(index));
 
         /// <summary>Get UTF-16 field name by index without allocations.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlySpan<char> GetFieldName(in FieldHeader header) => MemoryMarshal.Cast<byte, char>(Span.Slice(header.NameOffset, header.NameLength * sizeof(char)));
 
 
@@ -505,7 +493,7 @@ namespace Minerva.DataStorage
         public Container Clone()
         {
             EnsureNotDisposed();
-            return Registry.Shared.CreateWild(_buffer);
+            return Registry.Shared.CreateWild(_memory.Span);
         }
 
         public void CopyFrom(Container other)
@@ -574,7 +562,7 @@ namespace Minerva.DataStorage
 
         [DoesNotReturn]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public static Container ThrowDisposed() => throw new ObjectDisposedException(nameof(Container));
+        public static T ThrowDisposed<T>() => throw new ObjectDisposedException(nameof(Container));
 
 
         [DoesNotReturn]

@@ -36,8 +36,9 @@ namespace Minerva.DataStorage
                 return;
 
             // Prepare destination buffer
-            byte[] dstBuf = DefaultPool.Rent(newSchema.TotalLength);
-            var dst = dstBuf.AsSpan();
+            //byte[] dstBuf = DefaultPool.Rent(newSchema.TotalLength);
+            AllocatedMemory dstBuf = AllocatedMemory.Create(newSchema.TotalLength);
+            var dst = dstBuf.Span;
             dst.Clear();
             newSchema.Span.CopyTo(dst);
 
@@ -106,10 +107,9 @@ namespace Minerva.DataStorage
             }
 
             // ---- Swap schema & buffers ----
-            var oldBuf = _buffer;
-            _buffer = dstBuf;
-            if (oldBuf.Length > 0 && !ReferenceEquals(oldBuf, Array.Empty<byte>()))
-                DefaultPool.Return(oldBuf);
+            var oldBuf = _memory;
+            _memory = dstBuf;
+            oldBuf.Dispose();
         }
 
 
@@ -180,13 +180,13 @@ namespace Minerva.DataStorage
                 }
 
                 int newSize = objectBuilder.CountByte();
-                byte[] newBuffer = DefaultPool.Rent(newSize);
+                AllocatedMemory newBuffer = AllocatedMemory.Create(newSize);
                 objectBuilder.WriteTo(ref newBuffer);
 
                 // switch buffer now
-                var oldBuffer = this._buffer;
-                this._buffer = newBuffer;
-                DefaultPool.Return(oldBuffer);
+                var oldBuffer = this._memory;
+                this._memory = newBuffer;
+                oldBuffer.Dispose();
 
                 return IndexOf(tempName.Span);
             }

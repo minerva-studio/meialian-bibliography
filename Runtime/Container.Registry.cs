@@ -165,7 +165,7 @@ namespace Minerva.DataStorage
             /// <param name="position"></param>
             /// <param name="schema"></param>
             /// <exception cref="ArgumentNullException"></exception>
-            public Container CreateWildWith(byte[] data)
+            public Container CreateWildWith(in AllocatedMemory data)
             {
                 var container = pool.Rent();
                 container.Initialize(data);

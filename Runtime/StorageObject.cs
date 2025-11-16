@@ -17,28 +17,56 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Object ID   
         /// </summary>
-        public ulong ID => _container?.ID ?? 0;
+        public ulong ID
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _container?.ID ?? Container.Registry.ID.Empty;
+        }
 
         /// <summary>
         /// Is object null
         /// </summary>
-        public bool IsNull => _container == null || _container.ID == 0;
+        public bool IsNull
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _container == null || _container.ID == Container.Registry.ID.Empty;
+        }
 
         /// <summary>
         /// True if this StorageObject represents a single string field, then this container is really just a string.
         /// </summary>
-        public bool IsString => IsArray && _container.GetFieldHeader(0).Type == ValueType.Char16;
+        public bool IsString
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => IsArray && _container.GetFieldHeader(0).Type == ValueType.Char16;
+        }
 
         /// <summary>
         /// Is an array object
         /// </summary>
-        public bool IsArray => _container.FieldCount == 1 && _container.GetFieldHeader(0).IsInlineArray;
+        public bool IsArray
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _container.FieldCount == 1 && _container.GetFieldHeader(0).IsInlineArray;
+        }
 
-        public int FieldCount => _container.FieldCount;
+        public int FieldCount
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _container.FieldCount;
+        }
 
-        internal ref byte[] Buffer => ref _container.Buffer;
+        internal readonly ref AllocatedMemory Memory
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => ref _container.Memory;
+        }
 
         internal Container Container => _container;
+
+
+
+
 
         internal StorageObject(Container container)
         {
