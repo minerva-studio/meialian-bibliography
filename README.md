@@ -211,6 +211,29 @@ player.Write<int>("hp", 42);
 // Read it back
 int score = root.Read<int>("score");
 int level = player.Read<int>("level");
+
+// Path-based navigation from the root (dot-separated)
+root.WriteByPath("persistent.entity.mamaRhombear.killed", 1);
+int killed = root.ReadByPath<int>("persistent.entity.mamaRhombear.killed");
+
+// You can think of this as roughly equivalent to:
+// root.GetObject("persistent").GetObject("entity").GetObject("mamaRhombear").Write("killed", 1);
+
+// Strings and arrays via path
+root.WriteByPath("strings.greeting", "Hello");
+string greeting = root.ReadStringByPath("strings.greeting");
+
+root.WriteArrayByPath("stats.speeds", new[] { 1.0f, 2.5f, 3.75f });
+float[] speeds = root.ReadArrayByPath<float>("stats.speeds");
+```
+
+Path segments are separated by `.` by default.  
+Advanced usage can override the separator via the span-based overloads, e.g.:
+
+```csharp
+// Use '/' as separator instead of '.'
+root.WriteByPath("persistent/entity/mamaRhombear/killed".AsSpan(), 1, separator: '/');
+int killed2 = root.ReadByPath<int>("persistent/entity/mamaRhombear/killed".AsSpan(), separator: '/');
 ```
 
 From user code, you only deal with:
@@ -280,7 +303,10 @@ The adapter:
     * `Write<T>(string fieldName, T value)`
     * `Read<T>(string fieldName)`
     * `ReadOrDefault<T>(string fieldName)`
-    * `WriteString`, `ReadString`, `GetObject`, `GetField`, etc.
+    * `WriteByPath<T>(string path, T value)`, `ReadByPath<T>(string path)`
+    * `WriteByPath(string path, string value)`, `ReadStringByPath(string path)`
+    * `WriteArrayByPath<T>(string path, T[] value)`, `ReadArrayByPath<T>(string path)`
+    * `GetObject`, `GetObjectByPath`, `GetField`, etc.
   * Uses an internal generation number to detect stale handles (e.g., after migration).
 
 From a consumer perspective, you generally never touch the underlying container type directly; you only keep `Storage` instances and the `StorageObject`/array views they hand out.
@@ -448,7 +474,7 @@ You can run them via Unity Test Runner:
 
 ## Roadmap / TODO
 
-* [ ] Path for locating a field/object from the root/any position of the storage
+* [x] Path for locating a field/object from the root/any position of the storage
 * [ ] Listen for read/write event for any field within the storage
 * [ ] Support for any random unmanaged struct type.
 * [ ] Higher-level typed wrapper API (e.g., generated strongly-typed views).
