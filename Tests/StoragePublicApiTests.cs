@@ -631,6 +631,154 @@ namespace Minerva.DataStorage.Tests
             Assert.That(root.ReadByPath<float>("types.float"), Is.EqualTo(3.14f));
             Assert.That(root.ReadByPath<double>("types.double"), Is.EqualTo(2.71828));
         }
+
+        [Test]
+        public void Storage_FieldWrite_Subscription_Fires_On_Write()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            int invoked = 0;
+
+            using var subscription = root.SubscribeToField("score", (in StorageFieldWriteEventArgs args) =>
+            {
+                invoked++;
+                Assert.That(args.FieldName, Is.EqualTo("score"));
+                Assert.That(args.FieldType, Is.EqualTo(ValueType.Int32));
+                Assert.That(args.Target.Read<int>("score"), Is.EqualTo(123));
+            });
+
+            root.Write("score", 123);
+            Assert.That(invoked, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_FieldWrite_Subscription_Unsubscribes()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            int invoked = 0;
+
+            var subscription = root.SubscribeToField("hp", (in StorageFieldWriteEventArgs _) => invoked++);
+
+            root.Write("hp", 10);
+            Assert.That(invoked, Is.EqualTo(1));
+
+            subscription.Dispose();
+            root.Write("hp", 20);
+            Assert.That(invoked, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_FieldWrite_Subscription_ByPath_Creates_Path()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            int invoked = 0;
+
+            using var subscription = root.SubscribeToFieldByPath("player.stats.hp", (in StorageFieldWriteEventArgs args) =>
+            {
+                invoked++;
+                Assert.That(args.FieldName, Is.EqualTo("hp"));
+                Assert.That(args.Target.Read<int>("hp"), Is.EqualTo(77));
+            });
+
+            root.WriteByPath("player.stats.hp", 77);
+            Assert.That(invoked, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_FieldWrite_Subscription_TryWriteFailure_DoesNotNotify()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write<byte>("small", 1);
+            int invoked = 0;
+
+            using var subscription = root.SubscribeToField("small", (in StorageFieldWriteEventArgs _) => invoked++);
+
+            root.TryWrite<int>("small", 99, allowRescheme: false);
+            Assert.That(invoked, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void Storage_FieldWrite_Subscription_MultipleHandlers_AllInvoked()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            int a = 0;
+            int b = 0;
+
+            using var subA = root.SubscribeToField("score", (in StorageFieldWriteEventArgs _) => a++);
+            using var subB = root.SubscribeToField("score", (in StorageFieldWriteEventArgs _) => b++);
+
+            root.Write("score", 10);
+
+            Assert.That(a, Is.EqualTo(1));
+            Assert.That(b, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_FieldWrite_Subscription_String_And_Array_Writes_Notify()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            int stringInvoked = 0;
+            using var stringSub = root.SubscribeToField("playerName", (in StorageFieldWriteEventArgs args) =>
+            {
+                stringInvoked++;
+                Assert.That(args.Target.ReadString(args.FieldName), Is.EqualTo("Hero"));
+            });
+
+            int arrayInvoked = 0;
+            using var arraySub = root.SubscribeToFieldByPath("stats.speeds", (in StorageFieldWriteEventArgs args) =>
+            {
+                arrayInvoked++;
+                CollectionAssert.AreEqual(new[] { 1.0f, 2.5f }, args.Target.ReadArray<float>(args.FieldName));
+            });
+
+            root.Write("playerName", "Hero");
+            root.WriteArrayByPath("stats.speeds", new[] { 1.0f, 2.5f });
+
+            Assert.That(stringInvoked, Is.EqualTo(1));
+            Assert.That(arrayInvoked, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_FieldWrite_Subscription_OnChildObject()
+        {
+            using var storage = new Storage(_rootLayout);
+            var root = storage.Root;
+            var child = root.GetObject("child", layout: _leafLayout);
+            int invoked = 0;
+
+            using var sub = child.SubscribeToField("hp", (in StorageFieldWriteEventArgs args) =>
+            {
+                invoked++;
+                Assert.That(args.Target.ID, Is.EqualTo(child.ID));
+                Assert.That(args.Target.Read<int>("hp"), Is.EqualTo(55));
+            });
+
+            child.Write("hp", 55);
+            Assert.That(invoked, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_FieldWrite_Subscription_ByPath_NoCreateRequiresExisting()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            Assert.Throws<ArgumentException>(() =>
+                root.SubscribeToFieldByPath("missing.value", (in StorageFieldWriteEventArgs _) => { }, createIfMissing: false));
+
+            root.WriteByPath("existing.value", 1);
+            int invoked = 0;
+            using var sub = root.SubscribeToFieldByPath("existing.value", (in StorageFieldWriteEventArgs _) => invoked++, createIfMissing: false);
+
+            root.WriteByPath("existing.value", 2);
+            Assert.That(invoked, Is.EqualTo(1));
+        }
     }
 
     public static class StorageApiTestExt

@@ -99,6 +99,10 @@ Use it when you need a **small in-memory “database” for game stats / scorebo
   - `StorageAdapter` integrates with `Unity.Serialization.Json`.
   - Supports round-tripping `Storage` to/from JSON for saves, debugging, or tools.
   - Basic “self-heal” behavior when JSON shape drifts from the current schema.
+- **Field write subscriptions**
+  - Register callbacks for specific fields or paths.
+  - Observe when hot stats change without polling your data tree.
+  - Unsubscribe via the returned `IDisposable` when no longer needed.
 
 - **Tested & benchmarked**
   - NUnit tests cover memory safety, public API semantics, and migration.
@@ -270,6 +274,38 @@ string json = JsonSerialization.ToJson(storage, parameters);
 // Deserialize
 Storage loaded = JsonSerialization.FromJson<Storage>(json, parameters);
 StorageObject loadedRoot = loaded.Root;
+```
+
+---
+
+### 4. Subscribe to field write events
+
+Hook into individual fields to react when critical stats change without scanning the storage:
+
+```csharp
+using Minerva.DataStorage;
+
+using var storage = new Storage();
+var root = storage.Root;
+
+using var subscription = root.SubscribeToField("score", (in StorageFieldWriteEventArgs args) =>
+{
+    int score = args.Target.Read<int>(args.FieldName);
+    UnityEngine.Debug.Log($"Score updated to {score}");
+});
+
+root.Write("score", 42);
+// handler fires once, then you can dispose the subscription when done
+```
+
+Need to watch a nested field? Use path-based subscriptions:
+
+```csharp
+using var sub = root.SubscribeToFieldByPath("player.stats.hp", args =>
+{
+    var hp = args.Target.Read<int>("hp");
+    OnHpChanged(hp);
+});
 ```
 
 The adapter:
@@ -475,7 +511,7 @@ You can run them via Unity Test Runner:
 ## Roadmap / TODO
 
 * [x] Path for locating a field/object from the root/any position of the storage
-* [ ] Listen for read/write event for any field within the storage
+* [x] Subscribe to write events for specific designated fields within the storage
 * [ ] Support for any random unmanaged struct type.
 * [ ] Higher-level typed wrapper API (e.g., generated strongly-typed views).
 * [ ] Editor inspectors for debugging storages in the Unity Editor.

@@ -113,7 +113,11 @@ namespace Minerva.DataStorage
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(string fieldName, T value) where T : unmanaged
-            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, true), value, true);
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            container.Write_Internal(ref container.GetFieldHeader<T>(fieldName, true), value, true);
+            NotifyFieldWrite(container, fieldName);
+        }
 
         /// <summary>
         /// Write a value to an existing field without rescheming, if the field does not exist, an exception is thrown.
@@ -123,20 +127,32 @@ namespace Minerva.DataStorage
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
-            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            container.Write_Internal(ref container.GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
+            NotifyFieldWrite(container, fieldName);
+        }
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
         /// </summary>   
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(int index, T value) where T : unmanaged
-            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader(index), value, true);
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            container.Write_Internal(ref container.GetFieldHeader(index), value, true);
+            NotifyFieldWrite(container, index);
+        }
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
         /// </summary>   
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(int index, T value, bool allowResize = true) where T : unmanaged
-            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader(index), value, allowResize);
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            container.Write_Internal(ref container.GetFieldHeader(index), value, allowResize);
+            NotifyFieldWrite(container, index);
+        }
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
@@ -146,7 +162,13 @@ namespace Minerva.DataStorage
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void TryWrite<T>(string fieldName, T value) where T : unmanaged
-            => _container.TryWrite_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, true), value, true);
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            if (container.TryWrite_Internal(ref container.GetFieldHeader<T>(fieldName, true), value, true) == 0)
+            {
+                NotifyFieldWrite(container, fieldName);
+            }
+        }
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
@@ -156,8 +178,48 @@ namespace Minerva.DataStorage
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void TryWrite<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
-            => _container.TryWrite_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            if (container.TryWrite_Internal(ref container.GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme) == 0)
+            {
+                NotifyFieldWrite(container, fieldName);
+            }
+        }
 
+
+        /// <summary>
+        /// Subscribe to write notifications for a specific field on this object.
+        /// </summary>
+        /// <param name="fieldName">Name of the field to observe.</param>
+        /// <param name="handler">Callback invoked after the field is written.</param>
+        /// <returns>An IDisposable subscription handle.</returns>
+        public StorageWriteSubscription SubscribeToField(string fieldName, StorageFieldWriteHandler handler)
+        {
+            if (fieldName == null) throw new ArgumentNullException(nameof(fieldName));
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            var container = _container.EnsureNotDisposed(_generation);
+            return StorageWriteEventRegistry.Subscribe(container, fieldName, handler);
+        }
+
+        /// <summary>
+        /// Subscribe to write notifications for a field located by a path relative to this object.
+        /// </summary>
+        /// <param name="path">Dot-separated path to the field.</param>
+        /// <param name="handler">Callback invoked after the field is written.</param>
+        /// <param name="createIfMissing">Create intermediate objects if they do not exist.</param>
+        /// <param name="separator">Path separator character.</param>
+        /// <returns>An IDisposable subscription handle.</returns>
+        public StorageWriteSubscription SubscribeToFieldByPath(string path, StorageFieldWriteHandler handler, bool createIfMissing = true, char separator = DefaultPathSeparator)
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+
+            var container = NavigateToContainer(path.AsSpan(), separator, createIfMissing, out var fieldSegment);
+            if (fieldSegment.Length == 0)
+                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+
+            return StorageWriteEventRegistry.Subscribe(container._container, fieldSegment.ToString(), handler);
+        }
 
 
 
@@ -534,6 +596,33 @@ namespace Minerva.DataStorage
         }
 
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void NotifyFieldWrite(Container container, string fieldName)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+            var type = container.GetFieldHeader(fieldName).Type;
+            StorageWriteEventRegistry.Notify(container, fieldName, type);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void NotifyFieldWrite(Container container, int fieldIndex)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+            ref var header = ref container.GetFieldHeader(fieldIndex);
+            var fieldName = container.GetFieldName(in header).ToString();
+            StorageWriteEventRegistry.Notify(container, fieldName, header.Type);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+            NotifyFieldWrite(container, fieldName.ToString());
+        }
+
 
 
         /// <summary>
@@ -572,10 +661,20 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteString(int index, ReadOnlySpan<char> value) => GetObject(index).WriteArray(value);
+        public void WriteString(int index, ReadOnlySpan<char> value)
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            GetObject(index).WriteArray(value);
+            NotifyFieldWrite(container, index);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteString(string fieldName, ReadOnlySpan<char> value) => GetObject(fieldName).WriteArray(value);
+        public void WriteString(string fieldName, ReadOnlySpan<char> value)
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            GetObject(fieldName).WriteArray(value);
+            NotifyFieldWrite(container, fieldName);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteString(ReadOnlySpan<char> value) => WriteArray(value);
@@ -611,7 +710,12 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteArray<T>(ReadOnlySpan<char> fieldName, ReadOnlySpan<T> value) where T : unmanaged => GetObject(fieldName).WriteArray(value);
+        public void WriteArray<T>(ReadOnlySpan<char> fieldName, ReadOnlySpan<T> value) where T : unmanaged
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            GetObject(fieldName).WriteArray(value);
+            NotifyFieldWrite(container, fieldName);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteArray<T>(ReadOnlySpan<T> value) where T : unmanaged
