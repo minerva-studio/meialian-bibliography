@@ -155,7 +155,6 @@ namespace Minerva.DataStorage
 
 
 
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int IndexOf(ReadOnlySpan<char> fieldName)
         {

@@ -1,6 +1,7 @@
-using System;
 using Minerva.DataStorage.Serialization;
 using NUnit.Framework;
+using System;
+using System.Runtime.InteropServices;
 
 namespace Minerva.DataStorage.Tests
 {
@@ -494,6 +495,194 @@ namespace Minerva.DataStorage.Tests
             var parsed = JsonSerialization.Parse(json);
             Assert.AreEqual(10, parsed.Root.Read<int>("Health"));
             parsed.Dispose();
+        }
+
+
+
+
+        /// <summary>
+        /// Simple custom struct that should be stored as a blob (ValueType.Blob).
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TestBlob
+        {
+            public int A;
+            public float B;
+            public long C;
+        }
+
+        /// <summary>
+        /// Round-trip a single custom struct field through Storage.ToJson + JsonSerialization.Parse.
+        /// Verifies that blob-backed fields preserve their raw bytes and can be re-hydrated as T.
+        /// </summary>
+        [Test]
+        public void RoundTrip_CustomStructBlob_SingleField()
+        {
+            var original = new TestBlob
+            {
+                A = 123,
+                B = 4.5f,
+                C = -9876543210L
+            };
+
+            var storage = new Storage();
+            var root = storage.Root;
+
+            // Write custom struct -> should be stored as a blob under the hood.
+            root.Write("BlobField", original);
+
+            var json = storage.ToJson().ToString();
+            Log(json);
+
+            storage.Dispose();
+
+            // Parse JSON back into a new Storage tree.
+            var deserialized = JsonSerialization.Parse(json);
+            var root2 = deserialized.Root;
+
+            var roundTripped = root2.Read<TestBlob>("BlobField");
+
+            Assert.AreEqual(original.A, roundTripped.A, "Field A mismatch after blob round-trip.");
+            Assert.AreEqual(original.B, roundTripped.B, "Field B mismatch after blob round-trip.");
+            Assert.AreEqual(original.C, roundTripped.C, "Field C mismatch after blob round-trip.");
+
+            deserialized.Dispose();
+        }
+        /// <summary>
+        /// Round-trip an inline array of custom structs via WriteArray + ReadArray.
+        /// Each element should be serialized as a blob element and restored bit-exact.
+        /// </summary>
+        [Test]
+        public void RoundTrip_CustomStructBlob_InlineArray()
+        {
+            var blobs = new[]
+            {
+                new TestBlob { A = 1, B = 1.5f, C = 10 },
+                new TestBlob { A = 2, B = -3.25f, C = -20 },
+                new TestBlob { A = 3, B = 100.0f, C = 9999999L }
+            };
+
+            var storage = new Storage();
+            var root = storage.Root;
+
+            // Use the same pattern as the integer array test:
+            // child container backing an inline array.
+            root.WriteArray<TestBlob>("Blobs", blobs);
+
+            var json = storage.ToJson().ToString();
+            Log(json);
+
+            storage.Dispose();
+
+            var deserialized = JsonSerialization.Parse(json);
+            var root2 = deserialized.Root;
+
+            var blobs2 = root2.ReadArray<TestBlob>("Blobs".AsSpan());
+
+            Assert.AreEqual(blobs.Length, blobs2.Length, "Blob array length mismatch.");
+            for (int i = 0; i < blobs.Length; i++)
+            {
+                Assert.AreEqual(blobs[i].A, blobs2[i].A, $"Blob[{i}].A mismatch.");
+                Assert.AreEqual(blobs[i].B, blobs2[i].B, $"Blob[{i}].B mismatch.");
+                Assert.AreEqual(blobs[i].C, blobs2[i].C, $"Blob[{i}].C mismatch.");
+            }
+
+            deserialized.Dispose();
+        }
+        /// <summary>
+        /// Round-trip a custom struct stored inside a child object:
+        /// Root -> "Node" (object) -> "State" (blob-backed custom struct).
+        /// Ensures recursion + blob are both handled correctly.
+        /// </summary>
+        [Test]
+        public void RoundTrip_CustomStructBlob_NestedInChildObject()
+        {
+            var state = new TestBlob
+            {
+                A = 42,
+                B = 0.75f,
+                C = 123456789L
+            };
+
+            var storage = new Storage();
+            var root = storage.Root;
+
+            var node = root.GetObject("Node");
+            node.Write("State", state);
+
+            var json = storage.ToJson().ToString();
+            Log(json);
+
+            storage.Dispose();
+
+            var deserialized = JsonSerialization.Parse(json);
+            var root2 = deserialized.Root;
+
+            var node2 = root2.GetObject("Node");
+            var state2 = node2.Read<TestBlob>("State");
+
+            Assert.AreEqual(state.A, state2.A, "Nested blob field A mismatch.");
+            Assert.AreEqual(state.B, state2.B, "Nested blob field B mismatch.");
+            Assert.AreEqual(state.C, state2.C, "Nested blob field C mismatch.");
+
+            deserialized.Dispose();
+        }
+
+        /// <summary>
+        /// Corrupted blob payload (e.g., invalid base64 for a blob field) should
+        /// raise a controlled exception during parse and must not leave global
+        /// state or the registry in a broken state.
+        /// </summary>
+        [Test]
+        public void Parse_CorruptedBlobPayload_ShouldThrow_AndNotBreakLaterParses()
+        {
+            // Build a valid blob first.
+            var storage = new Storage();
+            var root = storage.Root;
+
+            var blob = new TestBlob { A = 7, B = -1.25f, C = 123 };
+            root.Write("BlobField", blob);
+
+            var json = storage.ToJson().ToString();
+            storage.Dispose();
+
+            // Locate the JSON string value of "BlobField" and inject an invalid
+            // character into the base64 payload to guarantee corruption.
+            const string blobMarker = "\"$blob\":\"";
+            int markerIndex = json.IndexOf(blobMarker, StringComparison.Ordinal);
+            Assert.GreaterOrEqual(markerIndex, 0, "Blob marker not found.");
+
+            int valueStart = markerIndex + blobMarker.Length;
+            int valueEnd = json.IndexOf('"', valueStart);
+            Assert.Greater(valueEnd, valueStart, "Closing quote for $blob value not found.");
+
+            string originalBase64 = json.Substring(valueStart, valueEnd - valueStart);
+            string corruptedBase64 = originalBase64 + "!";
+
+            string corruptedJson =
+                json.Substring(0, valueStart) +
+                corruptedBase64 +
+                json.Substring(valueEnd);
+
+            // Parse must throw (invalid base64 inside a blob field).
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                Log(corruptedJson);
+                var s = JsonSerialization.Parse(corruptedJson);
+                Log(s.ToJson().ToString());
+                s.Dispose();
+            });
+
+            // After the failure, a clean round-trip must still work.
+            var storage2 = new Storage();
+            var root2 = storage2.Root;
+            root2.Write("Health", 10);
+            var json2 = storage2.ToJson().ToString();
+            storage2.Dispose();
+
+            var parsed2 = JsonSerialization.Parse(json2);
+            Assert.AreEqual(10, parsed2.Root.Read<int>("Health"));
+            parsed2.Dispose();
         }
 
 

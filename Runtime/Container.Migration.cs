@@ -123,7 +123,7 @@ namespace Minerva.DataStorage
         /// <param name="type"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeForObject(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) => ReschemeForField_Internal(fieldName, ValueType.Ref, inlineArrayLength);
+        public int ReschemeForObject(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) => ReschemeFor(fieldName, ValueType.Ref, inlineArrayLength);
 
         /// <summary>
         /// Rescheme to add a new field of type T with given fieldName.
@@ -133,16 +133,20 @@ namespace Minerva.DataStorage
         /// <param name="type"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
+        public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeFor(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
 
-        private int ReschemeForField_Internal(ReadOnlySpan<char> fieldName, ValueType valueType, int? inlineArrayLength = null)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int ReschemeFor(ReadOnlySpan<char> fieldName, ValueType valueType, int? inlineArrayLength = null) => ReschemeFor(fieldName, valueType, SizeOf(valueType), inlineArrayLength);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int ReschemeFor(ReadOnlySpan<char> fieldName, ValueType valueType, int elementSize, int? inlineArrayLength)
         {
             int index = IndexOf(fieldName);
+            int elementCount = inlineArrayLength ?? 1;
+
             bool isNewField = index < 0;
             int targetIndex = isNewField ? ~index : index;
             var existedHeader = isNewField ? default : GetFieldHeader(index);
-            int elementCount = inlineArrayLength ?? 1;
-            int elementSize = SizeOf(valueType);
             int newDataLength = elementSize * elementCount;
             ref var currentHeader = ref Header;
             int newLength = isNewField
@@ -150,6 +154,11 @@ namespace Minerva.DataStorage
                 ? currentHeader.Length + FieldHeader.Size + fieldName.Length * sizeof(char) + newDataLength
                 // already exist, then no header size change, no name change, only data size change
                 : currentHeader.Length - existedHeader.Length + newDataLength;
+            FieldType newFieldType = new(valueType, inlineArrayLength.HasValue);
+
+            // no rescheme needed (exist, same type, same inline length)
+            if (!isNewField && existedHeader.FieldType == newFieldType && existedHeader.ElementCount == elementCount)
+                return index;
 
             AllocatedMemory next = AllocatedMemory.Create(newLength);
             AllocatedMemory curr = _memory;
@@ -176,7 +185,7 @@ namespace Minerva.DataStorage
                         f.NameLength = (short)fieldName.Length;
                         f.Length = newDataLength;
                         f.ElemSize = (short)elementSize;
-                        f.FieldType = new FieldType(valueType, inlineArrayLength.HasValue);
+                        f.FieldType = newFieldType;
                         f.NameOffset = nameOffset;
                         f.DataOffset = dataOffset;
                         // name
@@ -211,8 +220,6 @@ namespace Minerva.DataStorage
             }
             return targetIndex;
         }
-
-
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         [Obsolete]

@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -10,6 +11,8 @@ namespace Minerva.DataStorage.Serialization
 {
     public static class JsonSerialization
     {
+        private const string BlobName = "$blob";
+
         public static ReadOnlySpan<char> ToJson(this Storage storage)
         {
             var writer = new ArrayBufferWriter<char>();
@@ -76,11 +79,7 @@ namespace Minerva.DataStorage.Serialization
             if (field.Type == ValueType.Blob)
             {
                 var span = storage.Container.GetFieldData(in field);
-                string base64 = Convert.ToBase64String(span.ToArray());
-                writer.Write("\"");
-                writer.Write(base64);
-                writer.Write("\"");
-                return;
+                WriteBlob(span, writer); return;
             }
 
             // --- case: ref ------------------------------------------------------
@@ -132,7 +131,7 @@ namespace Minerva.DataStorage.Serialization
 
             if (span.Length > 0)
             {
-                int elemSize = TypeUtil.SizeOf(field.Type);
+                int elemSize = field.ElemSize;
                 if (elemSize <= 0 || span.Length % elemSize != 0)
                     throw new InvalidOperationException(
                         $"Invalid element size for {field.Type}, span length = {span.Length}, elemSize = {elemSize}");
@@ -216,7 +215,11 @@ namespace Minerva.DataStorage.Serialization
                         writer.Write(v.ToString("R", CultureInfo.InvariantCulture));
                         break;
                     }
-
+                case ValueType.Blob:
+                    {
+                        WriteBlob(span, writer);
+                        break;
+                    }
                 case ValueType.Char16:
                     writer.Write("\"\"");
                     break;
@@ -227,6 +230,20 @@ namespace Minerva.DataStorage.Serialization
                     break;
             }
         }
+
+        private static void WriteBlob(ReadOnlySpan<byte> span, IBufferWriter<char> writer)
+        {
+            string base64 = Convert.ToBase64String(span.ToArray());
+            writer.Write("{");
+            writer.Write("\"");
+            writer.Write(BlobName);
+            writer.Write("\"");
+            writer.Write(":\"");
+            writer.Write(base64);
+            writer.Write("\"}");
+        }
+
+
 
 
 
@@ -312,8 +329,6 @@ namespace Minerva.DataStorage.Serialization
                 public static implicit operator ElementValue(bool value) => new ElementValue() { type = ValueType.Bool, b = value };
             }
 
-
-
             private readonly ReadOnlySpan<char> _text;
             private readonly int _maxDepth;
             private int _pos;
@@ -398,8 +413,16 @@ namespace Minerva.DataStorage.Serialization
                 {
                     case '{':
                         {
-                            var child = target.GetObject(name);
-                            ReadObject(child, depth - 1);
+                            if (TryReadBlob(out var b64, name))
+                            {
+                                var bytes = Convert.FromBase64CharArray(b64.ToArray(), 0, b64.Length);
+                                target.Override(name, bytes, ValueType.Blob);
+                            }
+                            else
+                            {
+                                var child = target.GetObject(name);
+                                ReadObject(child, depth - 1);
+                            }
                             return;
                         }
                     case '[':
@@ -482,6 +505,7 @@ namespace Minerva.DataStorage.Serialization
                 ValueType arrayType = 0;
                 var scalarValues = new List<ElementValue>();
                 var containers = new List<Container>();
+                var blobs = new List<byte[]>();
                 try
                 {
                     while (true)
@@ -522,11 +546,20 @@ namespace Minerva.DataStorage.Serialization
                         }
                         else if (c == '{')
                         {
-                            SetValueType(ValueType.Ref);
-                            var wildContainer = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
-                            var childObject = new StorageObject(wildContainer);
-                            ReadObject(childObject, depth - 1);
-                            containers.Add(wildContainer);
+                            if (TryReadBlob(out var b64, name))
+                            {
+                                SetValueType(ValueType.Blob);
+                                var bytes = Convert.FromBase64CharArray(b64.ToArray(), 0, b64.Length);
+                                blobs.Add(bytes);
+                            }
+                            else
+                            {
+                                SetValueType(ValueType.Ref);
+                                var wildContainer = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+                                var childObject = new StorageObject(wildContainer);
+                                ReadObject(childObject, depth - 1);
+                                containers.Add(wildContainer);
+                            }
                         }
                         else if (c == '"')
                         {
@@ -569,10 +602,9 @@ namespace Minerva.DataStorage.Serialization
                         {
                             if (arrayType != 0 && arrayType != v)
                             {
-                                if ((arrayType == ValueType.Ref) == (v == ValueType.Ref)) ;
-                                else
-                                    throw new InvalidOperationException(
-                                        $"Mixed or unsupported element types in array for field '{name}'.");
+                                // as long as not 
+                                if (arrayType == ValueType.Blob || v == ValueType.Blob) throw new InvalidOperationException($"Mixed or unsupported element types in array for field '{name}'.");
+                                if ((arrayType == ValueType.Ref) != (v == ValueType.Ref)) throw new InvalidOperationException($"Mixed or unsupported element types in array for field '{name}'.");
                             }
                             // always max
                             arrayType = v > arrayType ? v : arrayType;
@@ -600,9 +632,19 @@ namespace Minerva.DataStorage.Serialization
                         }
                         return;
                     }
+                    if (arrayType == ValueType.Blob)
+                    {
+                        arrayObject.MakeArray(ValueType.Blob, blobs.Count, blobs[0].Length);
+                        var arrayView = arrayObject.AsArray();
+                        for (int i = 0; i < blobs.Count; i++)
+                        {
+                            blobs[i].CopyTo(arrayView[i].Bytes);
+                        }
+                        return;
+                    }
                     if (arrayType == ValueType.Ref)
                     {
-                        arrayObject.MakeArray(arrayType, containers.Count);
+                        arrayObject.MakeArray(ValueType.Ref, containers.Count);
                         var arrayView = arrayObject.AsArray();
                         for (int i = 0; i < containers.Count; i++)
                         {
@@ -643,6 +685,13 @@ namespace Minerva.DataStorage.Serialization
             }
 
             private readonly char Peek() => _pos < _text.Length ? _text[_pos] : '\0';
+            private char Next() => _text[_pos++];
+            private char NextToken()
+            {
+                Next();
+                SkipWhitespace();
+                return Peek();
+            }
 
             private void Expect(char ch)
             {
@@ -653,7 +702,57 @@ namespace Minerva.DataStorage.Serialization
                 _pos++;
             }
 
+            private bool TryReadBlob(out ReadOnlySpan<char> base64, string fieldName)
+            {
+                int start = _pos;
+                base64 = default;
+                SkipWhitespace();
+                if (Peek() != '{')
+                    goto failed;
+                if (NextToken() != '"')
+                    goto failed;
+                _pos++;
+                for (int i = 0; i < BlobName.Length; i++)
+                {
+                    if (Peek() != BlobName[i])
+                        goto failed;
 
+                    _pos++;
+                }
+                if (Peek() != '"')
+                    goto failed;
+
+                // throw after this
+                if (NextToken() != ':')
+                    goto throwException;
+                if (NextToken() != '"')
+                    goto throwException;
+                _pos++; // skip opening quote
+                int dataStart = _pos;
+                while (_pos < _text.Length)
+                {
+                    char c = _text[_pos++];
+                    // terminate
+                    if (c == '"')
+                    {
+                        int length = _pos - dataStart - 1;
+                        SkipWhitespace();
+                        char n = Peek();
+                        if (n != '}')
+                            goto throwException;
+                        _pos++;
+                        base64 = _text.Slice(dataStart, length);
+                        return true;
+                    }
+                    if (!IsBase64Char(c))
+                        goto throwException;
+                }
+            failed:
+                _pos = start;
+                return false;
+            throwException:
+                throw new InvalidOperationException($"Unexpected blob data while reading value for blob {fieldName}.");
+            }
 
             private string ReadString()
             {
@@ -825,6 +924,18 @@ namespace Minerva.DataStorage.Serialization
                     else throw new InvalidOperationException("Invalid hex digit in Unicode escape.");
                 }
                 return value;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            private static bool IsBase64Char(char c)
+            {
+                if (c >= 'A' && c <= 'Z') return true;
+                if (c >= 'a' && c <= 'z') return true;
+                if (c >= '0' && c <= '9') return true;
+                if (c == '+' || c == '/') return true;
+                if (c == '=') return true; // padding
+
+                return false;
             }
         }
     }

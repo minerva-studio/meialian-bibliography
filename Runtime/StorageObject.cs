@@ -193,6 +193,38 @@ namespace Minerva.DataStorage
 
 
 
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Override<T>(string fieldName, T value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref value, 1)), TypeUtil.PrimOf<T>());
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Override<T>(string fieldName, ReadOnlySpan<T> value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(value), TypeUtil.PrimOf<T>(), value.Length);
+
+        /// <summary>
+        /// Override existing data with given bytes
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <param name="value"></param>
+        /// <param name="valueType"></param>
+        /// <param name="inlineArrayLength"></param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Override(string fieldName, ReadOnlySpan<byte> value, ValueType valueType, int? inlineArrayLength = null)
+        {
+            if (valueType == ValueType.Ref)
+                ThrowHelper.ThrowArugmentException(nameof(value));
+
+            _container.EnsureNotDisposed(_generation);
+            int elementCount = inlineArrayLength ?? 1;
+            int elemSize = valueType == ValueType.Blob ? value.Length / elementCount : TypeUtil.SizeOf(valueType);
+            int index = _container.ReschemeFor(fieldName, valueType, elemSize, inlineArrayLength);
+            ref var header = ref _container.GetFieldHeader(index);
+            value.CopyTo(_container.GetFieldData(in header));
+        }
+
+
+
+
+
         /// <summary>
         /// Subscribe to write notifications for a field located by a path relative to this object.
         /// </summary>
@@ -747,7 +779,7 @@ namespace Minerva.DataStorage
                     throw new InvalidOperationException("This StorageObject does not represent an array.");
             }
 
-            Rescheme(ContainerLayout.BuildArray<T>(value.Length));
+            MakeArray(TypeUtil.PrimOf<T>(), value.Length, Unsafe.SizeOf<T>());
             MemoryMarshal.AsBytes(value).CopyTo(_container.GetFieldData(in _container.GetFieldHeader(0)));
         }
 
@@ -796,9 +828,12 @@ namespace Minerva.DataStorage
         /// <typeparam name="T"></typeparam>
         /// <param name="length"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void MakeArray(ValueType valueType, int length)
+        public void MakeArray(ValueType valueType, int length, int? elemSize = null)
         {
-            Rescheme(ContainerLayout.BuildArray(valueType, length));
+            if (valueType == ValueType.Blob)
+                Rescheme(ContainerLayout.BuildBlobArray(elemSize.Value, length));
+            else
+                Rescheme(ContainerLayout.BuildFixedArray(valueType, length));
             _container.GetFieldData(in _container.GetFieldHeader(0)).Clear();
         }
 

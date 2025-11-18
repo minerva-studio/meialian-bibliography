@@ -227,6 +227,16 @@ namespace Minerva.DataStorage
             return this;
         }
 
+        /// <summary>Set an array payload of unmanaged T.</summary>
+        public ObjectBuilder SetBlobArray(string name, int elemSize, int arraySize) => SetBlobArray(name.AsMemory(), elemSize, arraySize);
+        internal ObjectBuilder SetBlobArray(ReadOnlyMemory<char> name, int elemSize, int arraySize)
+        {
+            var fieldType = new FieldType(ValueType.Blob, true);
+            int length = elemSize * arraySize;
+            _map[name] = new Entry { Type = fieldType, ElemSize = (short)elemSize, Data = length };
+            return this;
+        }
+
 
 
 

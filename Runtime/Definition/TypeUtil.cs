@@ -186,7 +186,7 @@ namespace Minerva.DataStorage
                 if (typeof(T) == typeof(ulong)) return ValueType.UInt64;
                 if (typeof(T) == typeof(float)) return ValueType.Float32;
                 if (typeof(T) == typeof(double)) return ValueType.Float64;
-                return ValueType.Unknown;
+                return ValueType.Blob;
             }
         }
     }

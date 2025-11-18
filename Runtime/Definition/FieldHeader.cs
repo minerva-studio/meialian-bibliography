@@ -59,6 +59,11 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => FieldType.IsInlineArray;
         }
+        public int ElementCount
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Length / ElemSize;
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ref FieldHeader FromSpan(Span<byte> span) => ref MemoryMarshal.Cast<byte, FieldHeader>(span)[0];

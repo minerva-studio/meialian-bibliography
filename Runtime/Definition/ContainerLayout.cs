@@ -75,19 +75,53 @@ namespace Minerva.DataStorage
             return new ContainerLayout(emptyHeader);
         }
 
-        internal static ContainerLayout BuildArray<T>(int length) where T : unmanaged
+
+
+
+        /// <summary>
+        /// Build array of scalar element
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="length"></param>
+        /// <returns></returns>
+        public static ContainerLayout BuildArray<T>(int length) where T : unmanaged
         {
+            if (TypeUtil.PrimOf<T>() == ValueType.Blob)
+                return BuildBlobArray(Unsafe.SizeOf<T>(), length);
+
             var b = new ObjectBuilder();
             b.SetArray<T>(ArrayName, length);
             return b.BuildLayout();
         }
 
-        internal static ContainerLayout BuildArray(ValueType valueType, int length)
+        /// <summary>
+        /// Build array of fixed sized element
+        /// </summary>
+        /// <param name="valueType"></param>
+        /// <param name="length"></param>
+        /// <returns></returns>
+        public static ContainerLayout BuildFixedArray(ValueType valueType, int length)
         {
             var b = new ObjectBuilder();
             b.SetArray(ArrayName, valueType, length);
             return b.BuildLayout();
         }
+
+        /// <summary>
+        /// Build a blob array
+        /// </summary>
+        /// <param name="elementSize"></param>
+        /// <param name="length"></param>
+        /// <returns></returns>
+        public static ContainerLayout BuildBlobArray(int elementSize, int length)
+        {
+            var b = new ObjectBuilder();
+            b.SetBlobArray(ArrayName, elementSize, length);
+            return b.BuildLayout();
+        }
+
+
+
 
         public override string ToString()
         {
