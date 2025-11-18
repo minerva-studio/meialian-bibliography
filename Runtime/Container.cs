@@ -28,7 +28,7 @@ namespace Minerva.DataStorage
 
 
         /// <summary> Field Header <summary>
-        public unsafe ref ContainerHeader Header
+        public ref ContainerHeader Header
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
@@ -38,7 +38,7 @@ namespace Minerva.DataStorage
         }
 
         /// <summary> Logical length in bytes (== Schema.Stride).</summary>
-        public unsafe ref int Length
+        public ref int Length
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
@@ -48,12 +48,12 @@ namespace Minerva.DataStorage
         }
 
         /// <summary> Number of fields </summary>
-        public unsafe int FieldCount
+        public int FieldCount
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                return *(int*)Unsafe.AsPointer(ref _memory[ContainerHeader.FieldCountOffset]);
+                return Unsafe.As<byte, int>(ref _memory[ContainerHeader.FieldCountOffset]);
             }
         }
 

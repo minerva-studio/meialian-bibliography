@@ -607,7 +607,7 @@ namespace Minerva.DataStorage.Serialization
                         for (int i = 0; i < containers.Count; i++)
                         {
                             Container.Registry.Shared.Register(containers[i]);
-                            arrayView.Ids[i] = containers[i].ID;
+                            arrayView.References[i] = containers[i].ID;
                         }
                         return;
                     }
@@ -619,7 +619,13 @@ namespace Minerva.DataStorage.Serialization
                 catch (Exception)
                 {
                     foreach (var container in containers)
-                        Container.Registry.Shared.Return(container);
+                    {
+                        if (container.ID == Container.Registry.ID.Wild)
+                            Container.Registry.Shared.Return(container);
+                        else
+                            Container.Registry.Shared.Unregister(container);
+                    }
+
                     throw;
                 }
 

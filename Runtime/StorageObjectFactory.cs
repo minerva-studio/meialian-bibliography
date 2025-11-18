@@ -1,5 +1,8 @@
 namespace Minerva.DataStorage
 {
+    /// <summary>
+    /// Wrapping <see cref="Container"/> to <see cref="StorageObject"/>
+    /// </summary>
     internal static class StorageObjectFactory
     {
         internal static StorageObject GetOrCreate(this ref ContainerReference position, ContainerLayout layout)
@@ -35,7 +38,6 @@ namespace Minerva.DataStorage
             obj = new StorageObject(c);
             return true;
         }
-
     }
 }
 

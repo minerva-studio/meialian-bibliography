@@ -15,10 +15,9 @@ namespace Minerva.DataStorage
         public int Length;
         public int Version;
         public int FieldCount;
-        /// <summary>
-        /// Absolute offset to data
-        /// </summary>
+        /// <summary> Absolute offset to data </summary>
         public int DataOffset;
+
 
         /// <summary>
         /// Absolute offset to names

@@ -83,7 +83,7 @@ namespace Minerva.DataStorage
         }
 
         /// <summary>Direct access to the underlying ID span (use with care).</summary>
-        internal Span<ContainerReference> Ids
+        internal Span<ContainerReference> References
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
@@ -102,18 +102,25 @@ namespace Minerva.DataStorage
 
 
 
-        /// <summary>Get a child as a StorageObject (throws if not found).</summary>
-        public StorageObject Get(int index)
+        /// <summary> Get a child as a StorageObject </summary>
+        public StorageObject GetObject(int index)
         {
             EnsureNotDisposed();
-            return StorageObjectFactory.GetOrCreate(ref Ids[index], ContainerLayout.Empty);
+            return StorageObjectFactory.GetOrCreate(ref References[index], ContainerLayout.Empty);
+        }
+
+        /// <summary> Get a child as a StorageObject.</summary>
+        public StorageObject GetObject(int index, ContainerLayout layout)
+        {
+            EnsureNotDisposed();
+            return StorageObjectFactory.GetOrCreate(ref References[index], layout);
         }
 
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
-        public bool TryGet(int index, out StorageObject child)
+        public bool TryGetObject(int index, out StorageObject child)
         {
             EnsureNotDisposed();
-            return StorageObjectFactory.TryGet(Ids[index], out child);
+            return StorageObjectFactory.TryGet(References[index], out child);
         }
 
         public void CopyFrom<T>(ReadOnlySpan<T> values) where T : unmanaged
@@ -142,7 +149,7 @@ namespace Minerva.DataStorage
             EnsureNotDisposed();
             ref var header = ref Header;
             if (header.IsRef)
-                Container.Registry.Shared.Unregister(ref Ids[index]);
+                Container.Registry.Shared.Unregister(ref References[index]);
 
             int elementSize = header.ElemSize;
             var span = _container.GetFieldData(in header).Slice(elementSize * index, elementSize);
@@ -156,7 +163,7 @@ namespace Minerva.DataStorage
             ref var header = ref Header;
             if (header.IsRef)
             {
-                Span<ContainerReference> ids = Ids;
+                Span<ContainerReference> ids = References;
                 for (int i = 0; i < ids.Length; i++)
                 {
                     Container.Registry.Shared.Unregister(ref ids[i]);

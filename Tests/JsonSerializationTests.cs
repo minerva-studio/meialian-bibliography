@@ -158,8 +158,8 @@ namespace Minerva.DataStorage.Tests
             var enemies = root.GetArray("Enemies");
             Assert.AreEqual(2, enemies.Length);
 
-            var e0 = enemies.Get(0);
-            var e1 = enemies.Get(1);
+            var e0 = enemies.GetObject(0);
+            var e1 = enemies.GetObject(1);
 
             Assert.AreEqual(1L, e0.Read<long>("Id"));
             Assert.AreEqual(10L, e0.Read<long>("Hp"));
@@ -176,8 +176,8 @@ namespace Minerva.DataStorage.Tests
             var enemies2 = root2.GetArray("Enemies");
             Assert.AreEqual(2, enemies2.Length);
 
-            var e0b = enemies2.Get(0);
-            var e1b = enemies2.Get(1);
+            var e0b = enemies2.GetObject(0);
+            var e1b = enemies2.GetObject(1);
 
             Assert.AreEqual(1L, e0b.Read<long>("Id"));
             Assert.AreEqual(10L, e0b.Read<long>("Hp"));
@@ -207,8 +207,8 @@ namespace Minerva.DataStorage.Tests
             var nested = root.GetArray("Nested");
             Assert.AreEqual(2, nested.Length);
 
-            var a0 = nested.Get(0);
-            var a1 = nested.Get(1);
+            var a0 = nested.GetObject(0);
+            var a1 = nested.GetObject(1);
 
             Assert.IsTrue(a0.IsArray);
             Assert.IsTrue(a1.IsArray);
@@ -225,8 +225,8 @@ namespace Minerva.DataStorage.Tests
             var nested2 = root2.GetArray("Nested");
 
             Assert.AreEqual(2, nested2.Length);
-            var v0b = nested2.Get(0).ReadArray<long>();
-            var v1b = nested2.Get(1).ReadArray<long>();
+            var v0b = nested2.GetObject(0).ReadArray<long>();
+            var v1b = nested2.GetObject(1).ReadArray<long>();
 
             CollectionAssert.AreEqual(new long[] { 1, 2 }, v0b);
             CollectionAssert.AreEqual(new long[] { 3, 4, 5 }, v1b);
@@ -255,8 +255,8 @@ namespace Minerva.DataStorage.Tests
             var nested = root.GetArray("Nested");
             Assert.AreEqual(2, nested.Length);
 
-            var a0 = nested.Get(0);
-            var a1 = nested.Get(1);
+            var a0 = nested.GetObject(0);
+            var a1 = nested.GetObject(1);
 
             Assert.IsTrue(a0.IsArray);
             Assert.IsTrue(a1.IsArray);
@@ -276,8 +276,8 @@ namespace Minerva.DataStorage.Tests
             var nested2 = root2.GetArray("Nested");
 
             Assert.AreEqual(2, nested2.Length);
-            Assert.IsTrue(nested2.Get(0).IsArray);
-            Assert.IsTrue(nested2.Get(1).IsArray);
+            Assert.IsTrue(nested2.GetObject(0).IsArray);
+            Assert.IsTrue(nested2.GetObject(1).IsArray);
 
             storage.Dispose();
             storage2.Dispose();
@@ -299,8 +299,8 @@ namespace Minerva.DataStorage.Tests
             var items = root.GetArray("Items");
             Assert.AreEqual(2, items.Length);
 
-            var i0 = items.Get(0);
-            var i1 = items.Get(1);
+            var i0 = items.GetObject(0);
+            var i1 = items.GetObject(1);
 
             Assert.AreEqual(0, i0.FieldCount);
             Assert.AreEqual(0, i1.FieldCount);
@@ -314,8 +314,8 @@ namespace Minerva.DataStorage.Tests
             var items2 = root2.GetArray("Items");
 
             Assert.AreEqual(2, items2.Length);
-            Assert.AreEqual(0, items2.Get(0).FieldCount);
-            Assert.AreEqual(0, items2.Get(1).FieldCount);
+            Assert.AreEqual(0, items2.GetObject(0).FieldCount);
+            Assert.AreEqual(0, items2.GetObject(1).FieldCount);
 
             storage.Dispose();
             storage2.Dispose();
@@ -341,7 +341,7 @@ namespace Minerva.DataStorage.Tests
 
             for (int i = 0; i < expected.Length; i++)
             {
-                var child = names.Get(i);
+                var child = names.GetObject(i);
                 string s = child.ReadString();
                 Assert.AreEqual(expected[i], s);
             }
@@ -357,7 +357,7 @@ namespace Minerva.DataStorage.Tests
 
             for (int i = 0; i < expected.Length; i++)
             {
-                var child = names2.Get(i);
+                var child = names2.GetObject(i);
                 string s = child.ReadString();
                 Assert.AreEqual(expected[i], s);
             }
@@ -381,6 +381,128 @@ namespace Minerva.DataStorage.Tests
                 storage.Dispose();
             });
         }
+
+
+
+
+        /// <summary>
+        /// Invalid JSON syntax (e.g., missing closing brace) should result in a well-defined
+        /// exception and must not poison any global state. Subsequent Storage operations
+        /// and JSON round-trips must still succeed.
+        /// </summary>
+        [Test]
+        public void Parse_InvalidJsonSyntax_ShouldThrow_AndAllowSubsequentRoundTrips()
+        {
+            // Missing closing brace and value after comma -> syntactically invalid.
+            const string invalidJson = "{ \"Health\": 100, ";
+
+            // 1) Bad JSON should throw a predictable exception, not crash the process.
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                JsonSerialization.Parse(invalidJson);
+            });
+
+            // 2) After the failure, we should still be able to use Storage normally.
+            for (int i = 0; i < 3; i++)
+            {
+                var storage = new Storage();
+                var root = storage.Root;
+
+                int expectedHealth = 100 + i;
+                root.Write("Health", expectedHealth);
+                root.Write("Mana", 50);
+
+                var json = storage.ToJson().ToString();
+                storage.Dispose();
+
+                var parsed = JsonSerialization.Parse(json);
+                var root2 = parsed.Root;
+
+                Assert.AreEqual(expectedHealth, root2.Read<int>("Health"));
+                Assert.AreEqual(50, root2.Read<int>("Mana"));
+
+                parsed.Dispose();
+            }
+        }
+
+
+
+        /// <summary>
+        /// A JSON root that is not an object (e.g., an array) should be rejected.
+        /// This tests that such an error does not leave the registry or global state
+        /// in a broken state for subsequent parses.
+        /// </summary>
+        [Test]
+        public void Parse_RootArray_ShouldThrow_AndNotBreakLaterParses()
+        {
+            const string invalidRoot = "[1,2,3]"; // root must be an object in our format
+
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                JsonSerialization.Parse(invalidRoot);
+            });
+
+            // Follow-up: simple valid parse still works.
+            var storage = new Storage();
+            var root = storage.Root;
+            root.Write("Value", 42);
+
+            var json = storage.ToJson().ToString();
+            storage.Dispose();
+
+            var parsed = JsonSerialization.Parse(json);
+            var root2 = parsed.Root;
+            Assert.AreEqual(42, root2.Read<int>("Value"));
+
+            parsed.Dispose();
+        }
+
+        /// <summary>
+        /// Application-level wrapper around JsonSerialization.Parse should be able to
+        /// catch and handle parse errors without propagating them. This verifies that
+        /// bad JSON does not cause uncaught exceptions that would crash the host.
+        /// </summary>
+        [Test]
+        public void Parse_InvalidJson_WrappedHandler_ShouldNotThrow()
+        {
+            const string invalidJson = "{ \"Health\": 100,, }"; // double comma
+
+            Storage storage = null;
+
+            // The wrapper is responsible for catching the parse exception.
+            Assert.DoesNotThrow(() =>
+            {
+                try
+                {
+                    storage = JsonSerialization.Parse(invalidJson);
+                }
+                catch (Exception)
+                {
+                    // In real code you would log the error here.
+                    storage = null;
+                }
+            });
+
+            Assert.IsNull(storage, "Wrapper should return null on invalid JSON.");
+
+            // Sanity check: after wrapper handling, we can still create and use Storage.
+            var ok = new Storage();
+            ok.Root.Write("Health", 10);
+            var json = ok.ToJson().ToString();
+            ok.Dispose();
+
+            var parsed = JsonSerialization.Parse(json);
+            Assert.AreEqual(10, parsed.Root.Read<int>("Health"));
+            parsed.Dispose();
+        }
+
+
+
+
+
+
+
+
 
         private void Log(string v)
         {

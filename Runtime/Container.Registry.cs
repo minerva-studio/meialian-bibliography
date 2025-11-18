@@ -17,7 +17,7 @@ namespace Minerva.DataStorage
 
         internal class Registry
         {
-            private static readonly ObjectPool<Container> pool = new ObjectPool<Container>(() => new Container(), c => Shared.Unregister(c));
+            private static readonly ObjectPool<Container> pool = new ObjectPool<Container>(() => new Container());
 
             public static class ID
             {
