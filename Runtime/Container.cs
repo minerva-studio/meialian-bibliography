@@ -183,7 +183,7 @@ namespace Minerva.DataStorage
                     hi = mid - 1;
             }
 
-            return -1;
+            return ~lo;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -379,7 +379,7 @@ namespace Minerva.DataStorage
             ref var h2 = ref view.Header;
             h2.Version = Version;
             h2.FieldCount = n;
-            h2.NameOffset = nameStart;  // absolute
+            //h2.NameOffset = nameStart;  // absolute
             h2.DataOffset = dataStart;  // absolute
 
             // Field headers (absolute DataOffset)
