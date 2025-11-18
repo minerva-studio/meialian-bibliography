@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -9,7 +8,7 @@ namespace Minerva.DataStorage
     /// Stack-only view of a container within a Storage tree.
     /// Cannot be persisted; exposes only read/write and navigation helpers.
     /// </summary>
-    public readonly struct StorageObject
+    public readonly struct StorageObject : IEquatable<StorageObject>
     {
         private readonly Container _container;
         private readonly int _generation;
@@ -643,9 +642,39 @@ namespace Minerva.DataStorage
             if (!IsArray)
                 throw new InvalidOperationException("This StorageObject does not represent an array.");
 
-            return _container.GetFieldData<T>(in _container.GetFieldHeader(0)).ToArray();
+            return AsArray().ToArray<T>();
         }
 
+        /// <summary>
+        /// Make storage an array
+        /// </summary>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StorageArray AsArray() => new(_container, 0);
+
+        /// <summary>
+        /// Make this field an array
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="length"></param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void MakeArray<T>(int length) where T : unmanaged
+        {
+            Rescheme(ContainerLayout.BuildArray<T>(length));
+            _container.GetFieldData(in _container.GetFieldHeader(0)).Clear();
+        }
+
+        /// <summary>
+        /// Make this field an array
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="length"></param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void MakeArray(ValueType valueType, int length)
+        {
+            Rescheme(ContainerLayout.BuildArray(valueType, length));
+            _container.GetFieldData(in _container.GetFieldHeader(0)).Clear();
+        }
 
 
 
@@ -694,6 +723,7 @@ namespace Minerva.DataStorage
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(index) : ref _container.GetRefNoRescheme(index);
             return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
         }
+
         /// <summary>
         /// Get child object with layout
         /// </summary>
@@ -709,18 +739,36 @@ namespace Minerva.DataStorage
         }
 
 
+
+
+
         /// <summary>
         /// Get a stack-only view over a value array field T[].
         /// Field must be non-ref and length divisible by sizeof(T).
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageInlineArray GetArray(ReadOnlySpan<char> fieldName) => new(_container.View[fieldName]);
+        public StorageArray GetArray(ReadOnlySpan<char> fieldName)
+        {
+            int fieldIndex = _container.IndexOf(fieldName);
+            ref var header = ref _container.GetFieldHeader(fieldIndex);
+            // inline array
+            if (!header.IsRef)
+                return new(_container, fieldIndex);
+
+            // obj array
+            var obj = GetObject(fieldIndex);
+            if (obj.IsArray)
+                return new(obj.Container, 0);
+
+            throw new InvalidOperationException($"Field {fieldName.ToString()} is not an array");
+        }
 
         /// <summary>
         /// Get a stack-only view over a child reference array (IDs).
         /// Field must be a ref field.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [Obsolete]
         public StorageObjectArray GetObjectArray(ReadOnlySpan<char> fieldName)
         {
             return new StorageObjectArray(_container, _container.View[fieldName]);
@@ -765,25 +813,18 @@ namespace Minerva.DataStorage
 
 
 
-        public static bool operator ==(StorageObject left, StorageObject right) => left._container == right._container;
+        public static bool operator ==(StorageObject left, StorageObject right) => left.Equals(right);
         public static bool operator !=(StorageObject left, StorageObject right) => !(left == right);
-        public override int GetHashCode() => _container.GetHashCode();
+        public override int GetHashCode() => HashCode.Combine(_container, _generation);
         public override bool Equals(object obj) => false;
         public override string ToString() => _container.ToString();
-    }
 
-
-
-    public static class StorageObjectExtension
-    {
-
-        /// <summary>
-        /// Write a value to an existing field without rescheming, if the field does not exist, an exception is thrown.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="fieldName"></param>
-        /// <param name="value"></param>
-        public static void WriteNoRescheme<T>(this StorageObject so, string fieldName, in T value) where T : unmanaged => so.Write(fieldName, value, false);
+        public bool Equals(StorageObject other)
+        {
+            if (IsNull) return other.IsNull;
+            if (other.IsNull) return false;
+            return _container == other._container && _generation == other._generation;
+        }
     }
 }
 

@@ -37,7 +37,7 @@ namespace Minerva.DataStorage.Serialization.Tests
             // speeds = [1.5, 3.33, 2.0, 74.0]
             // TODO: replace with your actual array write API.
             var speeds = new float[] { 1.5f, 3.33f, 2.0f, 74.0f };
-            StorageInlineArray storageArray = root.GetArray("speeds");
+            StorageArray storageArray = root.GetArray("speeds");
             storageArray.CopyFrom<float>(speeds);
             //MemoryExtensions.CopyTo(speeds, storageArray.AsSpan());
 
@@ -48,7 +48,7 @@ namespace Minerva.DataStorage.Serialization.Tests
                     new StorageAdapter()
                 }
             };
-            string json = JsonSerialization.ToJson(storage, parameters);
+            string json = Unity.Serialization.Json.JsonSerialization.ToJson(storage, parameters);
 
             // --- Assertions (robust to pretty printing) ---
             StringAssert.Contains("\"hp\":", json);

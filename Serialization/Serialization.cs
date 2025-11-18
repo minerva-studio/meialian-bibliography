@@ -26,7 +26,7 @@ namespace Minerva.DataStorage.Serialization
                 var name = member.Name().ToString();
                 var val = member.Value();
 
-                // 1) If field missing �� infer FieldDescriptor and rebuild schema, then continue.
+                // 1) If field missing infer FieldDescriptor and rebuild schema, then continue.
                 if (!target.HasField(name))
                 {
                     InferField(name, val, b);
@@ -70,7 +70,7 @@ namespace Minerva.DataStorage.Serialization
                         var arr = tok.AsArrayView();
                         int n = arr.Count();
 
-                        // empty array �� zero-length fixed field
+                        // empty array zero-length fixed field
                         if (n == 0)
                         {
                             b.SetArray<byte>(name, 0);
@@ -82,7 +82,7 @@ namespace Minerva.DataStorage.Serialization
 
                         if (!found)
                         {
-                            // all nulls �� ref-array of size n
+                            // all nulls  ref-array of size n
                             b.SetRefArray(name, n);
                             return;
                         }
@@ -169,7 +169,7 @@ namespace Minerva.DataStorage.Serialization
                     }
             }
 
-            // Fallback: unknown/unsupported �� zero-length field (safe no-op) 
+            // Fallback: unknown/unsupported  zero-length field (safe no-op) 
             return;
 
             void ReadArrayContent<T>(SerializedArrayView arr, int count, Func<SerializedValueView, T> getter) where T : unmanaged
@@ -286,7 +286,7 @@ namespace Minerva.DataStorage.Serialization
             {
                 var element = objArray[i];
                 var obj = element.GetObjectNoAllocate();
-                // Write() handles IsNull��null already
+                // Write() handles IsNullnull already
                 Write(writer, obj);
             }
         }
@@ -324,7 +324,7 @@ namespace Minerva.DataStorage.Serialization
                 primitiveWriter.WriteValue(writer, array[i].Read<T>());
         }
 
-        // 3) Unknown bytes �� always emit as byte array (no base64, per your rule)
+        // 3) Unknown bytes  always emit as byte array (no base64, per your rule)
 
         private void WriteUnknownBytes(JsonWriter writer, StorageObject value, string str)
         {

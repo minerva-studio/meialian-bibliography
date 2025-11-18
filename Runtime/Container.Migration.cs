@@ -160,9 +160,9 @@ namespace Minerva.DataStorage
                 Memory<char> tempName = fieldNameBuffer.AsMemory(0, fieldName.Length);
                 if (inlineArrayLength.HasValue)
                 {
-                    objectBuilder.SetArray(tempName, new FieldType(valueType, true), inlineArrayLength.Value);
+                    objectBuilder.SetArray(tempName, valueType, inlineArrayLength.Value);
                 }
-                else objectBuilder.SetScalar(tempName, new FieldType(valueType, false));
+                else objectBuilder.SetScalar(tempName, valueType);
 
                 int baseOffset = containerHeader.NameOffset;
                 for (int i = 0; i < FieldCount; i++)

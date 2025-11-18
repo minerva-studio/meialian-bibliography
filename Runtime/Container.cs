@@ -422,17 +422,18 @@ namespace Minerva.DataStorage
 
 
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlyValueView GetValueView(ReadOnlySpan<char> fieldName)
         {
             ref FieldHeader f = ref GetFieldHeader(fieldName);
             return new ReadOnlyValueView(GetFieldData(in f), f.Type);
         }
 
-        public ReadOnlyValueView GetValueView(int index)
-        {
-            ref FieldHeader f = ref GetFieldHeader(index);
-            return new ReadOnlyValueView(GetFieldData(in f), f.Type);
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ReadOnlyValueView GetValueView(int index) => GetValueView(in GetFieldHeader(index));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ReadOnlyValueView GetValueView(in FieldHeader f) => new ReadOnlyValueView(GetFieldData(in f), f.Type);
 
         #endregion
 

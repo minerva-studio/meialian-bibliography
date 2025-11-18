@@ -9,6 +9,7 @@ namespace Minerva.DataStorage
     /// - Field must be a non-ref field (Length > 0).
     /// - Field byte length must be a multiple of sizeof(T). 
     /// </summary> 
+    [Obsolete]
     public readonly ref struct StorageInlineArray
     {
         readonly FieldView f;

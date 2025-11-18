@@ -123,10 +123,10 @@ namespace Minerva.DataStorage
 
 
         /// <summary>Set a scalar value of unmanaged T.</summary>
-        public ObjectBuilder SetScalar(string name, FieldType type) => SetScalar(name.AsMemory(), type);
-        internal ObjectBuilder SetScalar(ReadOnlyMemory<char> name, FieldType type)
+        public ObjectBuilder SetScalar(string name, ValueType type) => SetScalar(name.AsMemory(), type);
+        internal ObjectBuilder SetScalar(ReadOnlyMemory<char> name, ValueType type)
         {
-            var size = TypeUtil.SizeOf(type.Type);
+            var size = TypeUtil.SizeOf(type);
             if (size == 0)
                 throw new ArgumentOutOfRangeException(nameof(type));
 
@@ -193,12 +193,13 @@ namespace Minerva.DataStorage
 
 
         /// <summary>Set an array payload of unmanaged T.</summary>
-        public ObjectBuilder SetArray(string name, FieldType type, int arraySize) => SetArray(name.AsMemory(), type, arraySize);
-        internal ObjectBuilder SetArray(ReadOnlyMemory<char> name, FieldType type, int arraySize)
+        public ObjectBuilder SetArray(string name, ValueType type, int arraySize) => SetArray(name.AsMemory(), type, arraySize);
+        internal ObjectBuilder SetArray(ReadOnlyMemory<char> name, ValueType type, int arraySize)
         {
-            int elem = type.Size;
+            var fieldType = new FieldType(type, true);
+            int elem = fieldType.Size;
             int length = elem * arraySize;
-            _map[name] = new Entry { Type = type, ElemSize = (short)elem, Data = length };
+            _map[name] = new Entry { Type = fieldType, ElemSize = (short)elem, Data = length };
             return this;
         }
 

@@ -235,6 +235,12 @@ namespace Minerva.DataStorage
                 if (zero) container.DataSegment.Clear();
                 return container;
             }
+
+            public void Return(Container container)
+            {
+                container.Dispose();
+                pool.Return(container);
+            }
             #endregion
 
         }

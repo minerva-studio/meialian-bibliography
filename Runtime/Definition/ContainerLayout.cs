@@ -82,6 +82,13 @@ namespace Minerva.DataStorage
             return b.BuildLayout();
         }
 
+        internal static ContainerLayout BuildArray(ValueType valueType, int length)
+        {
+            var b = new ObjectBuilder();
+            b.SetArray(ArrayName, valueType, length);
+            return b.BuildLayout();
+        }
+
         public override string ToString()
         {
             StringBuilder sb = new();

@@ -1,20 +1,16 @@
-// File: InlineArray_New_NoGeneric_Tests.cs
 using System;
 using System.Buffers.Binary;
 using NUnit.Framework;
-using Minerva.DataStorage;
 
 namespace Minerva.DataStorage.Tests
 {
     /// <summary>
     /// Tests for the new non-generic StorageInlineArray API only.
-    /// - No use of StorageInlineArray<T>
-    /// - No use of GetArray<T>()
     /// - All reads/writes via ValueView.TryWrite and ValueView.Bytes
     /// - Avoid lambdas/delegates capturing ref struct; use try/catch assertions instead.
     /// </summary>
     [TestFixture]
-    public class InlineArray_New_NoGeneric_Tests
+    public class Array_New_NoGeneric_Tests
     {
         private const string Field_Ints = "ints";
         private const string Field_Floats = "floats";
@@ -183,7 +179,7 @@ namespace Minerva.DataStorage.Tests
         }
 
         /// <summary>Read all Int32 elements from a non-generic inline array.</summary>
-        private static int[] ReadAllInt32(StorageInlineArray a)
+        private static int[] ReadAllInt32(StorageArray a)
         {
             var res = new int[a.Length];
             for (int i = 0; i < a.Length; i++)
@@ -192,7 +188,7 @@ namespace Minerva.DataStorage.Tests
         }
 
         /// <summary>Read all Float32 elements from a non-generic inline array.</summary>
-        private static float[] ReadAllFloat32(StorageInlineArray a)
+        private static float[] ReadAllFloat32(StorageArray a)
         {
             var res = new float[a.Length];
             for (int i = 0; i < a.Length; i++)
