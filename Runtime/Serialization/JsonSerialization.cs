@@ -33,7 +33,7 @@ namespace Minerva.DataStorage.Serialization
                 else if (field.IsRef)
                 {
                     var ids = storage.Container.GetRefSpan(in field);
-                    WriteObject(ids, writer);
+                    WriteObject(in field, ids, writer);
                 }
                 else
                 {
@@ -87,7 +87,7 @@ namespace Minerva.DataStorage.Serialization
             if (field.IsRef)
             {
                 var ids = storage.Container.GetRefSpan(in field);
-                WriteObject(ids, writer);
+                WriteObject(in field, ids, writer);
                 return;
             }
 
@@ -106,10 +106,10 @@ namespace Minerva.DataStorage.Serialization
             }
         }
 
-        private static void WriteObject(Span<ContainerReference> ids, IBufferWriter<char> writer)
+        private static void WriteObject(in FieldHeader field, Span<ContainerReference> ids, IBufferWriter<char> writer)
         {
             int length = ids.Length;
-            if (length > 1)
+            if (field.IsInlineArray)
                 writer.Write("[");
 
             for (int i = 0; i < length; i++)
@@ -122,7 +122,7 @@ namespace Minerva.DataStorage.Serialization
 
             }
 
-            if (length > 1)
+            if (field.IsInlineArray)
                 writer.Write("]");
         }
 
