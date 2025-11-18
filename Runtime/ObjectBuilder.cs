@@ -373,25 +373,24 @@ namespace Minerva.DataStorage
             target.Expand(allocSize);
             target.Clear();
             ContainerHeader.WriteLength(target.Span, dataStart + totalDataBytes);
-            ContainerView view = new(target.Span);
 
             // Header
-            ref var h2 = ref view.Header;
+            ref var h2 = ref ContainerHeader.FromSpan(target.Span);
             h2.Version = Version;
             h2.FieldCount = n;
             //h2.NameOffset = nameStart;  // absolute
             h2.DataOffset = dataStart;  // absolute
 
             // Field headers (absolute DataOffset)
-            var fields = view.Fields;
             int nameOffset = 0;      // relative within Names blob
             int running = dataStart; // absolute cursor in whole buffer
             for (int i = 0; i < n; i++)
             {
                 var name = _map.Keys[i];
                 var e = _map.Values[i];
+                ref var field = ref FieldHeader.FromSpan(target.AsSpan(ContainerHeader.Size + FieldHeader.Size * i));
 
-                fields[i] = new FieldHeader
+                field = new FieldHeader
                 {
                     NameHash = ReadOnlyMemoryComparer.GetHashCode(name),
                     NameOffset = nameStart + nameOffset,   // absolute
@@ -409,7 +408,7 @@ namespace Minerva.DataStorage
 
             // Write Names blob (UTF-16) into NameSegment (relative slicing OK)
             int nameCursor = 0; // relative within NameSegment
-            var nameDst = view.NameSegment;
+            var nameDst = target.AsSpan(h2.NameOffset);
             for (int i = 0; i < n; i++)
             {
                 var s = _map.Keys[i];
