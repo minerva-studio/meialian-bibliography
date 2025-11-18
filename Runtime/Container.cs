@@ -233,7 +233,7 @@ namespace Minerva.DataStorage
             {
                 if (allowRescheme)
                 {
-                    int index = ReschemeForNew<T>(fieldName);
+                    int index = ReschemeFor<T>(fieldName);
                     return ref GetFieldHeader(index);
                 }
                 else ThrowHelper.ThrowArugmentException(nameof(fieldName));
@@ -444,7 +444,7 @@ namespace Minerva.DataStorage
         public ref ContainerReference GetRef(ReadOnlySpan<char> fieldName)
         {
             int index = IndexOf(fieldName);
-            if (index < 0) index = ReschemeForNewObject(fieldName);
+            if (index < 0) index = ReschemeForObject(fieldName);
             return ref GetRef(index);
         }
 

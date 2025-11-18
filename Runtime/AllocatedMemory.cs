@@ -140,10 +140,10 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly Span<byte> AsSpan(int start, int length)
-        {
-            return _data.Slice(start, length).Span;
-        }
+        public readonly Span<byte> AsSpan(int start, int length) => _data.Slice(start, length).Span;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly Span<byte> AsSpan(int start) => _data[start..].Span;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal readonly unsafe void* GetPointer(int offset)
