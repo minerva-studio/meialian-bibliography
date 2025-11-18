@@ -8,6 +8,7 @@ namespace Minerva.DataStorage
     /// - Element size is 8 bytes (ulong).
     /// - Provides convenient get/set child operations through the registry.
     /// </summary>
+    [Obsolete]
     public readonly ref struct StorageObjectArray
     {
         private readonly Span<ContainerReference> _ids;

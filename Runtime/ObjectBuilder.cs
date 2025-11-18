@@ -123,10 +123,10 @@ namespace Minerva.DataStorage
 
 
         /// <summary>Set a scalar value of unmanaged T.</summary>
-        public ObjectBuilder SetScalar(string name, FieldType type) => SetScalar(name.AsMemory(), type);
-        internal ObjectBuilder SetScalar(ReadOnlyMemory<char> name, FieldType type)
+        public ObjectBuilder SetScalar(string name, ValueType type) => SetScalar(name.AsMemory(), type);
+        internal ObjectBuilder SetScalar(ReadOnlyMemory<char> name, ValueType type)
         {
-            var size = TypeUtil.SizeOf(type.Type);
+            var size = TypeUtil.SizeOf(type);
             if (size == 0)
                 throw new ArgumentOutOfRangeException(nameof(type));
 
@@ -193,12 +193,13 @@ namespace Minerva.DataStorage
 
 
         /// <summary>Set an array payload of unmanaged T.</summary>
-        public ObjectBuilder SetArray(string name, FieldType type, int arraySize) => SetArray(name.AsMemory(), type, arraySize);
-        internal ObjectBuilder SetArray(ReadOnlyMemory<char> name, FieldType type, int arraySize)
+        public ObjectBuilder SetArray(string name, ValueType type, int arraySize) => SetArray(name.AsMemory(), type, arraySize);
+        internal ObjectBuilder SetArray(ReadOnlyMemory<char> name, ValueType type, int arraySize)
         {
-            int elem = type.Size;
+            var fieldType = new FieldType(type, true);
+            int elem = fieldType.Size;
             int length = elem * arraySize;
-            _map[name] = new Entry { Type = type, ElemSize = (short)elem, Data = length };
+            _map[name] = new Entry { Type = fieldType, ElemSize = (short)elem, Data = length };
             return this;
         }
 
@@ -371,26 +372,26 @@ namespace Minerva.DataStorage
             // Create buffer/view
             target.Expand(allocSize);
             target.Clear();
-            ContainerHeader.WriteLength(target.Span, dataStart + totalDataBytes);
-            ContainerView view = new(target.Span);
+            Span<byte> span = target.Span;
+            ContainerHeader.WriteLength(span, dataStart + totalDataBytes);
 
             // Header
-            ref var h2 = ref view.Header;
+            ref var h2 = ref ContainerHeader.FromSpan(span);
             h2.Version = Version;
             h2.FieldCount = n;
-            h2.NameOffset = nameStart;  // absolute
+            //h2.NameOffset = nameStart;  // absolute
             h2.DataOffset = dataStart;  // absolute
 
             // Field headers (absolute DataOffset)
-            var fields = view.Fields;
             int nameOffset = 0;      // relative within Names blob
             int running = dataStart; // absolute cursor in whole buffer
             for (int i = 0; i < n; i++)
             {
                 var name = _map.Keys[i];
                 var e = _map.Values[i];
+                ref var field = ref FieldHeader.FromSpanAndFieldIndex(span, i);
 
-                fields[i] = new FieldHeader
+                field = new FieldHeader
                 {
                     NameHash = ReadOnlyMemoryComparer.GetHashCode(name),
                     NameOffset = nameStart + nameOffset,   // absolute
@@ -408,7 +409,7 @@ namespace Minerva.DataStorage
 
             // Write Names blob (UTF-16) into NameSegment (relative slicing OK)
             int nameCursor = 0; // relative within NameSegment
-            var nameDst = view.NameSegment;
+            var nameDst = target.AsSpan(h2.NameOffset);
             for (int i = 0; i < n; i++)
             {
                 var s = _map.Keys[i];
@@ -469,10 +470,10 @@ namespace Minerva.DataStorage
         internal static ObjectBuilder FromContainer(Container container)
         {
             var builder = new ObjectBuilder();
-            ContainerView view = container.View;
             for (int i = 0; i < container.FieldCount; i++)
             {
-                builder.SetRaw(view[i].Name.ToString(), in view[i].Header);
+                ref var header = ref container.GetFieldHeader(i);
+                builder.SetRaw(container.GetFieldName(in header).ToString(), in header);
             }
             return builder;
         }

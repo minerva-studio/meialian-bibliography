@@ -17,7 +17,7 @@ namespace Minerva.DataStorage
 
         internal class Registry
         {
-            private static readonly ObjectPool<Container> pool = new ObjectPool<Container>(() => new Container(), c => Shared.Unregister(c));
+            private static readonly ObjectPool<Container> pool = new ObjectPool<Container>(() => new Container());
 
             public static class ID
             {
@@ -234,6 +234,12 @@ namespace Minerva.DataStorage
                 // clear data segment
                 if (zero) container.DataSegment.Clear();
                 return container;
+            }
+
+            public void Return(Container container)
+            {
+                container.Dispose();
+                pool.Return(container);
             }
             #endregion
 

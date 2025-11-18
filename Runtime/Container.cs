@@ -28,7 +28,7 @@ namespace Minerva.DataStorage
 
 
         /// <summary> Field Header <summary>
-        public unsafe ref ContainerHeader Header
+        public ref ContainerHeader Header
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
@@ -38,7 +38,7 @@ namespace Minerva.DataStorage
         }
 
         /// <summary> Logical length in bytes (== Schema.Stride).</summary>
-        public unsafe ref int Length
+        public ref int Length
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
@@ -48,12 +48,12 @@ namespace Minerva.DataStorage
         }
 
         /// <summary> Number of fields </summary>
-        public unsafe int FieldCount
+        public int FieldCount
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                return *(int*)Unsafe.AsPointer(ref _memory[ContainerHeader.FieldCountOffset]);
+                return Unsafe.As<byte, int>(ref _memory[ContainerHeader.FieldCountOffset]);
             }
         }
 
@@ -183,7 +183,7 @@ namespace Minerva.DataStorage
                     hi = mid - 1;
             }
 
-            return -1;
+            return ~lo;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -233,7 +233,7 @@ namespace Minerva.DataStorage
             {
                 if (allowRescheme)
                 {
-                    int index = ReschemeForNew<T>(fieldName);
+                    int index = ReschemeFor<T>(fieldName);
                     return ref GetFieldHeader(index);
                 }
                 else ThrowHelper.ThrowArugmentException(nameof(fieldName));
@@ -422,17 +422,18 @@ namespace Minerva.DataStorage
 
 
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlyValueView GetValueView(ReadOnlySpan<char> fieldName)
         {
             ref FieldHeader f = ref GetFieldHeader(fieldName);
             return new ReadOnlyValueView(GetFieldData(in f), f.Type);
         }
 
-        public ReadOnlyValueView GetValueView(int index)
-        {
-            ref FieldHeader f = ref GetFieldHeader(index);
-            return new ReadOnlyValueView(GetFieldData(in f), f.Type);
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ReadOnlyValueView GetValueView(int index) => GetValueView(in GetFieldHeader(index));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ReadOnlyValueView GetValueView(in FieldHeader f) => new ReadOnlyValueView(GetFieldData(in f), f.Type);
 
         #endregion
 
@@ -443,7 +444,7 @@ namespace Minerva.DataStorage
         public ref ContainerReference GetRef(ReadOnlySpan<char> fieldName)
         {
             int index = IndexOf(fieldName);
-            if (index < 0) index = ReschemeForNewObject(fieldName);
+            if (index < 0) index = ReschemeForObject(fieldName);
             return ref GetRef(index);
         }
 

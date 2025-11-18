@@ -106,11 +106,15 @@ namespace Minerva.DataStorage
 
 
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T Read<T>(bool isExplicit = true) where T : unmanaged => AsReadOnly().Read<T>(isExplicit);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryRead<T>(out T value, bool isExplicit = true) where T : unmanaged => AsReadOnly().TryRead(out value, isExplicit);
 
 
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(in T value, bool isExplicit = false) where T : unmanaged
         {
             T copy = value;
@@ -118,8 +122,13 @@ namespace Minerva.DataStorage
             Write(v, isExplicit);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(ReadOnlySpan<byte> v, bool isExplicit = false) where T : unmanaged => Write(ReadOnlyValueView.Create<T>(v), isExplicit);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(ReadOnlySpan<byte> v, ValueType type, bool isExplicit = false) => Write(new ReadOnlyValueView(v, type), isExplicit);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(ReadOnlyValueView v, bool isExplicit = false)
         {
             if (!TryWrite(v, isExplicit))
@@ -127,18 +136,22 @@ namespace Minerva.DataStorage
         }
 
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryWrite<T>(in T value, bool isExplicit = false) where T : unmanaged
         {
             T copy = value;
             var v = ReadOnlyValueView.Create(ref copy);
             return TryWrite(v, isExplicit);
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryWrite<T>(ReadOnlySpan<byte> v, bool isExplicit = false) where T : unmanaged => TryWrite(ReadOnlyValueView.Create<T>(v), isExplicit);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryWrite(ReadOnlySpan<byte> v, ValueType type, bool isExplicit = false) => TryWrite(new ReadOnlyValueView(v, type), isExplicit);
-        public bool TryWrite(ReadOnlyValueView v, bool isExplicit = false)
-        {
-            return v.TryWriteTo(Bytes, Type, isExplicit);
-        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryWrite(ReadOnlyValueView v, bool isExplicit = false) => v.TryWriteTo(Bytes, Type, isExplicit);
 
 
 

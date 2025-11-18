@@ -1,4 +1,5 @@
 using System;
+using Minerva.DataStorage.Serialization;
 using NUnit.Framework;
 
 namespace Minerva.DataStorage.Tests

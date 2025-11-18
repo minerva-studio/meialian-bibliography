@@ -123,17 +123,7 @@ namespace Minerva.DataStorage
         /// <param name="type"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeForNew<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
-
-        /// <summary>
-        /// Rescheme to add a new field of type T with given fieldName.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="fieldName"></param>
-        /// <param name="type"></param>
-        /// <returns></returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeForNewObject(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) => ReschemeForField_Internal(fieldName, ValueType.Ref, inlineArrayLength);
+        public int ReschemeForObject(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) => ReschemeForField_Internal(fieldName, ValueType.Ref, inlineArrayLength);
 
         /// <summary>
         /// Rescheme to add a new field of type T with given fieldName.
@@ -146,6 +136,89 @@ namespace Minerva.DataStorage
         public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
 
         private int ReschemeForField_Internal(ReadOnlySpan<char> fieldName, ValueType valueType, int? inlineArrayLength = null)
+        {
+            int index = IndexOf(fieldName);
+            bool isNewField = index < 0;
+            int targetIndex = isNewField ? ~index : index;
+            var existedHeader = isNewField ? default : GetFieldHeader(index);
+            int elementCount = inlineArrayLength ?? 1;
+            int elementSize = SizeOf(valueType);
+            int newDataLength = elementSize * elementCount;
+            ref var currentHeader = ref Header;
+            int newLength = isNewField
+                // new field, add header, name, data length
+                ? currentHeader.Length + FieldHeader.Size + fieldName.Length * sizeof(char) + newDataLength
+                // already exist, then no header size change, no name change, only data size change
+                : currentHeader.Length - existedHeader.Length + newDataLength;
+
+            AllocatedMemory next = AllocatedMemory.Create(newLength);
+            AllocatedMemory curr = _memory;
+            try
+            {
+                // header copy
+                Span<byte> span = next.Span;
+                ref var nextHeader = ref ContainerHeader.FromSpan(span);
+                nextHeader = currentHeader;
+                nextHeader.FieldCount += isNewField ? 1 : 0; // count increment
+                nextHeader.DataOffset += isNewField ? FieldHeader.Size + fieldName.Length * sizeof(char) : 0;
+                nextHeader.Length = newLength;
+
+                int newFieldCount = nextHeader.FieldCount;
+                int nameOffset = nextHeader.NameOffset;
+                int dataOffset = nextHeader.DataOffset;
+                // copy header
+                for (int i = 0, j = 0; i < newFieldCount; i++)
+                {
+                    ref var f = ref FieldHeader.FromSpanAndFieldIndex(span, i);
+                    // match insertion
+                    if (i == targetIndex)
+                    {
+                        f.NameLength = (short)fieldName.Length;
+                        f.Length = newDataLength;
+                        f.ElemSize = (short)elementSize;
+                        f.FieldType = new FieldType(valueType, inlineArrayLength.HasValue);
+                        f.NameOffset = nameOffset;
+                        f.DataOffset = dataOffset;
+                        // name
+                        fieldName.CopyTo(MemoryMarshal.Cast<byte, char>(next.AsSpan(nameOffset, f.NameLength * sizeof(char))));
+                        // data
+                        next.AsSpan(dataOffset, f.Length).Clear();
+                        if (!isNewField) j++;
+                    }
+                    else
+                    {
+                        ref FieldHeader currentFieldHeader = ref GetFieldHeader(j++);
+                        f = currentFieldHeader;
+                        f.NameOffset = nameOffset;
+                        f.DataOffset = dataOffset;
+                        // name
+                        GetFieldName(in currentFieldHeader).CopyTo(MemoryMarshal.Cast<byte, char>(next.AsSpan(nameOffset, f.NameLength * sizeof(char))));
+                        // data
+                        GetFieldData(in currentFieldHeader).CopyTo(next.AsSpan(dataOffset, f.Length));
+                    }
+
+                    nameOffset += f.NameLength * sizeof(char);
+                    dataOffset += f.Length;
+                }
+
+                _memory = next;
+                curr.Dispose();
+            }
+            catch (Exception)
+            {
+                next.Dispose();
+                throw;
+            }
+            return targetIndex;
+        }
+
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [Obsolete]
+        public int ReschemeFor_Old<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal_Old(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
+        [Obsolete]
+        private int ReschemeForField_Internal_Old(ReadOnlySpan<char> fieldName, ValueType valueType, int? inlineArrayLength = null)
         {
             var objectBuilder = new ObjectBuilder();
             ref var containerHeader = ref this.Header;
@@ -160,9 +233,9 @@ namespace Minerva.DataStorage
                 Memory<char> tempName = fieldNameBuffer.AsMemory(0, fieldName.Length);
                 if (inlineArrayLength.HasValue)
                 {
-                    objectBuilder.SetArray(tempName, new FieldType(valueType, true), inlineArrayLength.Value);
+                    objectBuilder.SetArray(tempName, valueType, inlineArrayLength.Value);
                 }
-                else objectBuilder.SetScalar(tempName, new FieldType(valueType, false));
+                else objectBuilder.SetScalar(tempName, valueType);
 
                 int baseOffset = containerHeader.NameOffset;
                 for (int i = 0; i < FieldCount; i++)

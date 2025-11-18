@@ -9,7 +9,7 @@ namespace Minerva.DataStorage.Serialization.Tests
     [TestFixture]
     public class StorageSerDeSelfHealTests
     {
-        private static JsonSerializationParameters ParamsWithAdapter() => new JsonSerializationParameters
+        private static Unity.Serialization.Json.JsonSerializationParameters ParamsWithAdapter() => new Unity.Serialization.Json.JsonSerializationParameters
         {
             UserDefinedAdapters = new System.Collections.Generic.List<IJsonAdapter>
             {
@@ -39,7 +39,7 @@ namespace Minerva.DataStorage.Serialization.Tests
             var speedsSpan = root.GetArray("speeds");
             speedsSpan.CopyFrom<float>(speeds);
 
-            var json = JsonSerialization.ToJson(storage, ParamsWithAdapter());
+            var json = Unity.Serialization.Json.JsonSerialization.ToJson(storage, ParamsWithAdapter());
 
             StringAssert.Contains("\"hp\":", json);
             StringAssert.Contains("100", json);
@@ -61,7 +61,7 @@ namespace Minerva.DataStorage.Serialization.Tests
         public void Deserialize_NoSchema_IntLiteral_ReadInt()
         {
             var json = "{ \"health\": 1 }";
-            var storage = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
+            var storage = Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var root = storage.Root;
 
             // Read<int> should self-heal schema to a 4-byte value field if necessary
@@ -80,7 +80,7 @@ namespace Minerva.DataStorage.Serialization.Tests
         public void Deserialize_NoSchema_IntLiteral_ReadByte()
         {
             var json = "{ \"x\": 1 }";
-            var storage = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
+            var storage = Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var root = storage.Root;
 
             byte bx = root.Read<byte>("x");
@@ -100,11 +100,11 @@ namespace Minerva.DataStorage.Serialization.Tests
         public void Deserialize_FloatArray_ReadAsFloatSpan()
         {
             var json = "{ \"speeds\": [1.5, 3.33, 2, 74] }";
-            var storage = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
+            var storage = Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var root = storage.Root;
 
             // Ensure array field exists and is float[4] after self-heal on access if needed
-            Debug.Log(JsonSerialization.ToJson(storage, ParamsWithAdapter()));
+            Debug.Log(Unity.Serialization.Json.JsonSerialization.ToJson(storage, ParamsWithAdapter()));
             var span = root.GetArray("speeds");
             Debug.Log(string.Join(',', span.ToArray<float>()));
             Assert.That(span.Length, Is.EqualTo(4));
@@ -122,7 +122,7 @@ namespace Minerva.DataStorage.Serialization.Tests
         public void Deserialize_RefArray_Nulls_CreatesRefSlots()
         {
             var json = "{ \"children\": [null, null, null] }";
-            var storage = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
+            var storage = Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var root = storage.Root;
 
             var arr = root.GetObjectArray("children");
@@ -153,17 +153,17 @@ namespace Minerva.DataStorage.Serialization.Tests
             sp.CopyFrom<float>(new float[] { 0.1f, 0.2f, 0.3f, 0.4f });//.AsSpan().CopyTo(sp.AsSpan());
             // Leave children nulls
 
-            var json = JsonSerialization.ToJson(s1, ParamsWithAdapter());
+            var json = Unity.Serialization.Json.JsonSerialization.ToJson(s1, ParamsWithAdapter());
             Debug.Log(json);
 
-            var s2 = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
+            var s2 = Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var r2 = s2.Root;
             //Debug.Log(string.Join(',', r2.HeaderSegment.ToArray().Select(s => TypeUtil.ToString(s))));
 
             Assert.That(r2.Read<int>("hp"), Is.EqualTo(123));
             //Debug.Log(string.Join(',', r2.HeaderSegment.ToArray().Select(s => TypeUtil.ToString(s))));
             var sp2 = r2.GetArray("speeds");
-            Debug.Log(JsonSerialization.ToJson(s2, ParamsWithAdapter()));
+            Debug.Log(Unity.Serialization.Json.JsonSerialization.ToJson(s2, ParamsWithAdapter()));
             Assert.That(sp2[0].Read<float>(), Is.EqualTo(0.1f));
             Debug.Log(string.Join(',', sp2.ToArray<float>()));
             Assert.That(sp2.ToArray<float>().SequenceEqual(new float[] { 0.1f, 0.2f, 0.3f, 0.4f }), Is.True);
@@ -182,7 +182,7 @@ namespace Minerva.DataStorage.Serialization.Tests
         {
             // JSON value "42" often gets guessed as Int32 when no schema exists.
             var json = "{ \"v\": 42 }";
-            var storage = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
+            var storage = Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var root = storage.Root;
 
             var baseLength = root.GetField("v").Length;
@@ -208,7 +208,7 @@ namespace Minerva.DataStorage.Serialization.Tests
         {
             Assert.Inconclusive("Not supported yet");
             var json = "{ \"arr\": [10, 20, 30] }";
-            var storage = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
+            var storage = Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var root = storage.Root;
 
             // Access as int[5]; your array accessor should self-heal schema to new fixed length
@@ -228,7 +228,7 @@ namespace Minerva.DataStorage.Serialization.Tests
         public void StructuralChange_ValueVsRef_ShouldThrow()
         {
             var json = "{ \"child\": {} }"; // ref (object)
-            var storage = JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
+            var storage = Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var root = storage.Root;
 
             // Trying to read value type from a ref field should fail

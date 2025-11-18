@@ -4,7 +4,7 @@ using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Minerva.DataStorage
+namespace Minerva.DataStorage.Serialization
 {
     /// <summary>
     /// Binary serialization helpers for <see cref="Storage"/> and <see cref="StorageObject"/>.
@@ -48,7 +48,7 @@ namespace Minerva.DataStorage
         /// Serializes the entire <see cref="Storage"/> tree into a Base64-encoded string.
         /// </summary>
         /// <remarks>
-        /// This is a thin wrapper over <see cref="BinarySerialization.WriteBinaryTo(StorageObject, System.Buffers.IBufferWriter{byte})"/>.
+        /// This is a thin wrapper over <see cref="BinarySerialization.WriteBinaryTo(StorageObject, Buffers.IBufferWriter{byte})"/>.
         /// It first writes the binary payload into an <see cref="ArrayBufferWriter{T}"/> and then
         /// converts the written bytes to a Base64 string.
         /// </remarks>
@@ -109,7 +109,7 @@ namespace Minerva.DataStorage
         /// </remarks>
         /// <param name="storage">The logical object whose container tree will be written.</param>
         /// <param name="writer">Destination buffer writer that receives the serialized bytes.</param>
-        public static void WriteBinaryTo(this StorageObject storage, IBufferWriter<byte> writer)
+        private static void WriteBinaryTo(this StorageObject storage, IBufferWriter<byte> writer)
         {
             WriteBinary_Internal(storage, writer);
             for (int i = 0; i < storage.FieldCount; i++)
@@ -158,6 +158,9 @@ namespace Minerva.DataStorage
             memory.Span.CopyTo(dst);
             writer.Advance(memory.Length);
         }
+
+
+
 
         /// <summary>
         /// Parses a binary blob produced by <see cref="ToBinary(Storage)"/> (or
@@ -212,7 +215,7 @@ namespace Minerva.DataStorage
         }
 
         /// <summary>
-        /// Parses a Base64-encoded string produced by <see cref="ToBase64(Minerva.DataStorage.Storage)"/>
+        /// Parses a Base64-encoded string produced by <see cref="ToBase64(Storage)"/>
         /// and reconstructs a new <see cref="Storage"/> instance.
         /// </summary>
         /// <remarks>
@@ -245,11 +248,11 @@ namespace Minerva.DataStorage
             if (allocate)
             {
                 // This overload always allocates new backing memory for each container.
-                return BinarySerialization.Parse((ReadOnlySpan<byte>)bytes);
+                return Parse((ReadOnlySpan<byte>)bytes);
             }
 
             // This overload can alias the decoded buffer to avoid extra copies.
-            return BinarySerialization.Parse(new Memory<byte>(bytes), allocate: false);
+            return Parse(new Memory<byte>(bytes), allocate: false);
         }
 
         /// <summary>
@@ -351,12 +354,13 @@ namespace Minerva.DataStorage
             var length = BitConverter.ToInt32(src[offset..(offset + ContainerHeader.LengthSize)]);
 
             AllocatedMemory allocated = AllocatedMemory.Create(src.Slice(idSize, length));
+            Span<byte> span = allocated.Span;
 
-            var view = new ContainerView(allocated.Span);
+            ref var containerHeader = ref ContainerHeader.FromSpan(span);
             int totalConsumption = idSize + length;
-            for (int i = 0; i < view.Header.FieldCount; i++)
+            for (int i = 0; i < containerHeader.FieldCount; i++)
             {
-                ref var field = ref view.GetFieldHeader(i);
+                ref var field = ref FieldHeader.FromSpanAndFieldIndex(span, i);
                 if (!field.IsRef)
                     continue;
 
