@@ -215,10 +215,10 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            root.WriteByPath("hp", 42);
+            root.WritePath("hp", 42);
 
             Assert.That(root.Read<int>("hp"), Is.EqualTo(42));
-            Assert.That(root.ReadByPath<int>("hp"), Is.EqualTo(42));
+            Assert.That(root.ReadPath<int>("hp"), Is.EqualTo(42));
         }
 
         [Test]
@@ -227,7 +227,7 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            root.WriteByPath("persistent.entity.mamaRhombear.killed", 5);
+            root.WritePath("persistent.entity.mamaRhombear.killed", 5);
 
             var persistent = root.GetObject("persistent");
             var entity = persistent.GetObject("entity");
@@ -235,7 +235,7 @@ namespace Minerva.DataStorage.Tests
 
             Assert.That(mama.Read<int>("killed"), Is.EqualTo(5));
 
-            var value = root.ReadByPath<int>("persistent.entity.mamaRhombear.killed");
+            var value = root.ReadPath<int>("persistent.entity.mamaRhombear.killed");
             Assert.That(value, Is.EqualTo(5));
         }
 
@@ -245,7 +245,7 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            Assert.Throws<ArgumentException>(() => root.ReadByPath<int>("missing.hp"));
+            Assert.Throws<ArgumentException>(() => root.ReadPath<int>("missing.hp"));
         }
 
         [Test]
@@ -255,9 +255,9 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             var big = new string('x', 148);
-            root.WriteByPath("persistent.entity.mamaRhombear.greetings.helloMessage", big);
+            root.WritePath("persistent.entity.mamaRhombear.greetings.helloMessage", big);
 
-            var result = root.ReadStringByPath("persistent.entity.mamaRhombear.greetings.helloMessage");
+            var result = root.ReadStringPath("persistent.entity.mamaRhombear.greetings.helloMessage");
             Assert.That(result, Is.EqualTo(big));
         }
 
@@ -268,9 +268,9 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             var speeds = new[] { 1.0f, 2.5f, 3.75f };
-            root.WriteArrayByPath("stats.speeds", speeds);
+            root.WriteArrayPath("stats.speeds", speeds);
 
-            var back = root.ReadArrayByPath<float>("stats.speeds");
+            var back = root.ReadArrayPath<float>("stats.speeds");
             CollectionAssert.AreEqual(speeds, back);
         }
 
@@ -281,21 +281,21 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             // Test various scalar types
-            root.WriteByPath("player.stats.hp", 100);
-            root.WriteByPath("player.stats.mana", 50.5f);
-            root.WriteByPath("player.stats.experience", 12345.678);
-            root.WriteByPath("player.stats.isAlive", true);
-            root.WriteByPath("player.stats.level", (byte)42);
-            root.WriteByPath("player.stats.armor", (short)15);
-            root.WriteByPath("player.stats.gold", 999999L);
+            root.WritePath("player.stats.hp", 100);
+            root.WritePath("player.stats.mana", 50.5f);
+            root.WritePath("player.stats.experience", 12345.678);
+            root.WritePath("player.stats.isAlive", true);
+            root.WritePath("player.stats.level", (byte)42);
+            root.WritePath("player.stats.armor", (short)15);
+            root.WritePath("player.stats.gold", 999999L);
 
-            Assert.That(root.ReadByPath<int>("player.stats.hp"), Is.EqualTo(100));
-            Assert.That(root.ReadByPath<float>("player.stats.mana"), Is.EqualTo(50.5f));
-            Assert.That(root.ReadByPath<double>("player.stats.experience"), Is.EqualTo(12345.678));
-            Assert.That(root.ReadByPath<bool>("player.stats.isAlive"), Is.True);
-            Assert.That(root.ReadByPath<byte>("player.stats.level"), Is.EqualTo((byte)42));
-            Assert.That(root.ReadByPath<short>("player.stats.armor"), Is.EqualTo((short)15));
-            Assert.That(root.ReadByPath<long>("player.stats.gold"), Is.EqualTo(999999L));
+            Assert.That(root.ReadPath<int>("player.stats.hp"), Is.EqualTo(100));
+            Assert.That(root.ReadPath<float>("player.stats.mana"), Is.EqualTo(50.5f));
+            Assert.That(root.ReadPath<double>("player.stats.experience"), Is.EqualTo(12345.678));
+            Assert.That(root.ReadPath<bool>("player.stats.isAlive"), Is.True);
+            Assert.That(root.ReadPath<byte>("player.stats.level"), Is.EqualTo((byte)42));
+            Assert.That(root.ReadPath<short>("player.stats.armor"), Is.EqualTo((short)15));
+            Assert.That(root.ReadPath<long>("player.stats.gold"), Is.EqualTo(999999L));
         }
 
         [Test]
@@ -310,17 +310,17 @@ namespace Minerva.DataStorage.Tests
             var boolArray = new[] { true, false, true, false, true };
             var byteArray = new byte[] { 0x01, 0x02, 0x03, 0xFF };
 
-            root.WriteArrayByPath("data.integers", intArray);
-            root.WriteArrayByPath("data.floats", floatArray);
-            root.WriteArrayByPath("data.doubles", doubleArray);
-            root.WriteArrayByPath("data.booleans", boolArray);
-            root.WriteArrayByPath("data.bytes", byteArray);
+            root.WriteArrayPath("data.integers", intArray);
+            root.WriteArrayPath("data.floats", floatArray);
+            root.WriteArrayPath("data.doubles", doubleArray);
+            root.WriteArrayPath("data.booleans", boolArray);
+            root.WriteArrayPath("data.bytes", byteArray);
 
-            CollectionAssert.AreEqual(intArray, root.ReadArrayByPath<int>("data.integers"));
-            CollectionAssert.AreEqual(floatArray, root.ReadArrayByPath<float>("data.floats"));
-            CollectionAssert.AreEqual(doubleArray, root.ReadArrayByPath<double>("data.doubles"));
-            CollectionAssert.AreEqual(boolArray, root.ReadArrayByPath<bool>("data.booleans"));
-            CollectionAssert.AreEqual(byteArray, root.ReadArrayByPath<byte>("data.bytes"));
+            CollectionAssert.AreEqual(intArray, root.ReadArrayPath<int>("data.integers"));
+            CollectionAssert.AreEqual(floatArray, root.ReadArrayPath<float>("data.floats"));
+            CollectionAssert.AreEqual(doubleArray, root.ReadArrayPath<double>("data.doubles"));
+            CollectionAssert.AreEqual(boolArray, root.ReadArrayPath<bool>("data.booleans"));
+            CollectionAssert.AreEqual(byteArray, root.ReadArrayPath<byte>("data.bytes"));
         }
 
         [Test]
@@ -329,13 +329,13 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            root.WriteByPath("a/b/c/value", 42, '/');
-            root.WriteArrayByPath<float>("x/y/z/array", new[] { 1.0f, 2.0f, 3.0f }, '/');
-            root.WriteByPath("path/to/string", "hello", '/');
+            root.WritePath("a/b/c/value", 42, '/');
+            root.WriteArrayPath<float>("x/y/z/array", new[] { 1.0f, 2.0f, 3.0f }, '/');
+            root.WritePath("path/to/string", "hello", '/');
 
-            Assert.That(root.ReadByPath<int>("a/b/c/value", '/'), Is.EqualTo(42));
-            CollectionAssert.AreEqual(new[] { 1.0f, 2.0f, 3.0f }, root.ReadArrayByPath<float>("x/y/z/array", '/'));
-            Assert.That(root.ReadStringByPath("path/to/string", '/'), Is.EqualTo("hello"));
+            Assert.That(root.ReadPath<int>("a/b/c/value", '/'), Is.EqualTo(42));
+            CollectionAssert.AreEqual(new[] { 1.0f, 2.0f, 3.0f }, root.ReadArrayPath<float>("x/y/z/array", '/'));
+            Assert.That(root.ReadStringPath("path/to/string", '/'), Is.EqualTo("hello"));
         }
 
         [Test]
@@ -344,9 +344,9 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            root.WriteByPath("level1.level2.value", 99);
+            root.WritePath("level1.level2.value", 99);
 
-            Assert.That(root.TryReadByPath<int>("level1.level2.value", out var value), Is.True);
+            Assert.That(root.TryReadPath<int>("level1.level2.value", out var value), Is.True);
             Assert.That(value, Is.EqualTo(99));
         }
 
@@ -356,7 +356,7 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            Assert.That(root.TryReadByPath<int>("missing.path.value", out var value), Is.False);
+            Assert.That(root.TryReadPath<int>("missing.path.value", out var value), Is.False);
             Assert.That(value, Is.EqualTo(0)); // default value
         }
 
@@ -366,11 +366,11 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            root.WriteByPath("config.setting", 10);
-            Assert.That(root.ReadByPath<int>("config.setting"), Is.EqualTo(10));
+            root.WritePath("config.setting", 10);
+            Assert.That(root.ReadPath<int>("config.setting"), Is.EqualTo(10));
 
-            root.WriteByPath("config.setting", 20);
-            Assert.That(root.ReadByPath<int>("config.setting"), Is.EqualTo(20));
+            root.WritePath("config.setting", 20);
+            Assert.That(root.ReadPath<int>("config.setting"), Is.EqualTo(20));
         }
 
         [Test]
@@ -382,11 +382,11 @@ namespace Minerva.DataStorage.Tests
             var array1 = new[] { 1, 2, 3 };
             var array2 = new[] { 4, 5, 6, 7, 8 };
 
-            root.WriteArrayByPath("data.numbers", array1);
-            CollectionAssert.AreEqual(array1, root.ReadArrayByPath<int>("data.numbers"));
+            root.WriteArrayPath("data.numbers", array1);
+            CollectionAssert.AreEqual(array1, root.ReadArrayPath<int>("data.numbers"));
 
-            root.WriteArrayByPath("data.numbers", array2);
-            CollectionAssert.AreEqual(array2, root.ReadArrayByPath<int>("data.numbers"));
+            root.WriteArrayPath("data.numbers", array2);
+            CollectionAssert.AreEqual(array2, root.ReadArrayPath<int>("data.numbers"));
         }
 
         [Test]
@@ -396,9 +396,9 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             var emptyArray = new int[0];
-            root.WriteArrayByPath("data.empty", emptyArray);
+            root.WriteArrayPath("data.empty", emptyArray);
 
-            var back = root.ReadArrayByPath<int>("data.empty");
+            var back = root.ReadArrayPath<int>("data.empty");
             Assert.That(back.Length, Is.EqualTo(0));
         }
 
@@ -414,8 +414,8 @@ namespace Minerva.DataStorage.Tests
                 largeArray[i] = i * 0.5f;
             }
 
-            root.WriteArrayByPath("data.large", largeArray);
-            var back = root.ReadArrayByPath<float>("data.large");
+            root.WriteArrayPath("data.large", largeArray);
+            var back = root.ReadArrayPath<float>("data.large");
 
             Assert.That(back.Length, Is.EqualTo(1000));
             CollectionAssert.AreEqual(largeArray, back);
@@ -428,9 +428,9 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             var deepPath = "a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.value";
-            root.WriteByPath(deepPath, 777);
+            root.WritePath(deepPath, 777);
 
-            Assert.That(root.ReadByPath<int>(deepPath), Is.EqualTo(777));
+            Assert.That(root.ReadPath<int>(deepPath), Is.EqualTo(777));
         }
 
         [Test]
@@ -440,13 +440,13 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             // Write scalar, then array, then string to different fields in same path
-            root.WriteByPath("entity.stats.hp", 100);
-            root.WriteArrayByPath("entity.stats.buffs", new[] { 1.0f, 2.0f });
-            root.WriteByPath("entity.stats.name", "Player1");
+            root.WritePath("entity.stats.hp", 100);
+            root.WriteArrayPath("entity.stats.buffs", new[] { 1.0f, 2.0f });
+            root.WritePath("entity.stats.name", "Player1");
 
-            Assert.That(root.ReadByPath<int>("entity.stats.hp"), Is.EqualTo(100));
-            CollectionAssert.AreEqual(new[] { 1.0f, 2.0f }, root.ReadArrayByPath<float>("entity.stats.buffs"));
-            Assert.That(root.ReadStringByPath("entity.stats.name"), Is.EqualTo("Player1"));
+            Assert.That(root.ReadPath<int>("entity.stats.hp"), Is.EqualTo(100));
+            CollectionAssert.AreEqual(new[] { 1.0f, 2.0f }, root.ReadArrayPath<float>("entity.stats.buffs"));
+            Assert.That(root.ReadStringPath("entity.stats.name"), Is.EqualTo("Player1"));
         }
 
         [Test]
@@ -455,7 +455,7 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            root.WriteByPath("level1.level2.value", 42);
+            root.WritePath("level1.level2.value", 42);
 
             var level1 = root.GetObjectByPath("level1");
             Assert.That(level1.IsNull, Is.False);
@@ -471,10 +471,10 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            root.WriteByPath("level1.level2", 10); // Creates level1.level2 as a scalar, not an object
+            root.WritePath("level1.level2", 10); // Creates level1.level2 as a scalar, not an object
 
             // When trying to navigate through a scalar field, it throws ArgumentException
-            Assert.Throws<ArgumentException>(() => root.ReadByPath<int>("level1.level2.missing"));
+            Assert.Throws<ArgumentException>(() => root.ReadPath<int>("level1.level2.missing"));
         }
 
         [Test]
@@ -483,7 +483,7 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            Assert.Throws<ArgumentException>(() => root.ReadArrayByPath<int>("missing.path.array"));
+            Assert.Throws<ArgumentException>(() => root.ReadArrayPath<int>("missing.path.array"));
         }
 
         [Test]
@@ -492,7 +492,7 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            Assert.Throws<ArgumentException>(() => root.ReadStringByPath("missing.path.string"));
+            Assert.Throws<ArgumentException>(() => root.ReadStringPath("missing.path.string"));
         }
 
         [Test]
@@ -501,8 +501,8 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            Assert.Throws<ArgumentException>(() => root.ReadByPath<int>(""));
-            Assert.Throws<ArgumentException>(() => root.WriteByPath("", 10));
+            Assert.Throws<ArgumentException>(() => root.ReadPath<int>(""));
+            Assert.Throws<ArgumentException>(() => root.WritePath("", 10));
         }
 
         [Test]
@@ -511,9 +511,9 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            Assert.Throws<ArgumentNullException>(() => root.ReadByPath<int>(null));
-            Assert.Throws<ArgumentNullException>(() => root.WriteByPath<int>(null, 10));
-            Assert.Throws<ArgumentNullException>(() => root.WriteByPath(null, "test"));
+            Assert.Throws<ArgumentNullException>(() => root.ReadPath<int>(null));
+            Assert.Throws<ArgumentNullException>(() => root.WritePath<int>(null, 10));
+            Assert.Throws<ArgumentNullException>(() => root.WritePath(null, "test"));
         }
 
         [Test]
@@ -522,11 +522,11 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            root.WriteByPath("shared.value", 123);
+            root.WritePath("shared.value", 123);
 
             for (int i = 0; i < 10; i++)
             {
-                Assert.That(root.ReadByPath<int>("shared.value"), Is.EqualTo(123));
+                Assert.That(root.ReadPath<int>("shared.value"), Is.EqualTo(123));
             }
         }
 
@@ -537,22 +537,22 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             // Create a complex nested structure
-            root.WriteByPath("game.player.stats.hp", 100);
-            root.WriteByPath("game.player.stats.mana", 50);
-            root.WriteArrayByPath("game.player.stats.inventory", new[] { 1, 2, 3, 4, 5 });
-            root.WriteByPath("game.player.name", "Hero");
-            root.WriteByPath("game.enemy.stats.hp", 50);
-            root.WriteArrayByPath("game.enemy.stats.abilities", new[] { 10.0f, 20.0f, 30.0f });
-            root.WriteByPath("game.level", 5);
+            root.WritePath("game.player.stats.hp", 100);
+            root.WritePath("game.player.stats.mana", 50);
+            root.WriteArrayPath("game.player.stats.inventory", new[] { 1, 2, 3, 4, 5 });
+            root.WritePath("game.player.name", "Hero");
+            root.WritePath("game.enemy.stats.hp", 50);
+            root.WriteArrayPath("game.enemy.stats.abilities", new[] { 10.0f, 20.0f, 30.0f });
+            root.WritePath("game.level", 5);
 
             // Verify all values
-            Assert.That(root.ReadByPath<int>("game.player.stats.hp"), Is.EqualTo(100));
-            Assert.That(root.ReadByPath<int>("game.player.stats.mana"), Is.EqualTo(50));
-            CollectionAssert.AreEqual(new[] { 1, 2, 3, 4, 5 }, root.ReadArrayByPath<int>("game.player.stats.inventory"));
-            Assert.That(root.ReadStringByPath("game.player.name"), Is.EqualTo("Hero"));
-            Assert.That(root.ReadByPath<int>("game.enemy.stats.hp"), Is.EqualTo(50));
-            CollectionAssert.AreEqual(new[] { 10.0f, 20.0f, 30.0f }, root.ReadArrayByPath<float>("game.enemy.stats.abilities"));
-            Assert.That(root.ReadByPath<int>("game.level"), Is.EqualTo(5));
+            Assert.That(root.ReadPath<int>("game.player.stats.hp"), Is.EqualTo(100));
+            Assert.That(root.ReadPath<int>("game.player.stats.mana"), Is.EqualTo(50));
+            CollectionAssert.AreEqual(new[] { 1, 2, 3, 4, 5 }, root.ReadArrayPath<int>("game.player.stats.inventory"));
+            Assert.That(root.ReadStringPath("game.player.name"), Is.EqualTo("Hero"));
+            Assert.That(root.ReadPath<int>("game.enemy.stats.hp"), Is.EqualTo(50));
+            CollectionAssert.AreEqual(new[] { 10.0f, 20.0f, 30.0f }, root.ReadArrayPath<float>("game.enemy.stats.abilities"));
+            Assert.That(root.ReadPath<int>("game.level"), Is.EqualTo(5));
         }
 
         [Test]
@@ -562,19 +562,19 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             // Write small array
-            root.WriteArrayByPath("data.items", new[] { 1, 2 });
-            Assert.That(root.ReadArrayByPath<int>("data.items").Length, Is.EqualTo(2));
+            root.WriteArrayPath("data.items", new[] { 1, 2 });
+            Assert.That(root.ReadArrayPath<int>("data.items").Length, Is.EqualTo(2));
 
             // Overwrite with larger array
-            root.WriteArrayByPath("data.items", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
-            var back = root.ReadArrayByPath<int>("data.items");
+            root.WriteArrayPath("data.items", new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+            var back = root.ReadArrayPath<int>("data.items");
             Assert.That(back.Length, Is.EqualTo(10));
             CollectionAssert.AreEqual(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }, back);
 
             // Overwrite with smaller array
-            root.WriteArrayByPath("data.items", new[] { 100 });
-            Assert.That(root.ReadArrayByPath<int>("data.items").Length, Is.EqualTo(1));
-            Assert.That(root.ReadArrayByPath<int>("data.items")[0], Is.EqualTo(100));
+            root.WriteArrayPath("data.items", new[] { 100 });
+            Assert.That(root.ReadArrayPath<int>("data.items").Length, Is.EqualTo(1));
+            Assert.That(root.ReadArrayPath<int>("data.items")[0], Is.EqualTo(100));
         }
 
         [Test]
@@ -584,9 +584,9 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             var text = "Hello, World! This is a test string.";
-            root.WriteByPath("messages.greeting", text);
+            root.WritePath("messages.greeting", text);
 
-            var back = root.ReadStringByPath("messages.greeting");
+            var back = root.ReadStringPath("messages.greeting");
             Assert.That(back, Is.EqualTo(text));
         }
 
@@ -597,9 +597,9 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             var unicode = "Hello 世界 🌍 测试";
-            root.WriteByPath("text.unicode", unicode);
+            root.WritePath("text.unicode", unicode);
 
-            var back = root.ReadStringByPath("text.unicode");
+            var back = root.ReadStringPath("text.unicode");
             Assert.That(back, Is.EqualTo(unicode));
         }
 
@@ -609,27 +609,27 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            root.WriteByPath("types.sbyte", (sbyte)-50);
-            root.WriteByPath("types.byte", (byte)200);
-            root.WriteByPath("types.short", (short)-1000);
-            root.WriteByPath("types.ushort", (ushort)5000);
-            root.WriteByPath("types.int", -100000);
-            root.WriteByPath("types.uint", 200000U);
-            root.WriteByPath("types.long", -1000000L);
-            root.WriteByPath("types.ulong", 2000000UL);
-            root.WriteByPath("types.float", 3.14f);
-            root.WriteByPath("types.double", 2.71828);
+            root.WritePath("types.sbyte", (sbyte)-50);
+            root.WritePath("types.byte", (byte)200);
+            root.WritePath("types.short", (short)-1000);
+            root.WritePath("types.ushort", (ushort)5000);
+            root.WritePath("types.int", -100000);
+            root.WritePath("types.uint", 200000U);
+            root.WritePath("types.long", -1000000L);
+            root.WritePath("types.ulong", 2000000UL);
+            root.WritePath("types.float", 3.14f);
+            root.WritePath("types.double", 2.71828);
 
-            Assert.That(root.ReadByPath<sbyte>("types.sbyte"), Is.EqualTo((sbyte)-50));
-            Assert.That(root.ReadByPath<byte>("types.byte"), Is.EqualTo((byte)200));
-            Assert.That(root.ReadByPath<short>("types.short"), Is.EqualTo((short)-1000));
-            Assert.That(root.ReadByPath<ushort>("types.ushort"), Is.EqualTo((ushort)5000));
-            Assert.That(root.ReadByPath<int>("types.int"), Is.EqualTo(-100000));
-            Assert.That(root.ReadByPath<uint>("types.uint"), Is.EqualTo(200000U));
-            Assert.That(root.ReadByPath<long>("types.long"), Is.EqualTo(-1000000L));
-            Assert.That(root.ReadByPath<ulong>("types.ulong"), Is.EqualTo(2000000UL));
-            Assert.That(root.ReadByPath<float>("types.float"), Is.EqualTo(3.14f));
-            Assert.That(root.ReadByPath<double>("types.double"), Is.EqualTo(2.71828));
+            Assert.That(root.ReadPath<sbyte>("types.sbyte"), Is.EqualTo((sbyte)-50));
+            Assert.That(root.ReadPath<byte>("types.byte"), Is.EqualTo((byte)200));
+            Assert.That(root.ReadPath<short>("types.short"), Is.EqualTo((short)-1000));
+            Assert.That(root.ReadPath<ushort>("types.ushort"), Is.EqualTo((ushort)5000));
+            Assert.That(root.ReadPath<int>("types.int"), Is.EqualTo(-100000));
+            Assert.That(root.ReadPath<uint>("types.uint"), Is.EqualTo(200000U));
+            Assert.That(root.ReadPath<long>("types.long"), Is.EqualTo(-1000000L));
+            Assert.That(root.ReadPath<ulong>("types.ulong"), Is.EqualTo(2000000UL));
+            Assert.That(root.ReadPath<float>("types.float"), Is.EqualTo(3.14f));
+            Assert.That(root.ReadPath<double>("types.double"), Is.EqualTo(2.71828));
         }
 
         [Test]
@@ -639,7 +639,7 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
             int invoked = 0;
 
-            using var subscription = root.SubscribeToField("score", (in StorageFieldWriteEventArgs args) =>
+            using var subscription = root.Subscribe("score", (in StorageFieldWriteEventArgs args) =>
             {
                 invoked++;
                 Assert.That(args.FieldName, Is.EqualTo("score"));
@@ -658,7 +658,7 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
             int invoked = 0;
 
-            var subscription = root.SubscribeToField("hp", (in StorageFieldWriteEventArgs _) => invoked++);
+            var subscription = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => invoked++);
 
             root.Write("hp", 10);
             Assert.That(invoked, Is.EqualTo(1));
@@ -675,14 +675,14 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
             int invoked = 0;
 
-            using var subscription = root.SubscribeToFieldByPath("player.stats.hp", (in StorageFieldWriteEventArgs args) =>
+            using var subscription = root.Subscribe("player.stats.hp", (in StorageFieldWriteEventArgs args) =>
             {
                 invoked++;
                 Assert.That(args.FieldName, Is.EqualTo("hp"));
                 Assert.That(args.Target.Read<int>("hp"), Is.EqualTo(77));
             });
 
-            root.WriteByPath("player.stats.hp", 77);
+            root.WritePath("player.stats.hp", 77);
             Assert.That(invoked, Is.EqualTo(1));
         }
 
@@ -694,7 +694,7 @@ namespace Minerva.DataStorage.Tests
             root.Write<byte>("small", 1);
             int invoked = 0;
 
-            using var subscription = root.SubscribeToField("small", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var subscription = root.Subscribe("small", (in StorageFieldWriteEventArgs _) => invoked++);
 
             root.TryWrite<int>("small", 99, allowRescheme: false);
             Assert.That(invoked, Is.EqualTo(0));
@@ -708,8 +708,8 @@ namespace Minerva.DataStorage.Tests
             int a = 0;
             int b = 0;
 
-            using var subA = root.SubscribeToField("score", (in StorageFieldWriteEventArgs _) => a++);
-            using var subB = root.SubscribeToField("score", (in StorageFieldWriteEventArgs _) => b++);
+            using var subA = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => a++);
+            using var subB = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => b++);
 
             root.Write("score", 10);
 
@@ -724,21 +724,21 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             int stringInvoked = 0;
-            using var stringSub = root.SubscribeToField("playerName", (in StorageFieldWriteEventArgs args) =>
+            using var stringSub = root.Subscribe("playerName", (in StorageFieldWriteEventArgs args) =>
             {
                 stringInvoked++;
                 Assert.That(args.Target.ReadString(args.FieldName), Is.EqualTo("Hero"));
             });
 
             int arrayInvoked = 0;
-            using var arraySub = root.SubscribeToFieldByPath("stats.speeds", (in StorageFieldWriteEventArgs args) =>
+            using var arraySub = root.Subscribe("stats.speeds", (in StorageFieldWriteEventArgs args) =>
             {
                 arrayInvoked++;
                 CollectionAssert.AreEqual(new[] { 1.0f, 2.5f }, args.Target.ReadArray<float>(args.FieldName));
             });
 
             root.Write("playerName", "Hero");
-            root.WriteArrayByPath("stats.speeds", new[] { 1.0f, 2.5f });
+            root.WriteArrayPath("stats.speeds", new[] { 1.0f, 2.5f });
 
             Assert.That(stringInvoked, Is.EqualTo(1));
             Assert.That(arrayInvoked, Is.EqualTo(1));
@@ -752,7 +752,7 @@ namespace Minerva.DataStorage.Tests
             var child = root.GetObject("child", layout: _leafLayout);
             int invoked = 0;
 
-            using var sub = child.SubscribeToField("hp", (in StorageFieldWriteEventArgs args) =>
+            using var sub = child.Subscribe("hp", (in StorageFieldWriteEventArgs args) =>
             {
                 invoked++;
                 Assert.That(args.Target.ID, Is.EqualTo(child.ID));
@@ -770,13 +770,13 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             Assert.Throws<ArgumentException>(() =>
-                root.SubscribeToFieldByPath("missing.value", (in StorageFieldWriteEventArgs _) => { }, createIfMissing: false));
+                root.Subscribe("missing.value", (in StorageFieldWriteEventArgs _) => { }, createIfMissing: false));
 
-            root.WriteByPath("existing.value", 1);
+            root.WritePath("existing.value", 1);
             int invoked = 0;
-            using var sub = root.SubscribeToFieldByPath("existing.value", (in StorageFieldWriteEventArgs _) => invoked++, createIfMissing: false);
+            using var sub = root.Subscribe("existing.value", (in StorageFieldWriteEventArgs _) => invoked++, createIfMissing: false);
 
-            root.WriteByPath("existing.value", 2);
+            root.WritePath("existing.value", 2);
             Assert.That(invoked, Is.EqualTo(1));
         }
     }
