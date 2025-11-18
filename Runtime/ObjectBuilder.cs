@@ -372,10 +372,11 @@ namespace Minerva.DataStorage
             // Create buffer/view
             target.Expand(allocSize);
             target.Clear();
-            ContainerHeader.WriteLength(target.Span, dataStart + totalDataBytes);
+            Span<byte> span = target.Span;
+            ContainerHeader.WriteLength(span, dataStart + totalDataBytes);
 
             // Header
-            ref var h2 = ref ContainerHeader.FromSpan(target.Span);
+            ref var h2 = ref ContainerHeader.FromSpan(span);
             h2.Version = Version;
             h2.FieldCount = n;
             //h2.NameOffset = nameStart;  // absolute
@@ -388,7 +389,7 @@ namespace Minerva.DataStorage
             {
                 var name = _map.Keys[i];
                 var e = _map.Values[i];
-                ref var field = ref FieldHeader.FromSpan(target.AsSpan(ContainerHeader.Size + FieldHeader.Size * i));
+                ref var field = ref FieldHeader.FromSpanAndFieldIndex(span, i);
 
                 field = new FieldHeader
                 {
@@ -469,10 +470,10 @@ namespace Minerva.DataStorage
         internal static ObjectBuilder FromContainer(Container container)
         {
             var builder = new ObjectBuilder();
-            ContainerView view = container.View;
             for (int i = 0; i < container.FieldCount; i++)
             {
-                builder.SetRaw(view[i].Name.ToString(), in view[i].Header);
+                ref var header = ref container.GetFieldHeader(i);
+                builder.SetRaw(container.GetFieldName(in header).ToString(), in header);
             }
             return builder;
         }

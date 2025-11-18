@@ -354,12 +354,13 @@ namespace Minerva.DataStorage.Serialization
             var length = BitConverter.ToInt32(src[offset..(offset + ContainerHeader.LengthSize)]);
 
             AllocatedMemory allocated = AllocatedMemory.Create(src.Slice(idSize, length));
+            Span<byte> span = allocated.Span;
 
-            var view = new ContainerView(allocated.Span);
+            ref var containerHeader = ref ContainerHeader.FromSpan(span);
             int totalConsumption = idSize + length;
-            for (int i = 0; i < view.Header.FieldCount; i++)
+            for (int i = 0; i < containerHeader.FieldCount; i++)
             {
-                ref var field = ref view.GetFieldHeader(i);
+                ref var field = ref FieldHeader.FromSpanAndFieldIndex(span, i);
                 if (!field.IsRef)
                     continue;
 

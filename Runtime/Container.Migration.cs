@@ -156,7 +156,8 @@ namespace Minerva.DataStorage
             try
             {
                 // header copy
-                ref var nextHeader = ref ContainerHeader.FromSpan(next.Span);
+                Span<byte> span = next.Span;
+                ref var nextHeader = ref ContainerHeader.FromSpan(span);
                 nextHeader = currentHeader;
                 nextHeader.FieldCount += isNewField ? 1 : 0; // count increment
                 nextHeader.DataOffset += isNewField ? FieldHeader.Size + fieldName.Length * sizeof(char) : 0;
@@ -168,7 +169,7 @@ namespace Minerva.DataStorage
                 // copy header
                 for (int i = 0, j = 0; i < newFieldCount; i++)
                 {
-                    ref var f = ref FieldHeader.FromSpan(next.AsSpan(ContainerHeader.Size + i * FieldHeader.Size));
+                    ref var f = ref FieldHeader.FromSpanAndFieldIndex(span, i);
                     // match insertion
                     if (i == targetIndex)
                     {
