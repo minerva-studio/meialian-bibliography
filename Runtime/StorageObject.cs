@@ -913,12 +913,12 @@ namespace Minerva.DataStorage
             int fieldIndex = _container.IndexOf(fieldName);
             ref var header = ref _container.GetFieldHeader(fieldIndex);
             // inline array
-            if (!header.IsRef)
+            if (header.IsInlineArray)
                 return new(_container, fieldIndex);
 
             // obj array
-            var obj = GetObject(fieldIndex);
-            if (obj.IsArray)
+            var obj = GetObject(fieldIndex, false, null);
+            if (!obj.IsNull && obj.IsArray)
                 return new(obj.Container, 0);
 
             throw new InvalidOperationException($"Field {fieldName.ToString()} is not an array");
