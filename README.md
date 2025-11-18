@@ -27,6 +27,7 @@ Unity: `2021.3`+
     - [1. (Optional) Define a schema](#1-optional-define-a-schema)
     - [2. Create storage \& write data](#2-create-storage--write-data)
     - [3. Serialize to / from JSON](#3-serialize-to--from-json)
+    - [4. Subscribe to field write events](#4-subscribe-to-field-write-events)
   - [Core Concepts](#core-concepts)
     - [Storage \& StorageObject](#storage--storageobject)
     - [ContainerLayout \& ObjectBuilder](#containerlayout--objectbuilder)
@@ -102,6 +103,10 @@ Use it when you need a **small in-memory “database” for game stats / scorebo
   - `StorageAdapter` integrates with `Unity.Serialization.Json`.
   - Supports round-tripping `Storage` to/from JSON for saves, debugging, or tools.
   - Basic “self-heal” behavior when JSON shape drifts from the current schema.
+- **Field write subscriptions**
+  - Register callbacks for specific fields or paths.
+  - Observe when hot stats change without polling your data tree.
+  - Unsubscribe via the returned `IDisposable` when no longer needed.
 
 - **Tested & benchmarked**
   - NUnit tests cover memory safety, public API semantics, and migration.
@@ -216,18 +221,18 @@ int score = root.Read<int>("score");
 int level = player.Read<int>("level");
 
 // Path-based navigation from the root (dot-separated)
-root.WriteByPath("persistent.entity.mamaRhombear.killed", 1);
-int killed = root.ReadByPath<int>("persistent.entity.mamaRhombear.killed");
+root.WritePath("persistent.entity.mamaRhombear.killed", 1);
+int killed = root.ReadPath<int>("persistent.entity.mamaRhombear.killed");
 
 // You can think of this as roughly equivalent to:
 // root.GetObject("persistent").GetObject("entity").GetObject("mamaRhombear").Write("killed", 1);
 
 // Strings and arrays via path
-root.WriteByPath("strings.greeting", "Hello");
-string greeting = root.ReadStringByPath("strings.greeting");
+root.WritePath("strings.greeting", "Hello");
+string greeting = root.ReadStringPath("strings.greeting");
 
-root.WriteArrayByPath("stats.speeds", new[] { 1.0f, 2.5f, 3.75f });
-float[] speeds = root.ReadArrayByPath<float>("stats.speeds");
+root.WriteArrayPath("stats.speeds", new[] { 1.0f, 2.5f, 3.75f });
+float[] speeds = root.ReadArrayPath<float>("stats.speeds");
 ```
 
 Path segments are separated by `.` by default.  
@@ -235,8 +240,8 @@ Advanced usage can override the separator via the span-based overloads, e.g.:
 
 ```csharp
 // Use '/' as separator instead of '.'
-root.WriteByPath("persistent/entity/mamaRhombear/killed".AsSpan(), 1, separator: '/');
-int killed2 = root.ReadByPath<int>("persistent/entity/mamaRhombear/killed".AsSpan(), separator: '/');
+root.WritePath("persistent/entity/mamaRhombear/killed".AsSpan(), 1, separator: '/');
+int killed2 = root.ReadPath<int>("persistent/entity/mamaRhombear/killed".AsSpan(), separator: '/');
 ```
 
 From user code, you only deal with:
@@ -275,6 +280,38 @@ Storage loaded = JsonSerialization.FromJson<Storage>(json, parameters);
 StorageObject loadedRoot = loaded.Root;
 ```
 
+---
+
+### 4. Subscribe to field write events
+
+Hook into individual fields to react when critical stats change without scanning the storage:
+
+```csharp
+using Minerva.DataStorage;
+
+using var storage = new Storage();
+var root = storage.Root;
+
+using var subscription = root.Subscribe("score", (in StorageFieldWriteEventArgs args) =>
+{
+    int score = args.Target.Read<int>(args.FieldName);
+    UnityEngine.Debug.Log($"Score updated to {score}");
+});
+
+root.Write("score", 42);
+// handler fires once, then you can dispose the subscription when done
+```
+
+Need to watch a nested field? Use path-based subscriptions:
+
+```csharp
+using var sub = root.Subscribe("player.stats.hp", args =>
+{
+    var hp = args.Target.Read<int>("hp");
+    OnHpChanged(hp);
+});
+```
+
 The adapter:
 
 * Walks your layout and writes fields to JSON.
@@ -306,9 +343,9 @@ The adapter:
     * `Write<T>(string fieldName, T value)`
     * `Read<T>(string fieldName)`
     * `ReadOrDefault<T>(string fieldName)`
-    * `WriteByPath<T>(string path, T value)`, `ReadByPath<T>(string path)`
-    * `WriteByPath(string path, string value)`, `ReadStringByPath(string path)`
-    * `WriteArrayByPath<T>(string path, T[] value)`, `ReadArrayByPath<T>(string path)`
+    * `WritePath<T>(string path, T value)`, `ReadPath<T>(string path)`
+    * `WritePath(string path, string value)`, `ReadStringPath(string path)`
+    * `WriteArrayPath<T>(string path, T[] value)`, `ReadArrayPath<T>(string path)`
     * `GetObject`, `GetObjectByPath`, `GetField`, etc.
   * Uses an internal generation number to detect stale handles (e.g., after migration).
 
@@ -637,7 +674,7 @@ You can run them via Unity Test Runner:
 ## Roadmap / TODO
 
 * [x] Path for locating a field/object from the root/any position of the storage
-* [ ] Listen for read/write event for any field within the storage
+* [x] Subscribe to write events for specific designated fields within the storage
 * [ ] Support for any random unmanaged struct type.
 * [ ] Higher-level typed wrapper API (e.g., generated strongly-typed views).
 * [ ] Editor inspectors for debugging storages in the Unity Editor.

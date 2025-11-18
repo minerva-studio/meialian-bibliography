@@ -10,6 +10,8 @@ namespace Minerva.DataStorage
     /// </summary>
     public readonly struct StorageObject : IEquatable<StorageObject>
     {
+        private const char DefaultPathSeparator = '.';
+
         private readonly Container _container;
         private readonly int _generation;
 
@@ -112,7 +114,11 @@ namespace Minerva.DataStorage
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(string fieldName, T value) where T : unmanaged
-            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, true), value, true);
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            container.Write_Internal(ref container.GetFieldHeader<T>(fieldName, true), value, true);
+            NotifyFieldWrite(container, fieldName);
+        }
 
         /// <summary>
         /// Write a value to an existing field without rescheming, if the field does not exist, an exception is thrown.
@@ -122,20 +128,32 @@ namespace Minerva.DataStorage
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
-            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            container.Write_Internal(ref container.GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
+            NotifyFieldWrite(container, fieldName);
+        }
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
         /// </summary>   
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(int index, T value) where T : unmanaged
-            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader(index), value, true);
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            container.Write_Internal(ref container.GetFieldHeader(index), value, true);
+            NotifyFieldWrite(container, index);
+        }
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
         /// </summary>   
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(int index, T value, bool allowResize = true) where T : unmanaged
-            => _container.Write_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader(index), value, allowResize);
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            container.Write_Internal(ref container.GetFieldHeader(index), value, allowResize);
+            NotifyFieldWrite(container, index);
+        }
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
@@ -144,8 +162,16 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void TryWrite<T>(string fieldName, T value) where T : unmanaged
-            => _container.TryWrite_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, true), value, true);
+        public bool TryWrite<T>(string fieldName, T value) where T : unmanaged
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            if (container.TryWrite_Internal(ref container.GetFieldHeader<T>(fieldName, true), value, true) == 0)
+            {
+                NotifyFieldWrite(container, fieldName);
+                return true;
+            }
+            return false;
+        }
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
@@ -154,9 +180,56 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void TryWrite<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
-            => _container.TryWrite_Internal(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
+        public bool TryWrite<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            if (container.TryWrite_Internal(ref container.GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme) == 0)
+            {
+                NotifyFieldWrite(container, fieldName);
+                return true;
+            }
+            return false;
+        }
 
+
+
+        /// <summary>
+        /// Subscribe to write notifications for a field located by a path relative to this object.
+        /// </summary>
+        /// <param name="path">Dot-separated path to the field.</param>
+        /// <param name="handler">Callback invoked after the field is written.</param> 
+        /// <returns>An IDisposable subscription handle.</returns> 
+        public StorageWriteSubscription Subscribe(string path, StorageFieldWriteHandler handler)
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+
+            var container = NavigateToObject(path, DefaultPathSeparator, true, out var fieldSegment);
+            if (fieldSegment.Length == 0)
+                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+
+            return StorageWriteEventRegistry.Subscribe(container._container, fieldSegment.ToString(), handler);
+        }
+
+        /// <summary>
+        /// Subscribe to write notifications for a field located by a path relative to this object.
+        /// </summary>
+        /// <param name="path">Dot-separated path to the field.</param>
+        /// <param name="handler">Callback invoked after the field is written.</param>
+        /// <param name="createIfMissing">Create intermediate objects if they do not exist.</param>
+        /// <param name="separator">Path separator character.</param>
+        /// <returns>An IDisposable subscription handle.</returns>
+        public StorageWriteSubscription Subscribe(string path, StorageFieldWriteHandler handler, bool createIfMissing = true, char separator = DefaultPathSeparator)
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+
+            var container = NavigateToObject(path, separator, createIfMissing, out var fieldSegment);
+            if (fieldSegment.Length == 0)
+                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+
+            return StorageWriteEventRegistry.Subscribe(container._container, fieldSegment.ToString(), handler);
+        }
 
 
 
@@ -238,7 +311,213 @@ namespace Minerva.DataStorage
         public T Read_Unsafe<T>(string fieldName) where T : unmanaged => _container.Read_Unsafe<T>(fieldName);
 
 
-        private const char DefaultPathSeparator = '.';
+
+
+
+        /// <summary>
+        /// Write a scalar value to a field located by a dot-separated path.
+        /// Intermediate objects are created as needed.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WritePath<T>(string path, T value) where T : unmanaged
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            WritePath(path.AsSpan(), value);
+        }
+
+        /// <summary>
+        /// Write a scalar value to a field located by a dot-separated path.
+        /// Intermediate objects are created as needed.
+        /// </summary>
+        public void WritePath<T>(ReadOnlySpan<char> path, T value, char separator = DefaultPathSeparator) where T : unmanaged
+        {
+            var container = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment);
+            if (fieldSegment.Length == 0)
+                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+
+            container.Write(fieldSegment.ToString(), value);
+        }
+
+        /// <summary>
+        /// Write a string value to a field located by a dot-separated path.
+        /// Intermediate objects are created as needed.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WritePath(string path, string value)
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            WritePath(path.AsSpan(), value.AsSpan());
+        }
+
+        /// <summary>
+        /// Write a string value to a field located by a dot-separated path.
+        /// Intermediate objects are created as needed.
+        /// </summary>
+        public void WritePath(ReadOnlySpan<char> path, ReadOnlySpan<char> value, char separator = DefaultPathSeparator)
+        {
+            var container = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment);
+            if (fieldSegment.Length == 0)
+                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+
+            container.WriteString(fieldSegment.ToString(), value);
+        }
+
+        /// <summary>
+        /// Write an inline array value to a field located by a dot-separated path.
+        /// Intermediate objects are created as needed.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteArrayPath<T>(string path, T[] value) where T : unmanaged
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            if (value == null) throw new ArgumentNullException(nameof(value));
+            WriteArrayPath<T>(path.AsSpan(), value.AsSpan());
+        }
+
+        /// <summary>
+        /// Write an inline array value to a field located by a dot-separated path.
+        /// Intermediate objects are created as needed.
+        /// </summary>
+        public void WriteArrayPath<T>(ReadOnlySpan<char> path, ReadOnlySpan<T> value, char separator = DefaultPathSeparator) where T : unmanaged
+        {
+            var container = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment);
+            if (fieldSegment.Length == 0)
+                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+
+            container.WriteArray(fieldSegment, value);
+        }
+
+        /// <summary>
+        /// Read a scalar field located by a dot-separated path.
+        /// Does not create missing fields; throws if any segment or field is missing.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T ReadPath<T>(string path) where T : unmanaged
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            return ReadPath<T>(path.AsSpan());
+        }
+
+        /// <summary>
+        /// Read a scalar field located by a dot-separated path.
+        /// Does not create missing fields; throws if any segment or field is missing.
+        /// </summary>
+        public T ReadPath<T>(ReadOnlySpan<char> path, char separator = DefaultPathSeparator) where T : unmanaged
+        {
+            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment);
+            if (fieldSegment.Length == 0)
+                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+
+            if (!container.TryRead(fieldSegment, out T value))
+                throw new InvalidOperationException($"Field '{fieldSegment.ToString()}' not found for path '{path.ToString()}'.");
+
+            return value;
+        }
+
+        /// <summary>
+        /// Try to read a scalar field by path without allocating intermediate
+        /// objects. Returns false if any segment or field is missing.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryReadPath<T>(string path, out T value) where T : unmanaged
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            return TryReadPath(path.AsSpan(), out value);
+        }
+
+        /// <summary>
+        /// Try to read a scalar field by path without allocating intermediate
+        /// objects. Returns false if any segment or field is missing.
+        /// </summary>
+        public bool TryReadPath<T>(ReadOnlySpan<char> path, out T value, char separator = DefaultPathSeparator) where T : unmanaged
+        {
+            value = default;
+
+            try
+            {
+                var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment);
+                if (fieldSegment.Length == 0)
+                    return false;
+
+                return container.TryRead(fieldSegment, out value);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Read a string field located by a dot-separated path.
+        /// Does not create missing fields; throws if any segment or field is missing.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public string ReadStringPath(string path)
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            return ReadStringPath(path.AsSpan());
+        }
+
+        /// <summary>
+        /// Read a string field located by a dot-separated path.
+        /// Does not create missing fields; throws if any segment or field is missing.
+        /// </summary>
+        public string ReadStringPath(ReadOnlySpan<char> path, char separator = DefaultPathSeparator)
+        {
+            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment);
+            if (fieldSegment.Length == 0)
+                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+
+            if (!container.HasField(fieldSegment))
+                throw new ArgumentException($"Path segment '{fieldSegment.ToString()}' does not exist on the current object.", nameof(path));
+
+            var child = container.GetObject(fieldSegment, reschemeOnMissing: false, layout: null);
+            if (child.IsNull)
+                throw new InvalidOperationException($"Path segment '{fieldSegment.ToString()}' refers to a null child object.");
+
+            return child.ReadString();
+        }
+
+        /// <summary>
+        /// Read an inline array field located by a dot-separated path.
+        /// Does not create missing fields; throws if any segment or field is missing.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T[] ReadArrayPath<T>(string path) where T : unmanaged
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            return ReadArrayPath<T>(path.AsSpan());
+        }
+
+        /// <summary>
+        /// Read an inline array field located by a dot-separated path.
+        /// Does not create missing fields; throws if any segment or field is missing.
+        /// </summary>
+        public T[] ReadArrayPath<T>(ReadOnlySpan<char> path, char separator = DefaultPathSeparator) where T : unmanaged
+        {
+            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment);
+            if (fieldSegment.Length == 0)
+                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+
+            if (!container.HasField(fieldSegment))
+                throw new ArgumentException($"Path segment '{fieldSegment.ToString()}' does not exist on the current object.", nameof(path));
+
+            var child = container.GetObject(fieldSegment, reschemeOnMissing: false, layout: null);
+            if (child.IsNull)
+                throw new InvalidOperationException($"Path segment '{fieldSegment.ToString()}' refers to a null child object.");
+
+            return child.ReadArray<T>();
+        }
+
+
+
+
+
+
 
         /// <summary>
         /// Get a child object by dot-separated path, creating intermediate
@@ -286,209 +565,10 @@ namespace Minerva.DataStorage
         }
 
         /// <summary>
-        /// Write a scalar value to a field located by a dot-separated path.
-        /// Intermediate objects are created as needed.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteByPath<T>(string path, T value) where T : unmanaged
-        {
-            if (path == null) throw new ArgumentNullException(nameof(path));
-            WriteByPath(path.AsSpan(), value);
-        }
-
-        /// <summary>
-        /// Write a scalar value to a field located by a dot-separated path.
-        /// Intermediate objects are created as needed.
-        /// </summary>
-        public void WriteByPath<T>(ReadOnlySpan<char> path, T value, char separator = DefaultPathSeparator) where T : unmanaged
-        {
-            var container = NavigateToContainer(path, separator, createIfMissing: true, out var fieldSegment);
-            if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
-
-            container.Write(fieldSegment.ToString(), value);
-        }
-
-        /// <summary>
-        /// Write a string value to a field located by a dot-separated path.
-        /// Intermediate objects are created as needed.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteByPath(string path, string value)
-        {
-            if (path == null) throw new ArgumentNullException(nameof(path));
-            WriteByPath(path.AsSpan(), value.AsSpan());
-        }
-
-        /// <summary>
-        /// Write a string value to a field located by a dot-separated path.
-        /// Intermediate objects are created as needed.
-        /// </summary>
-        public void WriteByPath(ReadOnlySpan<char> path, ReadOnlySpan<char> value, char separator = DefaultPathSeparator)
-        {
-            var container = NavigateToContainer(path, separator, createIfMissing: true, out var fieldSegment);
-            if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
-
-            container.WriteString(fieldSegment.ToString(), value);
-        }
-
-        /// <summary>
-        /// Write an inline array value to a field located by a dot-separated path.
-        /// Intermediate objects are created as needed.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteArrayByPath<T>(string path, T[] value) where T : unmanaged
-        {
-            if (path == null) throw new ArgumentNullException(nameof(path));
-            if (value == null) throw new ArgumentNullException(nameof(value));
-            WriteArrayByPath<T>(path.AsSpan(), value.AsSpan());
-        }
-
-        /// <summary>
-        /// Write an inline array value to a field located by a dot-separated path.
-        /// Intermediate objects are created as needed.
-        /// </summary>
-        public void WriteArrayByPath<T>(ReadOnlySpan<char> path, ReadOnlySpan<T> value, char separator = DefaultPathSeparator) where T : unmanaged
-        {
-            var container = NavigateToContainer(path, separator, createIfMissing: true, out var fieldSegment);
-            if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
-
-            container.WriteArray(fieldSegment, value);
-        }
-
-        /// <summary>
-        /// Read a scalar field located by a dot-separated path.
-        /// Does not create missing fields; throws if any segment or field is missing.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T ReadByPath<T>(string path) where T : unmanaged
-        {
-            if (path == null) throw new ArgumentNullException(nameof(path));
-            return ReadByPath<T>(path.AsSpan());
-        }
-
-        /// <summary>
-        /// Read a scalar field located by a dot-separated path.
-        /// Does not create missing fields; throws if any segment or field is missing.
-        /// </summary>
-        public T ReadByPath<T>(ReadOnlySpan<char> path, char separator = DefaultPathSeparator) where T : unmanaged
-        {
-            var container = NavigateToContainer(path, separator, createIfMissing: false, out var fieldSegment);
-            if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
-
-            if (!container.TryRead(fieldSegment, out T value))
-                throw new InvalidOperationException($"Field '{fieldSegment.ToString()}' not found for path '{path.ToString()}'.");
-
-            return value;
-        }
-
-        /// <summary>
-        /// Try to read a scalar field by path without allocating intermediate
-        /// objects. Returns false if any segment or field is missing.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryReadByPath<T>(string path, out T value) where T : unmanaged
-        {
-            if (path == null) throw new ArgumentNullException(nameof(path));
-            return TryReadByPath(path.AsSpan(), out value);
-        }
-
-        /// <summary>
-        /// Try to read a scalar field by path without allocating intermediate
-        /// objects. Returns false if any segment or field is missing.
-        /// </summary>
-        public bool TryReadByPath<T>(ReadOnlySpan<char> path, out T value, char separator = DefaultPathSeparator) where T : unmanaged
-        {
-            value = default;
-
-            try
-            {
-                var container = NavigateToContainer(path, separator, createIfMissing: false, out var fieldSegment);
-                if (fieldSegment.Length == 0)
-                    return false;
-
-                return container.TryRead(fieldSegment, out value);
-            }
-            catch (ArgumentException)
-            {
-                return false;
-            }
-            catch (InvalidOperationException)
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Read a string field located by a dot-separated path.
-        /// Does not create missing fields; throws if any segment or field is missing.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public string ReadStringByPath(string path)
-        {
-            if (path == null) throw new ArgumentNullException(nameof(path));
-            return ReadStringByPath(path.AsSpan());
-        }
-
-        /// <summary>
-        /// Read a string field located by a dot-separated path.
-        /// Does not create missing fields; throws if any segment or field is missing.
-        /// </summary>
-        public string ReadStringByPath(ReadOnlySpan<char> path, char separator = DefaultPathSeparator)
-        {
-            var container = NavigateToContainer(path, separator, createIfMissing: false, out var fieldSegment);
-            if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
-
-            if (!container.HasField(fieldSegment))
-                throw new ArgumentException($"Path segment '{fieldSegment.ToString()}' does not exist on the current object.", nameof(path));
-
-            var child = container.GetObject(fieldSegment, reschemeOnMissing: false, layout: null);
-            if (child.IsNull)
-                throw new InvalidOperationException($"Path segment '{fieldSegment.ToString()}' refers to a null child object.");
-
-            return child.ReadString();
-        }
-
-        /// <summary>
-        /// Read an inline array field located by a dot-separated path.
-        /// Does not create missing fields; throws if any segment or field is missing.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T[] ReadArrayByPath<T>(string path) where T : unmanaged
-        {
-            if (path == null) throw new ArgumentNullException(nameof(path));
-            return ReadArrayByPath<T>(path.AsSpan());
-        }
-
-        /// <summary>
-        /// Read an inline array field located by a dot-separated path.
-        /// Does not create missing fields; throws if any segment or field is missing.
-        /// </summary>
-        public T[] ReadArrayByPath<T>(ReadOnlySpan<char> path, char separator = DefaultPathSeparator) where T : unmanaged
-        {
-            var container = NavigateToContainer(path, separator, createIfMissing: false, out var fieldSegment);
-            if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
-
-            if (!container.HasField(fieldSegment))
-                throw new ArgumentException($"Path segment '{fieldSegment.ToString()}' does not exist on the current object.", nameof(path));
-
-            var child = container.GetObject(fieldSegment, reschemeOnMissing: false, layout: null);
-            if (child.IsNull)
-                throw new InvalidOperationException($"Path segment '{fieldSegment.ToString()}' refers to a null child object.");
-
-            return child.ReadArray<T>();
-        }
-
-        /// <summary>
         /// Navigate to the container that owns the final field in a path.
         /// For example, with "a.b.c", this returns object "b" and fieldSegment "c".
         /// </summary>
-        private StorageObject NavigateToContainer(ReadOnlySpan<char> path, char separator, bool createIfMissing, out ReadOnlySpan<char> fieldSegment)
+        private StorageObject NavigateToObject(ReadOnlySpan<char> path, char separator, bool createIfMissing, out ReadOnlySpan<char> fieldSegment)
         {
             if (path.Length == 0)
                 throw new ArgumentException("Path cannot be empty.", nameof(path));
@@ -532,6 +612,35 @@ namespace Minerva.DataStorage
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void NotifyFieldWrite(Container container, string fieldName)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+            var type = container.GetFieldHeader(fieldName).Type;
+            StorageWriteEventRegistry.Notify(container, fieldName, type);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void NotifyFieldWrite(Container container, int fieldIndex)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+            ref var header = ref container.GetFieldHeader(fieldIndex);
+            var fieldName = container.GetFieldName(in header).ToString();
+            StorageWriteEventRegistry.Notify(container, fieldName, header.Type);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+            NotifyFieldWrite(container, fieldName.ToString());
+        }
+
+
+
 
 
 
@@ -570,11 +679,23 @@ namespace Minerva.DataStorage
 
 
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteString(int index, ReadOnlySpan<char> value) => GetObject(index).WriteArray(value);
+
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteString(string fieldName, ReadOnlySpan<char> value) => GetObject(fieldName).WriteArray(value);
+        public void WriteString(int index, ReadOnlySpan<char> value)
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            GetObject(index).WriteArray(value);
+            NotifyFieldWrite(container, index);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteString(string fieldName, ReadOnlySpan<char> value)
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            GetObject(fieldName).WriteArray(value);
+            NotifyFieldWrite(container, fieldName);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteString(ReadOnlySpan<char> value) => WriteArray(value);
@@ -610,7 +731,12 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteArray<T>(ReadOnlySpan<char> fieldName, ReadOnlySpan<T> value) where T : unmanaged => GetObject(fieldName).WriteArray(value);
+        public void WriteArray<T>(ReadOnlySpan<char> fieldName, ReadOnlySpan<T> value) where T : unmanaged
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            GetObject(fieldName).WriteArray(value);
+            NotifyFieldWrite(container, fieldName);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteArray<T>(ReadOnlySpan<T> value) where T : unmanaged
