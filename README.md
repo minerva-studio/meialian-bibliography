@@ -32,7 +32,10 @@ Unity: `2021.3`+
     - [ContainerLayout \& ObjectBuilder](#containerlayout--objectbuilder)
     - [Field types \& arrays](#field-types--arrays)
     - [Schema migration \& rescheme](#schema-migration--rescheme)
-    - [JSON adapter](#json-adapter)
+  - [Binary \& standalone JSON serialization](#binary--standalone-json-serialization)
+    - [BinarySerialization](#binaryserialization)
+    - [JsonSerialization](#jsonserialization)
+    - [(Unity) JSON adapter](#unity-json-adapter)
   - [Performance \& Benchmarks](#performance--benchmarks)
   - [Limitations](#limitations)
   - [Roadmap / TODO](#roadmap--todo)
@@ -394,7 +397,166 @@ Typical usages:
 
 ---
 
-### JSON adapter
+## Binary & standalone JSON serialization
+
+Namespace: `Minerva.DataStorage.Serialization`
+
+In addition to working with `Storage` / `StorageObject` in memory, the package ships with two low-level helpers for snapshotting and restoring an entire storage tree:
+
+- **`BinarySerialization`** — compact, depth-first binary format for fast round-trips within the same build.
+- **`JsonSerialization`** — direct JSON text mapping that does not depend on `Unity.Serialization.Json`.
+
+These helpers treat `Storage` as a DOM-like tree and stream data in and out without building intermediate object graphs.
+
+```csharp
+using Minerva.DataStorage;
+using Minerva.DataStorage.Serialization;
+````
+
+---
+
+### BinarySerialization
+
+`BinarySerialization` produces and consumes a compact binary representation of a `Storage` tree.
+
+**Writing:**
+
+```csharp
+// Raw binary snapshot
+ReadOnlySpan<byte> bytes = storage.ToBinary();
+
+// Base64 for text-based channels
+string base64 = storage.ToBase64();
+```
+
+* `ToBinary(this Storage storage)`
+  Walks from `storage.Root` in depth-first, pre-order and writes each internal container as:
+
+  ```text
+  [ id      : sizeof(ContainerReference) bytes (8), little-endian ]
+  [ payload : container.Memory.Length bytes ]
+  ```
+
+  where `payload` is the container’s raw backing memory (header + all field data).
+
+* `ToBase64(this Storage storage)`
+  Calls `ToBinary` and encodes the resulting bytes as Base64.
+
+During serialization, reference fields (`IsRef == true`) are treated as arrays of `ContainerReference` IDs: the code follows those IDs and recursively emits the referenced containers.
+
+> **Assumption:** the storage graph is a **tree**. Each child container is reachable from exactly one parent, and there are no cycles or shared subtrees. If the same container is referenced from multiple places, it will be serialized multiple times and the behavior on parse is undefined.
+
+**Reading:**
+
+```csharp
+// Read-only span -> always clones container payloads
+Storage s1 = BinarySerialization.Parse(bytes);
+
+// Memory<byte> -> optional aliasing
+var buffer = bytes.ToArray().AsMemory();
+Storage s2 = BinarySerialization.Parse(buffer, allocate: false);
+
+// Base64 entry point
+Storage s3 = BinarySerialization.ParseBase64(base64, allocate: true);
+```
+
+* `Parse(ReadOnlySpan<byte> bytes)`
+  Always allocates a fresh backing buffer for each container (safe, but copies).
+
+* `Parse(Memory<byte> bytes, bool allocate = true)`
+
+  * `allocate == true`: clone each container’s payload into its own block (independent of the source buffer).
+  * `allocate == false`: containers alias slices of the provided buffer; **the caller must ensure the buffer outlives the resulting `Storage`**.
+
+* `ParseBase64(string base64, bool allocate = true)`
+  Decodes Base64 to a byte array and then delegates to the `Parse(Memory<byte>, bool)` overload.
+
+All reconstructed containers are re-registered in `Container.Registry` and assigned fresh IDs; reference fields are patched to point at the new IDs.
+
+**Use this when:**
+
+* you need a fast in-process snapshot / restore within the same build;
+* you don’t care about long-term, cross-version compatibility of the binary format.
+
+---
+
+### JsonSerialization
+
+`JsonSerialization` is a hand-written JSON mapper that streams text directly into and out of a `Storage` tree, without any dependency on `Unity.Serialization.Json`.
+
+**Writing:**
+
+```csharp
+ReadOnlySpan<char> span = storage.ToJson();
+string json = span.ToString(); // copy only if you really need a string
+```
+
+* `ToJson(this Storage storage)`
+  Writes a JSON object rooted at `storage.Root`. Field names become JSON property names. The mapping is:
+
+  * Root JSON value: always an **object**.
+  * For each property `"name": value`:
+
+    * `value` is **object** → child object via `GetObject("name")`, then recurse.
+    * `value` is **array** → child “array container” with a single array field.
+    * `value` is **string** → if length == 1, a scalar `char`; otherwise a UTF-16 string/char array.
+    * `value` is **true/false** → scalar `bool`.
+    * `value` is **number** → stored as `Int64` (if it fits) or `Double` otherwise.
+    * `value` is **null** → ignored (no field written).
+
+Inline arrays and object arrays are emitted as JSON arrays; blobs are encoded as Base64 strings.
+
+**Reading:**
+
+```csharp
+Storage storage = JsonSerialization.Parse(jsonText, maxDepth: 1000);
+StorageObject root = storage.Root;
+```
+
+Overloads:
+
+```csharp
+Storage Parse(string json, int maxDepth = 1000);
+Storage Parse(ReadOnlySpan<char> text, int maxDepth = 1000);
+```
+
+Both use an internal `JsonToStorageReader` that parses and writes directly into `StorageObject` without building an intermediate JSON tree.
+
+**Mapping rules:**
+
+* Root JSON must be an object; everything else is rejected.
+* Scalars:
+
+  * `true` / `false` → `bool`.
+  * Numbers:
+
+    * All integer literals are normalized to **64-bit integers** (`Int64`).
+    * Any non-integer literal is normalized to **64-bit float** (`Double`).
+    * Calling `Read<int>` or `Read<float>` on such fields is allowed; the value will be converted at read time, but the stored representation is 64-bit.
+* Strings:
+
+  * length == 1 → stored as a single `char`;
+  * length > 1 → stored as UTF-16 string/char array.
+* Arrays:
+
+  * pure `bool` → `bool[]`;
+  * pure integers → `Int64[]`;
+  * any float present → entire array as `Double[]`;
+  * arrays of objects / strings → arrays of child containers.
+  * mixed incompatible types (e.g., numbers + strings) → exception.
+
+**Depth limit:**
+
+* `maxDepth` caps the nesting depth (default 1000) to protect against malicious or malformed JSON causing unbounded recursion.
+
+**When to use which JSON path?**
+
+* Use **`JsonSerialization`** when you want a self-contained JSON representation (for tooling, logs, or non-Unity environments).
+* Use the **Unity `StorageAdapter`** (see the JSON adapter section above) when you want to plug `Storage` into `Unity.Serialization.Json` and reuse Unity’s serialization pipeline.
+
+---
+
+### (Unity) JSON adapter
 
 Namespace: `Minerva.DataStorage.Serialization`
 
