@@ -68,7 +68,8 @@ namespace Minerva.DataStorage
             if (string.IsNullOrEmpty(fieldName)) throw new ArgumentException("Field name cannot be null or empty.", nameof(fieldName));
             if (handler == null) throw new ArgumentNullException(nameof(handler));
 
-            var slot = _table.GetValue(container, static _ => new ContainerSubscriptions());
+            var slot = _table.GetValue(container, static c => new ContainerSubscriptions(c.Generation));
+            slot.EnsureGeneration(container.Generation);
             return slot.Add(fieldName, handler);
         }
 
@@ -79,6 +80,8 @@ namespace Minerva.DataStorage
 
             if (_table.TryGetValue(container, out var slot))
             {
+                if (!slot.TryPrepareGeneration(container.Generation))
+                    return;
                 slot.Notify(container, fieldName, fieldType);
             }
         }
@@ -87,7 +90,7 @@ namespace Minerva.DataStorage
         {
             return container != null
                 && _table.TryGetValue(container, out var slot)
-                && slot.HasAny;
+                && slot.HasSubscribersForGeneration(container.Generation);
         }
     }
 
@@ -97,8 +100,49 @@ namespace Minerva.DataStorage
         private readonly Dictionary<string, List<Subscriber>> _byField = new(StringComparer.Ordinal);
         private int _nextId = 1;
         private int _subscriptionCount;
+        private int _generation;
+
+        public ContainerSubscriptions(int generation)
+        {
+            _generation = generation;
+        }
 
         public bool HasAny => Volatile.Read(ref _subscriptionCount) > 0;
+
+        public void EnsureGeneration(int generation)
+        {
+            if (generation == Volatile.Read(ref _generation))
+                return;
+            ResetForGeneration(generation);
+        }
+
+        public bool TryPrepareGeneration(int generation)
+        {
+            if (generation == Volatile.Read(ref _generation))
+                return true;
+            ResetForGeneration(generation);
+            return false;
+        }
+
+        public bool HasSubscribersForGeneration(int generation)
+        {
+            EnsureGeneration(generation);
+            return HasAny;
+        }
+
+        private void ResetForGeneration(int generation)
+        {
+            lock (_gate)
+            {
+                if (_generation == generation)
+                    return;
+
+                _byField.Clear();
+                _subscriptionCount = 0;
+                _nextId = 1;
+                _generation = generation;
+            }
+        }
 
         public StorageWriteSubscription Add(string fieldName, StorageFieldWriteHandler handler)
         {
