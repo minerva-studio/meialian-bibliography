@@ -1,9 +1,8 @@
 #if UNITY_EDITOR
-using Minerva.DataStorage.Serialization.Tests;
 using NUnit.Framework;
 using Unity.Serialization.Json;
 
-namespace Minerva.DataStorage.Serialization.Test.Unity
+namespace Minerva.DataStorage.Serialization.Tests.Unity
 {
     [TestFixture]
     public class JsonSerializationTest : JsonSerializationTestsBase

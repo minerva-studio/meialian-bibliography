@@ -5,7 +5,7 @@ using System.Linq;
 using Unity.Serialization.Json;
 using UnityEngine;
 
-namespace Minerva.DataStorage.Serialization.Test.Unity
+namespace Minerva.DataStorage.Serialization.Tests.Unity
 {
     [TestFixture]
     public class StorageSerDeSelfHealTests

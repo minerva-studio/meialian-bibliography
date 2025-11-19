@@ -1,7 +1,7 @@
+using NUnit.Framework;
 using System;
 using System.Buffers.Binary;
 using System.Linq;
-using NUnit.Framework;
 
 namespace Minerva.DataStorage.Tests
 {
