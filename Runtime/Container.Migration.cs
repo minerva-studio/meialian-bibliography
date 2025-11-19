@@ -152,9 +152,20 @@ namespace Minerva.DataStorage
                 : currentHeader.Length - existedHeader.Length + newDataLength;
             FieldType newFieldType = new(valueType, inlineArrayLength.HasValue);
 
-            // no rescheme needed (exist, same type, same inline length)
-            if (!isNewField && existedHeader.FieldType == newFieldType && existedHeader.ElementCount == elementCount)
-                return index;
+            if (!isNewField)
+            {
+                // no rescheme needed (exist, same type, same inline length)
+                if (existedHeader.FieldType == newFieldType && existedHeader.ElementCount == elementCount)
+                    return index;
+                // length is fine, just need to reset header
+                if (existedHeader.Length >= newDataLength)
+                {
+                    existedHeader.Length = newDataLength;
+                    existedHeader.FieldType = newFieldType;
+                    existedHeader.ElemSize = (short)elementSize;
+                    return index;
+                }
+            }
 
             AllocatedMemory next = AllocatedMemory.Create(newLength);
             AllocatedMemory curr = _memory;

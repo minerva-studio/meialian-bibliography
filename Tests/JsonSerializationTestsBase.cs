@@ -1,9 +1,8 @@
-﻿using Minerva.DataStorage.Serialization;
-using NUnit.Framework;
+﻿using NUnit.Framework;
 using System;
 using System.Runtime.InteropServices;
 
-namespace Minerva.DataStorage.Tests
+namespace Minerva.DataStorage.Serialization.Tests
 {
     public abstract class JsonSerializationTestsBase
     {
@@ -911,7 +910,9 @@ namespace Minerva.DataStorage.Tests
 
         private void Log(string v)
         {
+#if UNITY_EDITOR
             UnityEngine.Debug.Log(v);
+#endif
         }
     }
 }

@@ -1,13 +1,14 @@
-using Minerva.DataStorage.Tests;
+#if UNITY_EDITOR
+using Minerva.DataStorage.Serialization.Tests;
 using NUnit.Framework;
 using Unity.Serialization.Json;
 
-namespace Minerva.DataStorage.Serialization.Tests
+namespace Minerva.DataStorage.Serialization.Test.Unity
 {
     [TestFixture]
     public class JsonSerializationTest : JsonSerializationTestsBase
     {
-        private static Unity.Serialization.Json.JsonSerializationParameters ParamsWithAdapter() => new Unity.Serialization.Json.JsonSerializationParameters
+        private static JsonSerializationParameters ParamsWithAdapter() => new JsonSerializationParameters
         {
             UserDefinedAdapters = new System.Collections.Generic.List<IJsonAdapter>
             {
@@ -17,7 +18,8 @@ namespace Minerva.DataStorage.Serialization.Tests
 
         public override Storage Parse(string json)
         {
-            return Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
+            return global::Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
         }
     }
 }
+#endif

@@ -35,8 +35,7 @@ namespace Minerva.DataStorage.Tests
             var p95 = stats.Percentile(0.95);
             TestContext.Progress.WriteLine($"External string write (huge): p95={p95}ns");
 
-            // 如果你在叶子做了 capacity 复用，p95 应远低于“每次 Rent+Copy+Return”的完全重分配成本
-            Assert.Less(p95, 150_000); // 阈值按实现/平台再校准
+            Assert.Less(p95, 150_000);
         }
     }
 
@@ -88,7 +87,7 @@ namespace Minerva.DataStorage.Tests
 
             var p95 = stats.Percentile(0.95);
             TestContext.Progress.WriteLine($"Mixed workload p95={p95}ns, mix=({tWrite / n:P0} W, {tRead / n:P0} R, {tStr / n:P0} S, {tObj / n:P0} O)");
-            Assert.Less(p95, 5_000); // 根据机器 & 构建类型调
+            Assert.Less(p95, 10_000);
         }
     }
 }

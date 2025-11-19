@@ -1,7 +1,6 @@
-using Minerva.DataStorage.Serialization;
 using NUnit.Framework;
 
-namespace Minerva.DataStorage.Tests
+namespace Minerva.DataStorage.Serialization.Tests
 {
     [TestFixture]
     public class JsonSerializationTest : JsonSerializationTestsBase

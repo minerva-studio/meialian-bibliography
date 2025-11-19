@@ -1,4 +1,5 @@
-﻿using NUnit.Framework;
+﻿#if UNITY_EDITOR
+using NUnit.Framework;
 using System.Collections.Generic;
 using Unity.PerformanceTesting;
 
@@ -137,3 +138,4 @@ namespace Minerva.DataStorage.Tests
         }
     }
 }
+#endif

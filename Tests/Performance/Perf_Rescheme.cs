@@ -1,4 +1,5 @@
-﻿using NUnit.Framework;
+﻿#if UNITY_EDITOR
+using NUnit.Framework;
 using Unity.PerformanceTesting;
 
 namespace Minerva.DataStorage.Tests
@@ -17,6 +18,7 @@ namespace Minerva.DataStorage.Tests
             Measure.Method(() =>
             {
                 r.Container.ReschemeFor<long>("longField");
+                r.Container.ReschemeFor<double>("longField");
             })
                 .SampleGroup(new SampleGroup("ReschemeFor()", SampleUnit.Millisecond))
                 .WarmupCount(20)
@@ -37,6 +39,7 @@ namespace Minerva.DataStorage.Tests
             Measure.Method(() =>
             {
                 r.Container.ReschemeFor_Old<long>("longField");
+                r.Container.ReschemeFor_Old<double>("longField");
             })
                 .SampleGroup(new SampleGroup("ReschemeFor()", SampleUnit.Millisecond))
                 .WarmupCount(20)
@@ -47,3 +50,4 @@ namespace Minerva.DataStorage.Tests
         }
     }
 }
+#endif
