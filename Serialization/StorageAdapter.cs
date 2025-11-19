@@ -1,197 +1,516 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Unity.Serialization.Json;
 
 namespace Minerva.DataStorage.Serialization
 {
-    public class StorageAdapter : IJsonAdapter<Storage>, IJsonAdapter
+    /// <summary>
+    /// Unity.Serialization JSON adapter for <see cref="Storage"/>.
+    ///
+    /// This adapter deserializes from Unity's SerializedValueView hierarchy
+    /// directly into a Storage tree, using the same mapping semantics as
+    /// <see cref="JsonSerialization.Parse(ReadOnlySpan{char}, int)"/>.
+    /// </summary>
+    public class StorageAdapter : IJsonAdapter<Storage>
     {
+        /// <summary>
+        /// Deserializes a Storage instance from a SerializedValueView.
+        /// Root is required to be a JSON object.
+        /// </summary>
+        public Storage Deserialize(in JsonDeserializationContext<Storage> context)
+        {
+            var value = context.SerializedValue;
+
+            if (value.IsNull())
+                return null;
+
+            if (value.Type != TokenType.Object)
+                throw new InvalidOperationException("Root JSON value must be an object.");
+
+            var storage = new Storage();
+            ReadObject(value.AsObjectView(), storage.Root, depth: 1000);
+            return storage;
+        }
+
+        /// <summary>
+        /// Serialization is intentionally not handled through Unity.Json.
+        /// Use JsonSerialization.ToJson instead when you need Storage ¡ú JSON.
+        /// </summary> 
         public void Serialize(in JsonSerializationContext<Storage> context, Storage value)
         {
             context.Writer.WriteValueLiteral(value.ToJson().ToString());
         }
 
-        public Storage Deserialize(in JsonDeserializationContext<Storage> context)
+        #region Object / value reading
+
+        /// <summary>
+        /// Reads all properties of a SerializedObjectView into the target StorageObject.
+        /// </summary>
+        private static void ReadObject(
+            SerializedObjectView obj,
+            StorageObject target,
+            int depth)
         {
-            if (context.SerializedValue.IsNull()) return null;
+            if (depth <= 0)
+                throw new InvalidOperationException("Max depth exceeded while reading object.");
 
-            // Construct storage with current root schema (could be empty)
-            var storage = new Storage();
-            ReadObject(context.SerializedValue.AsObjectView(), storage.Root, maxDepth: 1000);
-            return storage;
-        }
-
-        private void ReadObject(SerializedObjectView obj, StorageObject target, int maxDepth)
-        {
-            if (maxDepth <= 0) throw new InvalidOperationException("Max depth exceeded.");
-
-            ObjectBuilder b = new();
             foreach (var member in obj)
             {
-                var name = member.Name().ToString();
+                var nameView = member.Name();
+                // Field name itself; this is not the whole JSON string.
+                string name = nameView.ToString();
+
                 var val = member.Value();
-
-                // 1) If field missing infer FieldDescriptor and rebuild schema, then continue.
-                if (!target.HasField(name))
-                {
-                    InferField(name, val, b);
-                }
-            }
-            b.WriteTo(ref target.Memory);
-
-            // read child objects
-            foreach (var member in obj)
-            {
-                var val = member.Value();
-                var name = member.Name().ToString();
-
-                if (val.Type == TokenType.Object)
-                {
-                    // Single ref: get/create child and recurse
-                    var child = target.GetObject(name);
-                    ReadObject(val.AsObjectView(), child, maxDepth - 1);
-                }
-                else if (val.Type == TokenType.Array)
-                {
-                    var objArray = target.GetArray(name);
-                    if (objArray.Type != ValueType.Ref) continue;
-                    var arr = val.AsArrayView();
-                    var i = 0;
-                    foreach (var item in arr)
-                    {
-                        var child = objArray.GetObject(i);
-                        if (item.IsNull()) objArray.ClearAt(i);
-                        else ReadObject(item.AsObjectView(), child, maxDepth - 1);
-                        i++;
-                    }
-                }
+                ReadValueIntoField(target, name, val, depth - 1);
             }
         }
 
-        private void InferField(string name, SerializedValueView tok, ObjectBuilder b)
+        /// <summary>
+        /// Dispatches a JSON value into the appropriate field on a StorageObject.
+        /// </summary>
+        private static void ReadValueIntoField(
+            StorageObject target,
+            string fieldName,
+            SerializedValueView value,
+            int depth)
         {
-            switch (tok.Type)
+            switch (value.Type)
             {
                 case TokenType.Object:
-                    b.SetRef(name);
-                    return;
+                    {
+                        var objView = value.AsObjectView();
+
+                        // First, check if this is a blob wrapper: { "$blob": "..." }.
+                        if (TryReadBlob(objView, out var blobBytes))
+                        {
+                            target.Override(fieldName, blobBytes, ValueType.Blob);
+                            return;
+                        }
+
+                        // Regular nested object.
+                        var child = target.GetObject(fieldName);
+                        ReadObject(objView, child, depth);
+                        return;
+                    }
+
                 case TokenType.Array:
                     {
-                        var arr = tok.AsArrayView();
-                        int n = arr.Count();
-
-                        // empty array zero-length fixed field
-                        if (n == 0)
-                        {
-                            b.SetArray<byte>(name, 0);
-                        }
-                        // Find first non-null element
-                        SerializedValueView first = default;
-                        bool found = false;
-                        foreach (var el in arr) { if (!el.IsNull()) { first = el; found = true; break; } }
-
-                        if (!found)
-                        {
-                            // all nulls  ref-array of size n
-                            b.SetRefArray(name, n);
-                            return;
-                        }
-
-                        if (first.Type == TokenType.Object)
-                        {
-                            // ref-array
-                            b.SetRefArray(name, n);
-                            return;
-                        }
-
-                        // value array : must be homogeneous primitive/bool
-                        // scan to decide element kind
-                        bool anyFloat = false, allBool = true, allNumeric = true;
-
-                        foreach (var el in arr)
-                        {
-                            if (el.Type != TokenType.Primitive)
-                            {
-                                allNumeric = false;
-                                allBool = false; break;
-                            }
-                            var pv = el.AsPrimitiveView();
-                            if (pv.IsBoolean()) { anyFloat |= false; allNumeric &= false; }
-                            else if (pv.IsDecimal()) { anyFloat = true; allBool = false; }
-                            else if (pv.IsIntegral()) { allBool = false; }
-                            else { allNumeric = false; allBool = false; break; }
-                        }
-
-                        if (!allNumeric && !allBool)
-                            throw new InvalidOperationException($"Mixed types in array for field '{name}' are not supported.");
-
-                        if (allBool)
-                        {
-                            ReadArrayContent(arr, n, v => v.AsBoolean());
-                            return;
-                        }
-
-                        if (anyFloat)
-                        {
-                            ReadArrayContent(arr, n, v => v.AsDouble());
-                            return;
-                        }
-
-                        ReadArrayContent(arr, n, v => v.AsInt64());
+                        var arrayObject = target.GetObject(fieldName);
+                        ReadArrayOn(arrayObject, fieldName, value.AsArrayView(), depth);
                         return;
                     }
 
                 case TokenType.String:
                     {
-                        var s = tok.AsStringView().ToString();
+                        string s = value.AsStringView().ToString();
                         if (s.Length == 1)
                         {
-                            // Char16 scalar (2B)
-                            b.SetScalar<char>(name, s[0]);
-                            return;
+                            // Char16 scalar.
+                            target.Write(fieldName, s[0]);
                         }
-
-                        // Char16 array
-                        b.SetArray<char>(name, s);
+                        else
+                        {
+                            // UTF-16 string.
+                            target.WriteString(fieldName, s);
+                        }
                         return;
                     }
 
                 case TokenType.Primitive:
                     {
-                        var pv = tok.AsPrimitiveView();
-                        if (pv.IsBoolean())
+                        var prim = value.AsPrimitiveView();
+
+                        if (prim.IsNull())
                         {
-                            b.SetScalar<bool>(name, pv.AsBoolean());
+                            // Null ¡ú interpreted as missing field; do not write anything.
                             return;
                         }
-                        else
-                        if (pv.IsDecimal())
+
+                        if (prim.IsBoolean())
                         {
-                            b.SetScalar<double>(name, pv.AsDouble());
+                            bool b = prim.AsBoolean();
+                            target.Write(fieldName, b);
                             return;
                         }
-                        else if (pv.IsIntegral())
+
+                        if (prim.IsIntegral())
                         {
-                            b.SetScalar<long>(name, pv.AsInt64());
+                            long l = prim.AsInt64();
+                            target.Write(fieldName, l);
                             return;
                         }
-                        break;
+
+                        if (prim.IsDecimal())
+                        {
+                            double d = prim.AsDouble();
+                            target.Write(fieldName, d);
+                            return;
+                        }
+
+                        // Fallback: treat as double.
+                        target.Write(fieldName, prim.AsDouble());
+                        return;
                     }
-            }
 
-            // Fallback: unknown/unsupported  zero-length field (safe no-op) 
-            return;
+                //case TokenType.Null:
+                //    // Explicit null: treated as "no field".
+                //    return;
 
-            void ReadArrayContent<T>(SerializedArrayView arr, int count, Func<SerializedValueView, T> getter) where T : unmanaged
-            {
-                b.SetArray<T>(name, count);
-                var buffer = b.GetBuffer<T>(name);
-                int i = 0;
-                foreach (SerializedValueView el in arr)
-                {
-                    buffer[i++] = getter(el);
-                }
+                default:
+                    throw new InvalidOperationException(
+                        $"Unsupported JSON token type {value.Type} at field '{fieldName}'.");
             }
         }
+
+        #endregion
+
+        #region Blob wrapper
+
+        /// <summary>
+        /// Checks whether the given object view matches the blob wrapper pattern
+        /// { "$blob": "<base64>" } and, if so, decodes its content.
+        /// </summary>
+        private static bool TryReadBlob(SerializedObjectView obj, out byte[] bytes)
+        {
+            bytes = null;
+
+            int count = 0;
+            SerializedStringView keyView = default;
+            SerializedValueView valueView = default;
+
+            foreach (var member in obj)
+            {
+                count++;
+                if (count > 1)
+                    break;
+
+                keyView = member.Name();
+                valueView = member.Value();
+            }
+
+            if (count != 1)
+                return false;
+
+            // Compare key to JsonSerialization.BlobName ("$blob").
+            if (!SerializedStringEquals(keyView, JsonSerialization.BlobName))
+                return false;
+
+            if (valueView.Type != TokenType.String)
+                throw new InvalidOperationException(
+                    $"Blob wrapper '{JsonSerialization.BlobName}' must contain a string.");
+
+            string base64 = valueView.AsStringView().ToString();
+            try
+            {
+                bytes = Convert.FromBase64String(base64);
+                return true;
+            }
+            catch (FormatException e)
+            {
+                throw new InvalidOperationException("Invalid base64 inside blob wrapper.", e);
+            }
+        }
+
+        /// <summary>
+        /// Compares a SerializedStringView to a managed string.
+        /// This is only used for small keys (e.g., "$blob"), so a ToString() is acceptable.
+        /// </summary>
+        private static bool SerializedStringEquals(SerializedStringView view, string s)
+        {
+            return view.ToString() == s;
+        }
+
+        #endregion
+
+        #region Arrays
+
+        /// <summary>
+        /// Reads a JSON array value into the given field on a StorageObject.
+        /// The Storage mapping follows JsonToStorageReader.ReadArrayOn.
+        /// </summary>
+        private static void ReadArrayOn(
+            StorageObject target,
+            string fieldName,
+            SerializedArrayView arrayView,
+            int depth)
+        {
+            if (depth <= 0)
+                throw new InvalidOperationException("Max depth exceeded while reading array.");
+
+            // Empty array ¡ú encode as an empty byte[] (or other convention as needed).
+            if (arrayView.Count() == 0)
+            {
+                target.WriteArray<byte>(Array.Empty<byte>());
+                return;
+            }
+
+            ValueType arrayType = 0;
+            var scalarValues = new List<ElementValue>();
+            var containers = new List<Container>();
+            var blobs = new List<byte[]>();
+
+            try
+            {
+                foreach (var item in arrayView)
+                {
+                    switch (item.Type)
+                    {
+                        case TokenType.Primitive:
+                            {
+                                var prim = item.AsPrimitiveView();
+
+                                if (prim.IsNull())
+                                {
+                                    // Null inside arrays is not supported in the simple mapping.
+                                    SetArrayType(ref arrayType, ValueType.Ref, fieldName);
+                                    containers.Add(null);
+                                    // We do not store a concrete value; element type is Ref.
+                                }
+                                else if (prim.IsBoolean())
+                                {
+                                    SetArrayType(ref arrayType, ValueType.Bool, fieldName);
+                                    scalarValues.Add(ElementValue.FromBool(prim.AsBoolean()));
+                                }
+                                else if (prim.IsIntegral())
+                                {
+                                    SetArrayType(ref arrayType, ValueType.Int64, fieldName);
+                                    scalarValues.Add(ElementValue.FromInt64(prim.AsInt64()));
+                                }
+                                else
+                                {
+                                    SetArrayType(ref arrayType, ValueType.Float64, fieldName);
+                                    scalarValues.Add(ElementValue.FromFloat64(prim.AsDouble()));
+                                }
+
+                                break;
+                            }
+
+                        case TokenType.String:
+                            {
+                                SetArrayType(ref arrayType, ValueType.Ref, fieldName);
+
+                                // In the text parser, strings in arrays are wrapped into
+                                // a wild container that holds a single string field.
+                                var wild = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+                                var child = new StorageObject(wild);
+                                string s = item.AsStringView().ToString();
+                                child.WriteString(s);
+                                containers.Add(wild);
+                                break;
+                            }
+
+                        case TokenType.Object:
+                            {
+                                var objView = item.AsObjectView();
+
+                                if (TryReadBlob(objView, out var blobBytes))
+                                {
+                                    SetArrayType(ref arrayType, ValueType.Blob, fieldName);
+                                    blobs.Add(blobBytes);
+                                }
+                                else
+                                {
+                                    SetArrayType(ref arrayType, ValueType.Ref, fieldName);
+                                    var wild = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+                                    var child = new StorageObject(wild);
+                                    ReadObject(objView, child, depth - 1);
+                                    containers.Add(wild);
+                                }
+
+                                break;
+                            }
+
+                        case TokenType.Array:
+                            {
+                                SetArrayType(ref arrayType, ValueType.Ref, fieldName);
+                                var wild = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+                                var child = new StorageObject(wild);
+                                ReadNestedArray(array: item.AsArrayView(), arrayObject: child, depth: depth - 1);
+                                containers.Add(wild);
+                                break;
+                            }
+
+                        default:
+                            {
+                                SetArrayType(ref arrayType, ValueType.Ref, fieldName);
+                                break;
+                            }
+                    }
+                }
+
+                // Materialize into Storage arrays based on the resolved arrayType.
+                if (arrayType == ValueType.Bool ||
+                    arrayType == ValueType.Int64 ||
+                    arrayType == ValueType.Float64)
+                {
+                    target.MakeArray(arrayType, scalarValues.Count);
+                    var array = target.AsArray();
+
+                    for (int i = 0; i < scalarValues.Count; i++)
+                    {
+                        switch (arrayType)
+                        {
+                            case ValueType.Bool:
+                                array[i].Write(scalarValues[i].BoolValue);
+                                break;
+
+                            case ValueType.Int64:
+                                array[i].Write(scalarValues[i].IntValue);
+                                break;
+
+                            case ValueType.Float64:
+                                array[i].Write(scalarValues[i].FloatValue);
+                                break;
+                        }
+                    }
+
+                    return;
+                }
+
+                if (arrayType == ValueType.Blob)
+                {
+                    if (blobs.Count == 0)
+                    {
+                        target.WriteArray<byte>(Array.Empty<byte>());
+                        return;
+                    }
+
+                    target.MakeArray(ValueType.Blob, blobs.Count, blobs[0].Length);
+                    var array = target.AsArray();
+                    for (int i = 0; i < blobs.Count; i++)
+                    {
+                        blobs[i].CopyTo(array[i].Bytes);
+                    }
+
+                    return;
+                }
+
+                if (arrayType == ValueType.Ref)
+                {
+                    target.MakeArray(ValueType.Ref, containers.Count);
+                    var array = target.AsArray();
+                    for (int i = 0; i < containers.Count; i++)
+                    {
+                        Container container = containers[i];
+                        if (container == null)
+                        {
+                            array.References[i] = Container.Registry.ID.Empty;
+                        }
+                        else
+                        {
+                            Container.Registry.Shared.Register(container);
+                            array.References[i] = containers[i].ID;
+                        }
+                    }
+
+                    return;
+                }
+
+                // Fallback: unsupported types ¡ú encode as empty array.
+                target.WriteArray<byte>(Array.Empty<byte>());
+            }
+            catch
+            {
+                // Cleanup any temporary wild containers on failure.
+                foreach (var container in containers)
+                {
+                    if (container == null) continue;
+                    if (container.ID == Container.Registry.ID.Wild)
+                        Container.Registry.Shared.Return(container);
+                    else
+                        Container.Registry.Shared.Unregister(container);
+                }
+
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Helper for nested arrays inside an array element.
+        /// This mirrors the "array inside wild container" behavior.
+        /// </summary>
+        private static void ReadNestedArray(
+            SerializedArrayView array,
+            StorageObject arrayObject,
+            int depth)
+        {
+            // We simply delegate to the same logic but use a fixed field name
+            // for the array contents (e.g., ContainerLayout.ArrayName).
+            if (depth <= 0)
+                throw new InvalidOperationException("Max depth exceeded while reading nested array.");
+
+            // Assuming you have a well-known array field name in ContainerLayout.
+            ReadArrayOn(arrayObject, ContainerLayout.ArrayName.ToString(), array, depth);
+        }
+
+        #endregion
+
+        #region Helpers
+
+        /// <summary>
+        /// Describes a scalar numeric/bool element in a JSON array.
+        /// Mirrors the ElementValue struct from JsonToStorageReader.
+        /// </summary>
+        private struct ElementValue
+        {
+            public ValueType Type;
+            public bool Bool;
+            public long Int64;
+            public double Float64;
+
+            public bool BoolValue =>
+                Type == ValueType.Bool ? Bool : (Int64 != 0 || Math.Abs(Float64) > double.Epsilon);
+
+            public long IntValue =>
+                Type == ValueType.Int64
+                    ? Int64
+                    : (Type == ValueType.Bool ? (Bool ? 1L : 0L) : (long)Float64);
+
+            public double FloatValue =>
+                Type == ValueType.Float64
+                    ? Float64
+                    : (Type == ValueType.Bool ? (Bool ? 1.0 : 0.0) : Int64);
+
+            public static ElementValue FromBool(bool v) =>
+                new ElementValue { Type = ValueType.Bool, Bool = v };
+
+            public static ElementValue FromInt64(long v) =>
+                new ElementValue { Type = ValueType.Int64, Int64 = v };
+
+            public static ElementValue FromFloat64(double v) =>
+                new ElementValue { Type = ValueType.Float64, Float64 = v };
+        }
+
+        /// <summary>
+        /// Merges the incoming element type into the current arrayType,
+        /// applying promotion rules (e.g., Int64 + Float64 ¡ú Float64)
+        /// and rejecting incompatible mixes.
+        /// </summary>
+        private static void SetArrayType(ref ValueType current, ValueType incoming, string fieldName)
+        {
+            if (current == 0)
+            {
+                current = incoming;
+                return;
+            }
+
+            if (current == incoming)
+                return;
+
+            // Allow Int64 + Float64 ¡ú Float64 promotion.
+            if ((current == ValueType.Int64 && incoming == ValueType.Float64) ||
+                (current == ValueType.Float64 && incoming == ValueType.Int64))
+            {
+                current = ValueType.Float64;
+                return;
+            }
+
+            // Anything else is considered an unsupported mix.
+            throw new InvalidOperationException(
+                $"Mixed or unsupported element types in array for field '{fieldName}'.");
+        }
+
+        #endregion
     }
 }

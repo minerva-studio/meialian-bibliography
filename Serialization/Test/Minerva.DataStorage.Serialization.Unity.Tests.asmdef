@@ -1,12 +1,13 @@
 {
-    "name": "Minerva.DataStorage.Serialization.Tests",
+    "name": "Minerva.DataStorage.Serialization.Unity.Tests",
     "rootNamespace": "",
     "references": [
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
+        "Unity.Serialization",
         "Minerva.DataStorage",
-        "Minerva.DataStorage.Serialization",
-        "Unity.Serialization"
+        "Minerva.DataStorage.Serialization.Unity",
+        "Minerva.DataStorage.Tests"
     ],
     "includePlatforms": [
         "Editor"

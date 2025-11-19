@@ -356,8 +356,10 @@ namespace Minerva.DataStorage
             if (f.Length < sz)
             {
                 if (!allowResize) return 2;
-                // currently can't contain the value, rescheme
-                ReschemeAndWrite(ref f, value);
+                // currently can't contain the value, rescheme 
+                int newIndex = ReschemeFor<T>(GetFieldName(in f));
+                // update to new field
+                Write_Override(ref GetFieldHeader(newIndex), ref value);
                 return 0;
             }
             // too large? explicit cast
@@ -365,13 +367,6 @@ namespace Minerva.DataStorage
             {
                 return TryWriteScalarExplicit(ref f, value) ? 0 : 1;
             }
-        }
-
-        private void ReschemeAndWrite<T>(ref FieldHeader header, T value) where T : unmanaged
-        {
-            int newIndex = ReschemeFor<T>(GetFieldName(in header));
-            // update to new field
-            Write_Override(ref GetFieldHeader(newIndex), ref value);
         }
 
         private void Write_Override<T>(ref FieldHeader header, ref T value) where T : unmanaged

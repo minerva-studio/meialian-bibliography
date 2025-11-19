@@ -123,7 +123,7 @@ namespace Minerva.DataStorage
         /// <param name="type"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeForObject(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) => ReschemeFor(fieldName, ValueType.Ref, inlineArrayLength);
+        public int ReschemeForObject(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) => ReschemeFor(fieldName, ValueType.Ref, Unsafe.SizeOf<ContainerReference>(), inlineArrayLength);
 
         /// <summary>
         /// Rescheme to add a new field of type T with given fieldName.
@@ -133,10 +133,7 @@ namespace Minerva.DataStorage
         /// <param name="type"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeFor(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeFor(ReadOnlySpan<char> fieldName, ValueType valueType, int? inlineArrayLength = null) => ReschemeFor(fieldName, valueType, SizeOf(valueType), inlineArrayLength);
+        public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeFor(fieldName, TypeUtil.PrimOf<T>(), Unsafe.SizeOf<T>(), inlineArrayLength);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int ReschemeFor(ReadOnlySpan<char> fieldName, ValueType valueType, int elementSize, int? inlineArrayLength)

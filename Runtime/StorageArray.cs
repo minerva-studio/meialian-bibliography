@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Minerva.DataStorage
 {
@@ -198,6 +199,28 @@ namespace Minerva.DataStorage
             }
 
             return result;
+        }
+
+        public string AsString()
+        {
+            EnsureNotDisposed();
+            // 1) Disallow ref fields for value extraction.
+            ref var header = ref Header;
+            if (header.Type == ValueType.Char16)
+            {
+                var data = _container.GetFieldData<char>(in header);
+                return data.ToString();
+            }
+            throw new InvalidOperationException("Cannot call AsString() on a non-char array.");
+        }
+
+        public override string ToString()
+        {
+            if (Type == ValueType.Char16)
+            {
+                return AsString();
+            }
+            return base.ToString();
         }
     }
 }

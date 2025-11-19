@@ -125,11 +125,11 @@ namespace Minerva.DataStorage.Serialization.Tests
             var storage = Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var root = storage.Root;
 
-            var arr = root.GetObjectArray("children");
+            var arr = root.GetArray("children");
             Assert.That(arr.Length, Is.EqualTo(3));
-            Assert.That(arr[0].IsNull, Is.True);
-            Assert.That(arr[1].IsNull, Is.True);
-            Assert.That(arr[2].IsNull, Is.True);
+            Assert.That(!arr.TryGetObject(0, out _), Is.True);
+            Assert.That(!arr.TryGetObject(1, out _), Is.True);
+            Assert.That(!arr.TryGetObject(2, out _), Is.True);
         }
 
         /// <summary>
@@ -168,9 +168,9 @@ namespace Minerva.DataStorage.Serialization.Tests
             Debug.Log(string.Join(',', sp2.ToArray<float>()));
             Assert.That(sp2.ToArray<float>().SequenceEqual(new float[] { 0.1f, 0.2f, 0.3f, 0.4f }), Is.True);
 
-            var kids = r2.GetObjectArray("children");
+            var kids = r2.GetArray("children");
             Assert.That(kids.Length, Is.EqualTo(2));
-            Assert.That(kids[0].IsNull && kids[1].IsNull, Is.True);
+            Assert.That(!kids.TryGetObject(0, out _) && !kids.TryGetObject(1, out _), Is.True);
         }
 
         /// <summary>

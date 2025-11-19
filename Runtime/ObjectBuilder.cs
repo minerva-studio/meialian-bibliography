@@ -77,7 +77,7 @@ namespace Minerva.DataStorage
 
 
         /// <summary>Add or replace a raw byte payload.</summary>
-        public ObjectBuilder SetRaw(string name, FieldType type, int elemSize, ReadOnlySpan<byte> data) => SetRaw(name, type, elemSize, data);
+        public ObjectBuilder SetRaw(string name, FieldType type, int elemSize, ReadOnlySpan<byte> data) => SetRaw(name.AsMemory(), type, elemSize, data);
         public ObjectBuilder SetRaw(ReadOnlyMemory<char> name, FieldType type, int elemSize, ReadOnlySpan<byte> data)
         {
             if (name.Length == 0) throw new ArgumentNullException(nameof(name));

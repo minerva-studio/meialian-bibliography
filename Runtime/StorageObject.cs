@@ -737,7 +737,7 @@ namespace Minerva.DataStorage
         /// </summary>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public string ReadString(string fieldName) => GetObject(fieldName).ReadString();
+        public string ReadString(string fieldName) => GetArray(fieldName).ToString();
 
         /// <summary>
         /// Read entire container as a string (UTF-16)
@@ -755,8 +755,7 @@ namespace Minerva.DataStorage
                 throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field count is {FieldCount}.");
             }
 
-            ReadOnlySpan<char> value = _container.GetFieldData<char>(in _container.GetFieldHeader(0));
-            return new(value);
+            return AsArray().ToString();
         }
 
 
@@ -780,7 +779,9 @@ namespace Minerva.DataStorage
             }
 
             MakeArray(TypeUtil.PrimOf<T>(), value.Length, Unsafe.SizeOf<T>());
-            MemoryMarshal.AsBytes(value).CopyTo(_container.GetFieldData(in _container.GetFieldHeader(0)));
+            ref FieldHeader header = ref _container.GetFieldHeader(0);
+            MemoryMarshal.AsBytes(value).CopyTo(_container.GetFieldData(in header));
+            NotifyFieldWrite(_container, _container.GetFieldName(in header));
         }
 
         /// <summary>
@@ -788,7 +789,7 @@ namespace Minerva.DataStorage
         /// </summary>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T[] ReadArray<T>(ReadOnlySpan<char> fieldName) where T : unmanaged => GetObject(fieldName).ReadArray<T>();
+        public T[] ReadArray<T>(ReadOnlySpan<char> fieldName) where T : unmanaged => GetArray(fieldName).ToArray<T>();
 
         /// <summary>
         /// Read entire container as an array of unmanaged type T.
