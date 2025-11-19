@@ -195,10 +195,10 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Override<T>(string fieldName, T value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref value, 1)), TypeUtil.PrimOf<T>());
+        public void Override<T>(string fieldName, T value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref value, 1)), TypeUtil<T>.ValueType);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Override<T>(string fieldName, ReadOnlySpan<T> value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(value), TypeUtil.PrimOf<T>(), value.Length);
+        public void Override<T>(string fieldName, ReadOnlySpan<T> value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(value), TypeUtil<T>.ValueType, value.Length);
 
         /// <summary>
         /// Override existing data with given bytes
@@ -774,7 +774,7 @@ namespace Minerva.DataStorage
                     throw new InvalidOperationException("This StorageObject does not represent an array.");
             }
 
-            MakeArray(TypeUtil.PrimOf<T>(), value.Length, Unsafe.SizeOf<T>());
+            MakeArray<T>(value.Length);
             ref FieldHeader header = ref _container.GetFieldHeader(0);
             MemoryMarshal.AsBytes(value).CopyTo(_container.GetFieldData(in header));
             NotifyFieldWrite(_container, _container.GetFieldName(in header));

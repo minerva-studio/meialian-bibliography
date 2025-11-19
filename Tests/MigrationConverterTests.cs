@@ -2,7 +2,6 @@ using System;
 using System.Buffers.Binary;
 using System.Linq;
 using NUnit.Framework;
-using static Minerva.DataStorage.TypeUtil; // Pack, PrimOf<T>()
 
 namespace Minerva.DataStorage.Tests
 {
@@ -141,7 +140,7 @@ namespace Minerva.DataStorage.Tests
             int[] src = new[] { 10, 20, 30 };
             var srcBytes = Int32ArrayToBytes(src);
             var dst = new byte[5 * 4]; // larger target: 5 ints
-            byte hint = Pack(PrimOf<int>(), isArray: true);
+            byte hint = TypeUtil<int>.ArrayFieldType;
 
             Migration.MigrateValueFieldBytes(srcBytes, dst, hint, hint);
 
@@ -160,7 +159,7 @@ namespace Minerva.DataStorage.Tests
             byte[] src = new byte[] { 1, 2, 3, 4 };
             var dst = new byte[8];
             byte unknown = 0; // ValueType.Unknown
-            byte newHint = Pack(PrimOf<int>(), isArray: false);
+            byte newHint = TypeUtil<int>.ScalarFieldType;
 
             Migration.MigrateValueFieldBytes(src, dst, unknown, newHint);
 
@@ -173,7 +172,7 @@ namespace Minerva.DataStorage.Tests
             var buf = new byte[4];
             BinaryPrimitives.WriteInt32LittleEndian(buf.AsSpan(0, 4), 42);
 
-            Migration.ConvertScalarInPlace(buf.AsSpan(), PrimOf<int>(), PrimOf<float>());
+            Migration.ConvertScalarInPlace(buf.AsSpan(), TypeUtil<int>.ValueType, TypeUtil<float>.ValueType);
 
             // verify bit-exact float representation of 42.0f
             int gotBits = BinaryPrimitives.ReadInt32LittleEndian(buf);
@@ -187,7 +186,7 @@ namespace Minerva.DataStorage.Tests
             int[] src = new[] { 5, -6, 7 };
             var buf = Int32ArrayToBytes(src);
 
-            Migration.ConvertArrayInPlaceSameSize(buf.AsSpan(), src.Length, PrimOf<int>(), PrimOf<float>());
+            Migration.ConvertArrayInPlaceSameSize(buf.AsSpan(), src.Length, TypeUtil<int>.ValueType, TypeUtil<float>.ValueType);
 
             var got = BytesToFloatArray(buf);
             Assert.AreEqual(src.Length, got.Length);
@@ -236,8 +235,8 @@ namespace Minerva.DataStorage.Tests
             int[] src = new[] { 1, -2, 123456 };
             var srcBytes = Int32ArrayToBytes(src);
             var dst = new byte[srcBytes.Length];
-            byte oldHint = Pack(PrimOf<int>(), isArray: true);
-            byte newHint = Pack(PrimOf<float>(), isArray: true);
+            var oldHint = TypeUtil<int>.ArrayFieldType;
+            var newHint = TypeUtil<float>.ArrayFieldType;
 
             Migration.MigrateValueFieldBytes(srcBytes, dst, oldHint, newHint);
 
@@ -275,7 +274,7 @@ namespace Minerva.DataStorage.Tests
             int[] src = new[] { 10, 20, 30 };
             var srcBytes = Int32ArrayToBytes(src);
             var dst = new byte[5 * 4]; // larger target: 5 ints
-            byte hint = Pack(PrimOf<int>(), isArray: true);
+            byte hint = TypeUtil<int>.ArrayFieldType;
 
             Migration.MigrateValueFieldBytes(srcBytes, dst, hint, hint);
 
@@ -294,11 +293,10 @@ namespace Minerva.DataStorage.Tests
             byte[] src = new byte[10];
             for (int i = 0; i < src.Length; i++) src[i] = (byte)(i + 1);
             var dst = new byte[16];
-            byte oldHint = 0; // mark as Unknown to emulate fallback check, or use a double hint but src misaligned
-            byte newHint = Pack(PrimOf<long>(), isArray: true);
+            var newHint = TypeUtil<long>.ArrayFieldType;
 
             // Use mismatched sizing: mark oldVt as Float64 (8) but src length 10 not divisible.
-            byte oldDoubleHint = Pack(PrimOf<double>(), isArray: true);
+            var oldDoubleHint = TypeUtil<double>.ArrayFieldType;
 
             Migration.MigrateValueFieldBytes(src, dst, oldDoubleHint, newHint);
 

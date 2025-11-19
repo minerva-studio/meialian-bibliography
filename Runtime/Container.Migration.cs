@@ -2,7 +2,6 @@ using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using static Minerva.DataStorage.TypeUtil;
 
 namespace Minerva.DataStorage
 {
@@ -133,7 +132,7 @@ namespace Minerva.DataStorage
         /// <param name="type"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeFor(fieldName, TypeUtil.PrimOf<T>(), Unsafe.SizeOf<T>(), inlineArrayLength);
+        public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeFor(fieldName, TypeUtil<T>.ValueType, TypeUtil<T>.Size, inlineArrayLength);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int ReschemeFor(ReadOnlySpan<char> fieldName, ValueType valueType, int elementSize, int? inlineArrayLength)
@@ -220,7 +219,7 @@ namespace Minerva.DataStorage
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         [Obsolete]
-        public int ReschemeFor_Old<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal_Old(fieldName, TypeUtil.PrimOf<T>(), inlineArrayLength);
+        public int ReschemeFor_Old<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal_Old(fieldName, TypeUtil<T>.ValueType, inlineArrayLength);
         [Obsolete]
         private int ReschemeForField_Internal_Old(ReadOnlySpan<char> fieldName, ValueType valueType, int? inlineArrayLength = null)
         {
@@ -318,8 +317,8 @@ namespace Minerva.DataStorage
             if (fieldHeader.IsRef)
                 throw new InvalidOperationException($"Field '{GetFieldName(in fieldHeader).ToString()}' is a reference; cannot read value T={typeof(T).Name}.");
 
-            int oldElementSize = TypeUtil.SizeOf(valueType);
-            int newElementSize = TypeUtil.SizeOf(PrimOf<T>());
+            int oldElementSize = fieldHeader.ElemSize;
+            int newElementSize = TypeUtil<T>.Size;
             int dataLength = (int)fieldHeader.Length;
             int arrayLength = isArray ? dataLength / oldElementSize : 1;
             Span<byte> fieldData = GetFieldData(in fieldHeader);
@@ -329,7 +328,7 @@ namespace Minerva.DataStorage
             {
                 if (isArray) Migration.ConvertArrayInPlaceSameSize(fieldData, arrayLength, valueType, target);
                 else Migration.ConvertScalarInPlace(fieldData, valueType, target);
-                fieldHeader.FieldType = Pack(target, isArray);
+                fieldHeader.FieldType = new(target, isArray);
             }
             // different size
             else
@@ -404,7 +403,7 @@ namespace Minerva.DataStorage
         /// <returns></returns>
         public bool TryWriteScalarImplicit<T>(ref FieldHeader field, T value) where T : unmanaged
         {
-            ValueType srcType = TypeUtil.PrimOf<T>();
+            ValueType srcType = TypeUtil<T>.ValueType;
             // type match, direct write
             if (field.FieldType.b == (byte)srcType)
             {
@@ -420,7 +419,7 @@ namespace Minerva.DataStorage
             if (field.FieldType == FieldType.ScalarUnknown)
             {
                 // too large to fit
-                if (Unsafe.SizeOf<T>() > dstSpan.Length)
+                if (TypeUtil<T>.Size > dstSpan.Length)
                     return false;
 
                 field.FieldType = srcType;
@@ -442,7 +441,7 @@ namespace Minerva.DataStorage
         /// <returns></returns> 
         public bool TryReadScalarExplicit<T>(ref FieldHeader field, out T value) where T : unmanaged
         {
-            var readType = TypeUtil.PrimOf<T>();
+            var readType = TypeUtil<T>.ValueType;
             // same type
             if ((byte)readType == field.FieldType.b)
             {
@@ -465,7 +464,7 @@ namespace Minerva.DataStorage
         {
             var dstType = field.Type;
             var dstSpan = GetFieldData(in field);
-            var srcType = TypeUtil.PrimOf<T>();
+            var srcType = TypeUtil<T>.ValueType;
 
             // conversion
             var srcSpan = MemoryMarshal.Cast<T, byte>(MemoryMarshal.CreateSpan(ref value, 1));

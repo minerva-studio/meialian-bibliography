@@ -116,8 +116,8 @@ namespace Minerva.DataStorage
         public ObjectBuilder SetScalar<T>(string name) where T : unmanaged => SetScalar<T>(name.AsMemory());
         internal ObjectBuilder SetScalar<T>(ReadOnlyMemory<char> name) where T : unmanaged
         {
-            int size = Unsafe.SizeOf<T>();
-            _map[name] = new Entry { Type = TypeUtil.FieldType<T>(), ElemSize = (short)size, Data = size };
+            int size = TypeUtil<T>.Size;
+            _map[name] = new Entry { Type = TypeUtil<T>.ScalarFieldType, ElemSize = (short)size, Data = size };
             return this;
         }
 
@@ -140,9 +140,9 @@ namespace Minerva.DataStorage
         public ObjectBuilder SetScalar<T>(string name, in T value) where T : unmanaged => SetScalar(name.AsMemory(), value);
         internal ObjectBuilder SetScalar<T>(ReadOnlyMemory<char> name, in T value) where T : unmanaged
         {
-            int size = Unsafe.SizeOf<T>();
+            int size = TypeUtil<T>.Size;
             var bytes = CreateDefaultValueBytes(value);
-            _map[name] = new Entry { Type = TypeUtil.FieldType<T>(), ElemSize = (short)size, Data = bytes };
+            _map[name] = new Entry { Type = TypeUtil<T>.ScalarFieldType, ElemSize = (short)size, Data = bytes };
             return this;
         }
 
@@ -196,6 +196,10 @@ namespace Minerva.DataStorage
         public ObjectBuilder SetArray(string name, ValueType type, int arraySize) => SetArray(name.AsMemory(), type, arraySize);
         internal ObjectBuilder SetArray(ReadOnlyMemory<char> name, ValueType type, int arraySize)
         {
+            // cannot create blobs because size is unknown
+            if (type == ValueType.Blob)
+                ThrowHelper.ThrowArugmentException(nameof(type));
+
             var fieldType = new FieldType(type, true);
             int elem = fieldType.Size;
             int length = elem * arraySize;
@@ -207,10 +211,9 @@ namespace Minerva.DataStorage
         public ObjectBuilder SetArray<T>(string name, int arraySize) where T : unmanaged => SetArray<T>(name.AsMemory(), arraySize);
         internal ObjectBuilder SetArray<T>(ReadOnlyMemory<char> name, int arraySize) where T : unmanaged
         {
-            FieldType type = new(TypeUtil.PrimOf<T>(), true);
-            int elem = type.Size;
+            int elem = TypeUtil<T>.Size;
             int length = elem * arraySize;
-            _map[name] = new Entry { Type = type, ElemSize = (short)elem, Data = length };
+            _map[name] = new Entry { Type = TypeUtil<T>.ArrayFieldType, ElemSize = (short)elem, Data = length };
             return this;
         }
 
@@ -218,12 +221,11 @@ namespace Minerva.DataStorage
         public ObjectBuilder SetArray<T>(string name, ReadOnlySpan<T> items) where T : unmanaged => SetArray<T>(name.AsMemory(), items);
         internal ObjectBuilder SetArray<T>(ReadOnlyMemory<char> name, ReadOnlySpan<T> items) where T : unmanaged
         {
-            FieldType type = new(TypeUtil.PrimOf<T>(), true);
-            int elem = Unsafe.SizeOf<T>();
+            int elem = TypeUtil<T>.Size;
             int len = elem * items.Length;
             var buf = new byte[len];
             MemoryMarshal.AsBytes(items).CopyTo(buf);
-            _map[name] = new Entry { Type = type, ElemSize = (short)elem, Data = buf };
+            _map[name] = new Entry { Type = TypeUtil<T>.ArrayFieldType, ElemSize = (short)elem, Data = buf };
             return this;
         }
 
@@ -469,7 +471,7 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static byte[] CreateDefaultValueBytes<T>(T value) where T : unmanaged
         {
-            var buf = new byte[Unsafe.SizeOf<T>()];
+            var buf = new byte[TypeUtil<T>.Size];
             MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref value, 1)).CopyTo(buf);
             return buf;
         }

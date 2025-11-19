@@ -124,7 +124,7 @@ namespace Minerva.DataStorage
             var srcType = f.Type;
 
             // 3) Target value type (requested T).
-            var dstType = TypeUtil.PrimOf<T>();
+            var dstType = TypeUtil<T>.ValueType;
 
             for (int i = 0; i < length; i++)
             {

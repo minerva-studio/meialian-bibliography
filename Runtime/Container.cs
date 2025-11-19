@@ -345,21 +345,20 @@ namespace Minerva.DataStorage
             if (TryWriteScalarImplicit(ref f, value))
                 return 0;
 
-            int sz = Unsafe.SizeOf<T>();
             // same size, override 
-            if (f.Length == sz)
+            if (f.Length == TypeUtil<T>.Size)
             {
                 var span = GetFieldData(in f);
-                if (Unsafe.SizeOf<T>() < f.Length) span.Clear(); // avoid stale trailing bytes
+                if (TypeUtil<T>.Size < f.Length) span.Clear(); // avoid stale trailing bytes
                 MemoryMarshal.Write(span, ref value);
-                f.FieldType = TypeUtil.PrimOf<T>();
+                f.FieldType = TypeUtil<T>.ValueType;
                 return 0;
             }
             // too small? rescheme
-            if (f.Length < sz)
+            if (f.Length < TypeUtil<T>.Size)
             {
                 if (!allowResize) return 2;
-                Override(GetFieldName(in f), MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan<T>(ref value, 1)), TypeUtil.PrimOf<T>());
+                Override(GetFieldName(in f), MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan<T>(ref value, 1)), TypeUtil<T>.ValueType);
                 return 0;
             }
             // too large? explicit cast

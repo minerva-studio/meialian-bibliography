@@ -86,8 +86,8 @@ namespace Minerva.DataStorage
         /// <returns></returns>
         public static ContainerLayout BuildArray<T>(int length) where T : unmanaged
         {
-            if (TypeUtil.PrimOf<T>() == ValueType.Blob)
-                return BuildBlobArray(Unsafe.SizeOf<T>(), length);
+            if (TypeUtil<T>.ValueType == ValueType.Blob)
+                return BuildBlobArray(TypeUtil<T>.Size, length);
 
             var b = new ObjectBuilder();
             b.SetArray<T>(ArrayName, length);

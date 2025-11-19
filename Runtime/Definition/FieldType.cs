@@ -56,7 +56,7 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static FieldType Of<T>(bool isArray) where T : unmanaged => TypeUtil.Pack(TypeUtil.PrimOf<T>(), isArray);
+        public static FieldType Of<T>(bool isArray) where T : unmanaged => TypeUtil<T>.Create(isArray);
 
         public static implicit operator FieldType(byte b) => new FieldType(b);
         public static implicit operator FieldType(ValueType valueType) => new FieldType((byte)valueType);

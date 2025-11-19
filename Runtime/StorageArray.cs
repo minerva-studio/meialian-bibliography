@@ -1,7 +1,6 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Minerva.DataStorage
 {
@@ -132,7 +131,7 @@ namespace Minerva.DataStorage
 
             Span<byte> data = _container.GetFieldData(in header);
             ValueType dstType = header.FieldType.Type;
-            ValueType srcType = TypeUtil.PrimOf<T>();
+            ValueType srcType = TypeUtil<T>.ValueType;
             for (int i = 0; i < length; i++)
             {
                 ReadOnlySpan<byte> src = MemoryMarshal.Cast<T, byte>(values[i..(i + 1)]);
@@ -184,7 +183,7 @@ namespace Minerva.DataStorage
             int length = header.Length / header.ElemSize;
             var result = new T[length];
 
-            var dstType = TypeUtil.PrimOf<T>();
+            var dstType = TypeUtil<T>.ValueType;
 
             Span<byte> data = _container.GetFieldData(in header);
             ValueType type = header.FieldType.Type;
