@@ -1,7 +1,8 @@
+#if UNITY_EDITOR
 using NUnit.Framework;
 using Unity.Serialization.Json;
 
-namespace Minerva.DataStorage.Serialization.Tests
+namespace Minerva.DataStorage.Serialization.Tests.Unity
 {
     [TestFixture]
     public class StorageSerializationTests
@@ -48,7 +49,7 @@ namespace Minerva.DataStorage.Serialization.Tests
                     new StorageAdapter()
                 }
             };
-            string json = Unity.Serialization.Json.JsonSerialization.ToJson(storage, parameters);
+            string json = global::Unity.Serialization.Json.JsonSerialization.ToJson(storage, parameters);
 
             // --- Assertions (robust to pretty printing) ---
             StringAssert.Contains("\"hp\":", json);
@@ -87,3 +88,4 @@ namespace Minerva.DataStorage.Serialization.Tests
         }
     }
 }
+#endif

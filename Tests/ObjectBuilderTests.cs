@@ -3,7 +3,6 @@ using System;
 using System.Buffers.Binary;
 using System.Linq;
 using System.Runtime.InteropServices;
-using UnityEngine;
 
 namespace Minerva.DataStorage.Tests
 {
@@ -113,8 +112,6 @@ namespace Minerva.DataStorage.Tests
             Assert.True(f.FieldType.IsInlineArray, "Should be marked as array.");
             Assert.AreEqual(sizeof(int), f.ElemSize);
             Assert.AreEqual(arr.Length * sizeof(int), f.Length);
-
-            Debug.Log(c.ToString());
 
             // Optional payload verification (will fail if data was copied into wrong segment):
             var data = view.GetFieldBytes(0);

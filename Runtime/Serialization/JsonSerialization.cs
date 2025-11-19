@@ -11,7 +11,7 @@ namespace Minerva.DataStorage.Serialization
 {
     public static class JsonSerialization
     {
-        private const string BlobName = "$blob";
+        public const string BlobName = "$blob";
 
         public static ReadOnlySpan<char> ToJson(this Storage storage)
         {
@@ -29,9 +29,7 @@ namespace Minerva.DataStorage.Serialization
                 // --- special case: UTF-16 string (Char16) --------------------------
                 if (storage.IsString)
                 {
-                    writer.Write("\"");
-                    writer.Write(storage.Container.GetFieldData<char>(in field));
-                    writer.Write("\"");
+                    WriteJsonString(ref writer, storage.Container.GetFieldData<char>(in field));
                 }
                 else if (field.IsRef)
                 {
@@ -69,9 +67,7 @@ namespace Minerva.DataStorage.Serialization
             if (field.Type == ValueType.Char16)
             {
                 var span = storage.Container.GetFieldData(in field);
-                writer.Write("\"");
-                writer.Write(MemoryMarshal.Cast<byte, char>(span));
-                writer.Write("\"");
+                WriteJsonString(ref writer, MemoryMarshal.Cast<byte, char>(span));
                 return;
             }
 
@@ -241,6 +237,71 @@ namespace Minerva.DataStorage.Serialization
             writer.Write(":\"");
             writer.Write(base64);
             writer.Write("\"}");
+        }
+
+        // Escapes a UTF-16 string as a JSON string literal: " ... "
+        // Handles: quotes, backslashes, control chars, and common escapes.
+        private static void WriteJsonString(ref IBufferWriter<char> writer, ReadOnlySpan<char> value)
+        {
+            // Opening quote
+            writer.Write("\"");
+
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                switch (c)
+                {
+                    case '\"':
+                        writer.Write("\\\"");  // quote
+                        break;
+                    case '\\':
+                        writer.Write("\\\\");  // backslash
+                        break;
+                    case '\b':
+                        writer.Write("\\b");
+                        break;
+                    case '\f':
+                        writer.Write("\\f");
+                        break;
+                    case '\n':
+                        writer.Write("\\n");
+                        break;
+                    case '\r':
+                        writer.Write("\\r");
+                        break;
+                    case '\t':
+                        writer.Write("\\t");
+                        break;
+                    default:
+                        if (c < ' ')
+                        {
+                            // Control chars 0x00¨C0x1F must be escaped as \u00XX
+                            Span<char> buf = stackalloc char[6];
+                            buf[0] = '\\';
+                            buf[1] = 'u';
+                            buf[2] = ToHexChar((c >> 12) & 0xF);
+                            buf[3] = ToHexChar((c >> 8) & 0xF);
+                            buf[4] = ToHexChar((c >> 4) & 0xF);
+                            buf[5] = ToHexChar(c & 0xF);
+                            writer.Write(buf);
+                        }
+                        else
+                        {
+                            // Normal printable char, write as-is
+                            writer.GetSpan(1)[0] = c;
+                            writer.Advance(1);
+                        }
+                        break;
+                }
+            }
+
+            // Closing quote
+            writer.Write("\"");
+        }
+
+        private static char ToHexChar(int value)
+        {
+            return (char)(value < 10 ? ('0' + value) : ('A' + (value - 10)));
         }
 
 
@@ -543,6 +604,7 @@ namespace Minerva.DataStorage.Serialization
                             SetValueType(ValueType.Ref);
                             // null inside a value array is not supported in this simple mapping.
                             ReadNull();
+                            containers.Add(null);
                         }
                         else if (c == '{')
                         {
@@ -648,8 +710,16 @@ namespace Minerva.DataStorage.Serialization
                         var arrayView = arrayObject.AsArray();
                         for (int i = 0; i < containers.Count; i++)
                         {
-                            Container.Registry.Shared.Register(containers[i]);
-                            arrayView.References[i] = containers[i].ID;
+                            Container container = containers[i];
+                            if (container != null)
+                            {
+                                Container.Registry.Shared.Register(container);
+                                arrayView.References[i] = containers[i].ID;
+                            }
+                            else
+                            {
+                                arrayView.References[i] = Container.Registry.ID.Empty;
+                            }
                         }
                         return;
                     }
@@ -662,6 +732,7 @@ namespace Minerva.DataStorage.Serialization
                 {
                     foreach (var container in containers)
                     {
+                        if (container == null) continue;
                         if (container.ID == Container.Registry.ID.Wild)
                             Container.Registry.Shared.Return(container);
                         else

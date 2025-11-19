@@ -131,7 +131,7 @@ namespace Minerva.DataStorage
 
             Span<byte> data = _container.GetFieldData(in header);
             ValueType dstType = header.FieldType.Type;
-            ValueType srcType = TypeUtil.PrimOf<T>();
+            ValueType srcType = TypeUtil<T>.ValueType;
             for (int i = 0; i < length; i++)
             {
                 ReadOnlySpan<byte> src = MemoryMarshal.Cast<T, byte>(values[i..(i + 1)]);
@@ -183,7 +183,7 @@ namespace Minerva.DataStorage
             int length = header.Length / header.ElemSize;
             var result = new T[length];
 
-            var dstType = TypeUtil.PrimOf<T>();
+            var dstType = TypeUtil<T>.ValueType;
 
             Span<byte> data = _container.GetFieldData(in header);
             ValueType type = header.FieldType.Type;
@@ -198,6 +198,28 @@ namespace Minerva.DataStorage
             }
 
             return result;
+        }
+
+        public string AsString()
+        {
+            EnsureNotDisposed();
+            // 1) Disallow ref fields for value extraction.
+            ref var header = ref Header;
+            if (header.Type == ValueType.Char16)
+            {
+                var data = _container.GetFieldData<char>(in header);
+                return data.ToString();
+            }
+            throw new InvalidOperationException("Cannot call AsString() on a non-char array.");
+        }
+
+        public override string ToString()
+        {
+            if (Type == ValueType.Char16)
+            {
+                return AsString();
+            }
+            return base.ToString();
         }
     }
 }

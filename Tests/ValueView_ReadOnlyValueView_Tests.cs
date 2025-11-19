@@ -2,7 +2,6 @@ using NUnit.Framework;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Minerva.DataStorage.Tests
@@ -11,8 +10,7 @@ namespace Minerva.DataStorage.Tests
     public class ValueView_ReadOnlyValueView_Tests
     {
         // Helper: make a fixed-size buffer for a primitive type
-        private static Span<byte> BufOf<T>() where T : unmanaged
-            => new byte[Unsafe.SizeOf<T>()];
+        private static Span<byte> BufOf<T>() where T : unmanaged => new byte[TypeUtil<T>.Size];
 
         [Test]
         public void TryWrite_Succeeds_For_Int16_To_Int32_Implicit()

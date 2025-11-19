@@ -1,6 +1,5 @@
 using System;
 using System.Buffers.Binary;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Minerva.DataStorage
@@ -128,8 +127,8 @@ namespace Minerva.DataStorage
 
         public bool TryRead<T>(out T value, bool isExplicit = false) where T : unmanaged
         {
-            Span<byte> buffer = stackalloc byte[Unsafe.SizeOf<T>()];
-            if (TryWriteTo(buffer, TypeUtil.PrimOf<T>(), isExplicit))
+            Span<byte> buffer = stackalloc byte[TypeUtil<T>.Size];
+            if (TryWriteTo(buffer, TypeUtil<T>.ValueType, isExplicit))
             {
                 value = MemoryMarshal.Read<T>(buffer);
                 return true;
@@ -157,8 +156,7 @@ namespace Minerva.DataStorage
 
         public static ReadOnlyValueView Create<T>(ReadOnlySpan<byte> buffer) where T : unmanaged
         {
-            var type = TypeUtil.PrimOf<T>();
-            return new ReadOnlyValueView(buffer, type);
+            return new ReadOnlyValueView(buffer, TypeUtil<T>.ValueType);
         }
 
 
@@ -220,7 +218,7 @@ namespace Minerva.DataStorage
 
         private string ToArrayOrSingleString<T>() where T : unmanaged
         {
-            int sz = Unsafe.SizeOf<T>();
+            int sz = TypeUtil<T>.Size;
             if (Bytes.Length > sz)
             {
                 var arr = MemoryMarshal.Cast<byte, T>(Bytes[..^(Bytes.Length % sz)]);

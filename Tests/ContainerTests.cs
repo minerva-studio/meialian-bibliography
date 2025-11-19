@@ -2,7 +2,6 @@ using NUnit.Framework;
 using System;
 using System.Buffers.Binary;
 using System.Linq;
-using UnityEngine;
 
 namespace Minerva.DataStorage.Tests
 {
@@ -144,8 +143,6 @@ namespace Minerva.DataStorage.Tests
 
             short s = unchecked((short)0xABCD);  // little-endian bytes [CD AB]
             c.Write<short>("word", s, allowRescheme: false);
-
-            Debug.Log(c.ToString());
 
             int val = c.Read<int>("word");
             Assert.AreEqual(0x000000CD, val); // shrink to CD

@@ -1,6 +1,5 @@
 using NUnit.Framework;
 using System.Collections.Generic;
-using UnityEngine;
 
 namespace Minerva.DataStorage.Tests
 {
@@ -95,13 +94,10 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            Debug.Log(root.ToString());
             root.Write<int>("hp", 10);                  // existing
 
-            Debug.Log(root.ToString());
             root.Write<float>("score", 3.5f);           // nonexistent -> auto add
 
-            Debug.Log(root.ToString());
             Assert.That(root.Read<int>("hp"), Is.EqualTo(10));
             Assert.That(root.Read<float>("score"), Is.EqualTo(3.5f));
         }

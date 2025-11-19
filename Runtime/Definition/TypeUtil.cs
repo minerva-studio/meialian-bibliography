@@ -26,45 +26,18 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte Pack(ValueType valueType, bool isArray) => (byte)(((byte)valueType) | (isArray ? IS_ARRAY_MASK : (byte)0));
 
+        // Keep array flag (bit7) and reserved bits (5..6); replace low-5 prim bits.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte SetType(ref byte b, ValueType v)
-        {
-            // Keep array flag (bit7) and reserved bits (5..6); replace low-5 prim bits.
-            b = (byte)((b & IS_ARRAY_MASK) | ((byte)v & PRIM_MASK));
-            return b;
-        }
+        public static byte SetType(ref byte b, ValueType v) => b = (byte)((b & IS_ARRAY_MASK) | ((byte)v & PRIM_MASK));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte SetArray(ref byte b, bool isArray)
-        {
-            b = isArray ? (byte)(b | IS_ARRAY_MASK) : (byte)(b & ~IS_ARRAY_MASK);
-            return b;
-        }
+        public static byte SetArray(ref byte b, bool isArray) => b = isArray ? (byte)(b | IS_ARRAY_MASK) : (byte)(b & ~IS_ARRAY_MASK);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsArray(byte hint) => (hint & IS_ARRAY_MASK) != 0;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ValueType PrimOf(byte hint)
-            => (ValueType)(hint & PRIM_MASK); // No shift
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ValueType PrimOf<T>() where T : unmanaged => PrimCache<T>.Value;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static FieldType FieldType<T>(bool isArray) where T : unmanaged
-            => Pack(PrimOf<T>(), isArray);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static FieldType FieldType<T>() where T : unmanaged => PrimOf<T>();
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte WithArray(byte hint, bool isArray)
-            => isArray ? (byte)(hint | IS_ARRAY_MASK) : (byte)(hint & ~IS_ARRAY_MASK);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static byte WithPrim(byte hint, ValueType valueType)
-            => (byte)((hint & ~PRIM_MASK) | ((byte)valueType & PRIM_MASK));
+        public static ValueType PrimOf(byte hint) => (ValueType)(hint & PRIM_MASK); // No shift
 
         /// <summary>
         /// Map ValueType to element byte size; Unknown returns 1 for raw byte copy fallback.
@@ -94,16 +67,13 @@ namespace Minerva.DataStorage
             || vt == ValueType.Int8 || vt == ValueType.Int16 || vt == ValueType.Int32 || vt == ValueType.Int64;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool IsUnsignedInteger(this ValueType vt)
-            => vt == ValueType.UInt8 || vt == ValueType.UInt16 || vt == ValueType.UInt32 || vt == ValueType.UInt64;
+        public static bool IsUnsignedInteger(this ValueType vt) => vt == ValueType.UInt8 || vt == ValueType.UInt16 || vt == ValueType.UInt32 || vt == ValueType.UInt64;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool IsSignedInteger(this ValueType vt)
-            => vt == ValueType.Int8 || vt == ValueType.Int16 || vt == ValueType.Int32 || vt == ValueType.Int64;
+        public static bool IsSignedInteger(this ValueType vt) => vt == ValueType.Int8 || vt == ValueType.Int16 || vt == ValueType.Int32 || vt == ValueType.Int64;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool IsFloatingPoint(this ValueType vt)
-            => vt == ValueType.Float32 || vt == ValueType.Float64;
+        public static bool IsFloatingPoint(this ValueType vt) => vt == ValueType.Float32 || vt == ValueType.Float64;
 
         /// <summary>
         /// Conservative C#-like implicit numeric conversion table.
@@ -151,43 +121,61 @@ namespace Minerva.DataStorage
             var baseType = PrimOf(s).ToString();
             return IsArray(s) ? baseType + "[]" : baseType;
         }
+    }
 
-        private static class PrimCache<T> where T : unmanaged
+    /// <summary>
+    /// Bit layout (1 byte):
+    /// - bit7: Array flag
+    /// - bit6..5: Reserved for future flags (00 for now)
+    /// - bit4..0: ValueType code (no shift; direct cast)
+    /// </summary>
+    public static class TypeUtil<T> where T : unmanaged
+    {
+        public static readonly ValueType ValueType = Compute();
+        public static readonly int Size = Unsafe.SizeOf<T>();
+        public static readonly bool IsIntegral = ValueType.IsIntegral();
+        public static readonly bool IsUnsignedInteger = ValueType.IsUnsignedInteger();
+        public static readonly bool IsSignedInteger = ValueType.IsSignedInteger();
+        public static readonly bool IsFloatingPoint = ValueType.IsFloatingPoint();
+        public static readonly FieldType ScalarFieldType = Create(false);
+        public static readonly FieldType ArrayFieldType = Create(true);
+
+
+        public static FieldType Create(bool isArray = false) => new FieldType(ValueType, isArray);
+
+        private static ValueType Compute()
         {
-            internal static readonly ValueType Value = Compute();
-            private static ValueType Compute()
+            if (typeof(T).IsEnum)
             {
-                if (typeof(T).IsEnum)
+                var ut = Enum.GetUnderlyingType(typeof(T));
+                switch (Type.GetTypeCode(ut))
                 {
-                    var ut = Enum.GetUnderlyingType(typeof(T));
-                    switch (Type.GetTypeCode(ut))
-                    {
-                        case TypeCode.SByte: return ValueType.Int8;
-                        case TypeCode.Byte: return ValueType.UInt8;
-                        case TypeCode.Int16: return ValueType.Int16;
-                        case TypeCode.UInt16: return ValueType.UInt16;
-                        case TypeCode.Int32: return ValueType.Int32;
-                        case TypeCode.UInt32: return ValueType.UInt32;
-                        case TypeCode.Int64: return ValueType.Int64;
-                        case TypeCode.UInt64: return ValueType.UInt64;
-                        default: return ValueType.Unknown;
-                    }
+                    case TypeCode.SByte: return ValueType.Int8;
+                    case TypeCode.Byte: return ValueType.UInt8;
+                    case TypeCode.Int16: return ValueType.Int16;
+                    case TypeCode.UInt16: return ValueType.UInt16;
+                    case TypeCode.Int32: return ValueType.Int32;
+                    case TypeCode.UInt32: return ValueType.UInt32;
+                    case TypeCode.Int64: return ValueType.Int64;
+                    case TypeCode.UInt64: return ValueType.UInt64;
+                    default: return ValueType.Unknown;
                 }
-
-                if (typeof(T) == typeof(bool)) return ValueType.Bool;
-                if (typeof(T) == typeof(sbyte)) return ValueType.Int8;
-                if (typeof(T) == typeof(byte)) return ValueType.UInt8;
-                if (typeof(T) == typeof(char)) return ValueType.Char16; // UTF-16 code unit
-                if (typeof(T) == typeof(short)) return ValueType.Int16;
-                if (typeof(T) == typeof(ushort)) return ValueType.UInt16;
-                if (typeof(T) == typeof(int)) return ValueType.Int32;
-                if (typeof(T) == typeof(uint)) return ValueType.UInt32;
-                if (typeof(T) == typeof(long)) return ValueType.Int64;
-                if (typeof(T) == typeof(ulong)) return ValueType.UInt64;
-                if (typeof(T) == typeof(float)) return ValueType.Float32;
-                if (typeof(T) == typeof(double)) return ValueType.Float64;
-                return ValueType.Blob;
             }
+
+            if (typeof(T) == typeof(bool)) return ValueType.Bool;
+            if (typeof(T) == typeof(sbyte)) return ValueType.Int8;
+            if (typeof(T) == typeof(byte)) return ValueType.UInt8;
+            if (typeof(T) == typeof(char)) return ValueType.Char16; // UTF-16 code unit
+            if (typeof(T) == typeof(short)) return ValueType.Int16;
+            if (typeof(T) == typeof(ushort)) return ValueType.UInt16;
+            if (typeof(T) == typeof(int)) return ValueType.Int32;
+            if (typeof(T) == typeof(uint)) return ValueType.UInt32;
+            if (typeof(T) == typeof(long)) return ValueType.Int64;
+            if (typeof(T) == typeof(ulong)) return ValueType.UInt64;
+            if (typeof(T) == typeof(float)) return ValueType.Float32;
+            if (typeof(T) == typeof(double)) return ValueType.Float64;
+            if (typeof(T) == typeof(ContainerReference)) return ValueType.Ref;
+            return ValueType.Blob;
         }
     }
 }

@@ -345,19 +345,20 @@ namespace Minerva.DataStorage
             if (TryWriteScalarImplicit(ref f, value))
                 return 0;
 
-            int sz = Unsafe.SizeOf<T>();
             // same size, override 
-            if (f.Length == sz)
+            if (f.Length == TypeUtil<T>.Size)
             {
-                Write_Override(ref f, ref value);
+                var span = GetFieldData(in f);
+                if (TypeUtil<T>.Size < f.Length) span.Clear(); // avoid stale trailing bytes
+                MemoryMarshal.Write(span, ref value);
+                f.FieldType = TypeUtil<T>.ValueType;
                 return 0;
             }
             // too small? rescheme
-            if (f.Length < sz)
+            if (f.Length < TypeUtil<T>.Size)
             {
                 if (!allowResize) return 2;
-                // currently can't contain the value, rescheme
-                ReschemeAndWrite(ref f, value);
+                Override(GetFieldName(in f), MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan<T>(ref value, 1)), TypeUtil<T>.ValueType);
                 return 0;
             }
             // too large? explicit cast
@@ -367,19 +368,14 @@ namespace Minerva.DataStorage
             }
         }
 
-        private void ReschemeAndWrite<T>(ref FieldHeader header, T value) where T : unmanaged
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Override(ReadOnlySpan<char> fieldName, ReadOnlySpan<byte> value, ValueType valueType, int? inlineArrayLength = null)
         {
-            int newIndex = ReschemeFor<T>(GetFieldName(in header));
-            // update to new field
-            Write_Override(ref GetFieldHeader(newIndex), ref value);
-        }
-
-        private void Write_Override<T>(ref FieldHeader header, ref T value) where T : unmanaged
-        {
-            var span = GetFieldData(in header);
-            if (Unsafe.SizeOf<T>() < header.Length) span.Clear(); // avoid stale trailing bytes
-            MemoryMarshal.Write(span, ref value);
-            header.FieldType = TypeUtil.PrimOf<T>();
+            int elementCount = inlineArrayLength ?? 1;
+            int elemSize = valueType == ValueType.Blob ? value.Length / elementCount : TypeUtil.SizeOf(valueType);
+            int index = ReschemeFor(fieldName, valueType, elemSize, inlineArrayLength);
+            ref var header = ref GetFieldHeader(index);
+            value.CopyTo(GetFieldData(in header));
         }
 
 

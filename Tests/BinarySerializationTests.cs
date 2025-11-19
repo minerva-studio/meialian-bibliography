@@ -1,6 +1,6 @@
-using System;
 using Minerva.DataStorage.Serialization;
 using NUnit.Framework;
+using System;
 
 namespace Minerva.DataStorage.Tests
 {

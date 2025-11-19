@@ -46,6 +46,7 @@ namespace Minerva.DataStorage
         public void ClearAll() => _ids.Clear();
     }
 
+    [Obsolete]
     public readonly ref struct StorageObjectArrayElement
     {
         readonly StorageObjectArray _array;

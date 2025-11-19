@@ -173,9 +173,8 @@ namespace Minerva.DataStorage
 
         public static ValueView Create<T>(ref T value) where T : unmanaged
         {
-            var type = TypeUtil.PrimOf<T>();
             var buffer = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref value, 1));
-            return new ValueView(buffer, type);
+            return new ValueView(buffer, TypeUtil<T>.ValueType);
         }
 
 
