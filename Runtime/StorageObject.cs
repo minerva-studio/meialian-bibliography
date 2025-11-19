@@ -213,8 +213,9 @@ namespace Minerva.DataStorage
             if (valueType == ValueType.Ref)
                 ThrowHelper.ThrowArugmentException(nameof(value));
 
-            _container.EnsureNotDisposed(_generation);
+            var container = _container.EnsureNotDisposed(_generation);
             _container.Override(fieldName, value, valueType, inlineArrayLength);
+            NotifyFieldWrite(container, fieldName);
         }
 
 
