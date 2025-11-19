@@ -349,17 +349,17 @@ namespace Minerva.DataStorage
             // same size, override 
             if (f.Length == sz)
             {
-                Write_Override(ref f, ref value);
+                var span = GetFieldData(in f);
+                if (Unsafe.SizeOf<T>() < f.Length) span.Clear(); // avoid stale trailing bytes
+                MemoryMarshal.Write(span, ref value);
+                f.FieldType = TypeUtil.PrimOf<T>();
                 return 0;
             }
             // too small? rescheme
             if (f.Length < sz)
             {
                 if (!allowResize) return 2;
-                // currently can't contain the value, rescheme 
-                int newIndex = ReschemeFor<T>(GetFieldName(in f));
-                // update to new field
-                Write_Override(ref GetFieldHeader(newIndex), ref value);
+                Override(GetFieldName(in f), MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan<T>(ref value, 1)), TypeUtil.PrimOf<T>());
                 return 0;
             }
             // too large? explicit cast
@@ -369,12 +369,14 @@ namespace Minerva.DataStorage
             }
         }
 
-        private void Write_Override<T>(ref FieldHeader header, ref T value) where T : unmanaged
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Override(ReadOnlySpan<char> fieldName, ReadOnlySpan<byte> value, ValueType valueType, int? inlineArrayLength = null)
         {
-            var span = GetFieldData(in header);
-            if (Unsafe.SizeOf<T>() < header.Length) span.Clear(); // avoid stale trailing bytes
-            MemoryMarshal.Write(span, ref value);
-            header.FieldType = TypeUtil.PrimOf<T>();
+            int elementCount = inlineArrayLength ?? 1;
+            int elemSize = valueType == ValueType.Blob ? value.Length / elementCount : TypeUtil.SizeOf(valueType);
+            int index = ReschemeFor(fieldName, valueType, elemSize, inlineArrayLength);
+            ref var header = ref GetFieldHeader(index);
+            value.CopyTo(GetFieldData(in header));
         }
 
 

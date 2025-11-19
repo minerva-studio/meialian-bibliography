@@ -214,11 +214,7 @@ namespace Minerva.DataStorage
                 ThrowHelper.ThrowArugmentException(nameof(value));
 
             _container.EnsureNotDisposed(_generation);
-            int elementCount = inlineArrayLength ?? 1;
-            int elemSize = valueType == ValueType.Blob ? value.Length / elementCount : TypeUtil.SizeOf(valueType);
-            int index = _container.ReschemeFor(fieldName, valueType, elemSize, inlineArrayLength);
-            ref var header = ref _container.GetFieldHeader(index);
-            value.CopyTo(_container.GetFieldData(in header));
+            _container.Override(fieldName, value, valueType, inlineArrayLength);
         }
 
 
