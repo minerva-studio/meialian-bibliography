@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using static Minerva.DataStorage.TypeUtil;
 
 namespace Minerva.DataStorage
@@ -457,6 +458,103 @@ namespace Minerva.DataStorage
                 default:
                     throw new ArgumentOutOfRangeException(nameof(to));
             }
+        }
+
+
+        public static string ToString(ReadOnlySpan<byte> bytes, ValueType type)
+        {
+            switch (type)
+            {
+                case ValueType.Blob:
+                    return $"{{\"$blob\":\"{Convert.ToBase64String(bytes)}\"}}";
+                case ValueType.Unknown:
+                    return $"{{\"$RawData\":\"{bytes.ToHex()}\"}}";
+
+                case ValueType.Bool:
+                    return ToArrayOrSingleString<bool>(bytes);
+
+                case ValueType.Int8:
+                    return ToArrayOrSingleString<sbyte>(bytes);
+                case ValueType.UInt8:
+                    return ToArrayOrSingleString<byte>(bytes);
+
+                case ValueType.Char16:
+                    {
+                        // Ensure even number of bytes, truncate if odd.
+                        int even = bytes.Length & ~1;
+                        if (even <= 0) return string.Empty;
+                        var chars = MemoryMarshal.Cast<byte, char>(bytes.Slice(0, even));
+                        // Build string from span (not Span<T>.ToString()).
+                        return new string(chars);
+                    }
+
+                case ValueType.Int16:
+                    return ToArrayOrSingleString<short>(bytes);
+                case ValueType.UInt16:
+                    return ToArrayOrSingleString<ushort>(bytes);
+                case ValueType.Int32:
+                    return ToArrayOrSingleString<int>(bytes);
+                case ValueType.UInt32:
+                    return ToArrayOrSingleString<uint>(bytes);
+                case ValueType.Int64:
+                    return ToArrayOrSingleString<long>(bytes);
+                case ValueType.UInt64:
+                    return ToArrayOrSingleString<ulong>(bytes);
+                case ValueType.Float32:
+                    return ToArrayOrSingleString<float>(bytes);
+                case ValueType.Float64:
+                    return ToArrayOrSingleString<double>(bytes);
+
+                case ValueType.Ref:
+                    {
+                        // Guard length
+                        if (bytes.Length < 8) return "null";
+                        ulong id = MemoryMarshal.Read<ulong>(bytes);
+                        if (id != 0UL && Container.Registry.Shared.GetContainer(id) is Container container)
+                            return container.ToString();
+                        return "null";
+                    }
+            }
+            return "Unknown";
+        }
+
+        private static string ToArrayOrSingleString<T>(ReadOnlySpan<byte> bytes) where T : unmanaged
+        {
+            int sz = TypeUtil<T>.Size;
+            if (bytes.Length > sz)
+            {
+                var arr = MemoryMarshal.Cast<byte, T>(bytes[..^(bytes.Length % sz)]);
+                return "[" + string.Join(", ", arr.ToArray()) + "]";
+            }
+            if (bytes.Length < sz)
+            {
+                // Not enough bytes to represent a single T; return hex to avoid throwing.
+                return "Raw:" + bytes.ToHex();
+            }
+            return MemoryMarshal.Read<T>(bytes).ToString();
+        }
+
+        public static string ToHex(this ReadOnlyValueView readOnlyValueView) => readOnlyValueView.Bytes.ToHex();
+        public static string ToHex(this ValueView valueView) => ((ReadOnlyValueView)valueView).Bytes.ToHex();
+    }
+
+    public static class HexExtensions
+    {
+        private static readonly char[] HexUpper = "0123456789ABCDEF".ToCharArray();
+        private static readonly char[] HexLower = "0123456789abcdef".ToCharArray();
+
+        public static string ToHex(this ReadOnlySpan<byte> bytes, bool uppercase = true)
+        {
+            if (bytes.Length == 0) return string.Empty;
+            var table = uppercase ? HexUpper : HexLower;
+            char[] chars = new char[bytes.Length * 2];
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                var b = bytes[i];
+                chars[i * 2] = table[b >> 4];
+                chars[i * 2 + 1] = table[b & 0x0F];
+            }
+            return new string(chars);
         }
     }
 }

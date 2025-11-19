@@ -118,8 +118,21 @@ namespace Minerva.DataStorage
 
         public static string ToString(byte s)
         {
-            var baseType = PrimOf(s).ToString();
+            var baseType = ToString(PrimOf(s));
             return IsArray(s) ? baseType + "[]" : baseType;
+        }
+
+        public static string ToString(ValueType valueType)
+        {
+            switch (valueType)
+            {
+                case ValueType.Unknown:
+                    return "(Missing)";
+                case ValueType.Ref:
+                    return "Object";
+                default:
+                    return valueType.ToString();
+            }
         }
     }
 

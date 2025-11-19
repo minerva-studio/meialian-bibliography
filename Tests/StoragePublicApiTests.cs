@@ -188,7 +188,7 @@ namespace Minerva.DataStorage.Tests
             var big = new string('g', 276);
             root.Write("e", big);
             Assert.That(root.GetField("e").IsRef, Is.True);
-            Assert.That(root.GetObject("e").IsArray, Is.True);
+            Assert.That(root.GetObject("e").IsArray(), Is.True);
             Assert.That(root.GetObject("e").IsString, Is.True);
             Assert.That(root.GetObject("e").GetField(ContainerLayout.ArrayName).Length, Is.EqualTo(big.Length * sizeof(char)));
             var back = root.ReadString("e");
@@ -200,7 +200,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("e", big2);
 
             Assert.That(root.GetField("e").IsRef, Is.True);
-            Assert.That(root.GetObject("e").IsArray, Is.True);
+            Assert.That(root.GetObject("e").IsArray(), Is.True);
             Assert.That(root.GetObject("e").IsString, Is.True);
             Assert.That(root.GetObject("e").GetField(ContainerLayout.ArrayName).Length, Is.EqualTo(big2.Length * sizeof(char)));
             var back2 = root.ReadString("e");

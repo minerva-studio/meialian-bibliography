@@ -57,6 +57,8 @@ namespace Minerva.DataStorage
             }
         }
 
+        public bool IsArray => FieldCount == 1 && GetFieldHeader(0).IsInlineArray;
+
         public ContainerView View => new ContainerView(Span);
 
         /// <summary>Logical memory slice [0..length).</summary>
@@ -144,6 +146,14 @@ namespace Minerva.DataStorage
             _memory.Dispose();
             _memory = default;
         }
+
+        public bool IsDisposed(int generation)
+        {
+            return _disposed || _generation != generation;
+        }
+
+
+
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Container EnsureNotDisposed() => !_disposed ? this : ThrowHelper.ThrowDisposed<Container>();
@@ -418,17 +428,17 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ReadOnlyValueView GetValueView(ReadOnlySpan<char> fieldName)
+        public ValueView GetValueView(ReadOnlySpan<char> fieldName)
         {
             ref FieldHeader f = ref GetFieldHeader(fieldName);
-            return new ReadOnlyValueView(GetFieldData(in f), f.Type);
+            return new ValueView(GetFieldData(in f), f.Type);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ReadOnlyValueView GetValueView(int index) => GetValueView(in GetFieldHeader(index));
+        public ValueView GetValueView(int index) => GetValueView(in GetFieldHeader(index));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ReadOnlyValueView GetValueView(in FieldHeader f) => new ReadOnlyValueView(GetFieldData(in f), f.Type);
+        public ValueView GetValueView(in FieldHeader f) => new ValueView(GetFieldData(in f), f.Type);
 
         #endregion
 
@@ -539,11 +549,6 @@ namespace Minerva.DataStorage
             sb.AppendLine();
             sb.AppendLine("}");
             return sb.ToString();
-        }
-
-        public string ToBase64()
-        {
-            return Convert.ToBase64String(_memory.Span);
         }
     }
 

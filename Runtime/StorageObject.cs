@@ -40,16 +40,7 @@ namespace Minerva.DataStorage
         public bool IsString
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => IsArray && _container.GetFieldHeader(0).Type == ValueType.Char16;
-        }
-
-        /// <summary>
-        /// Is an array object
-        /// </summary>
-        public bool IsArray
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _container.FieldCount == 1 && _container.GetFieldHeader(0).IsInlineArray;
+            get => IsArray() && _container.GetFieldHeader(0).Type == ValueType.Char16;
         }
 
         public int FieldCount
@@ -768,7 +759,7 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteArray<T>(ReadOnlySpan<T> value) where T : unmanaged
         {
-            if (!IsArray)
+            if (!IsArray())
             {
                 if (FieldCount != 0)
                     throw new InvalidOperationException("This StorageObject does not represent an array.");
@@ -794,7 +785,7 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T[] ReadArray<T>() where T : unmanaged
         {
-            if (!IsArray)
+            if (!IsArray())
                 throw new InvalidOperationException("This StorageObject does not represent an array.");
 
             return AsArray().ToArray<T>();
@@ -833,6 +824,27 @@ namespace Minerva.DataStorage
                 Rescheme(ContainerLayout.BuildFixedArray(valueType, length));
             _container.GetFieldData(in _container.GetFieldHeader(0)).Clear();
         }
+
+        public bool IsArray(ReadOnlySpan<char> fieldName)
+        {
+            if (!_container.TryGetFieldHeader(fieldName, out var headerSpan))
+                return false;
+
+            ref var header = ref headerSpan[0];
+            // inline
+            if (header.IsInlineArray)
+                return true;
+            // ref
+            if (header.IsRef)
+                return GetObject(in header, null).IsArray();
+            return false;
+        }
+
+        /// <summary>
+        /// Is an array object
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool IsArray() => _container.IsArray;//.FieldCount == 1 && _container.GetFieldHeader(0).IsInlineArray;
 
 
 
@@ -896,6 +908,20 @@ namespace Minerva.DataStorage
             return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
         }
 
+        /// <summary>
+        /// Get child object with layout
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <param name="reschemeOnMissing"></param>
+        /// <param name="layout"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private StorageObject GetObject(in FieldHeader fieldName, ContainerLayout layout)
+        {
+            ref ContainerReference idRef = ref _container.GetRefSpan(fieldName)[0];
+            return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+        }
+
 
 
 
@@ -908,17 +934,25 @@ namespace Minerva.DataStorage
         public StorageArray GetArray(ReadOnlySpan<char> fieldName)
         {
             int fieldIndex = _container.IndexOf(fieldName);
+            var arr = GetArray(fieldIndex);
+            if (arr.IsNull) throw new InvalidOperationException($"Field {fieldName.ToString()} is not an array");
+            return arr;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal StorageArray GetArray(int fieldIndex)
+        {
             ref var header = ref _container.GetFieldHeader(fieldIndex);
             // inline array
             if (header.IsInlineArray)
                 return new(_container, fieldIndex);
 
             // obj array
-            var obj = GetObject(fieldIndex, false, null);
-            if (!obj.IsNull && obj.IsArray)
+            var obj = GetObject(in header, null);
+            if (!obj.IsNull && obj.IsArray())
                 return new(obj.Container, 0);
 
-            throw new InvalidOperationException($"Field {fieldName.ToString()} is not an array");
+            return default;
         }
 
         /// <summary>

@@ -243,6 +243,26 @@ namespace Minerva.DataStorage
             }
             #endregion
 
+
+#if UNITY_EDITOR
+            /// <summary>
+            /// Debug-only helper used by editor tools to take a snapshot of all live containers.
+            /// </summary>
+            internal void DebugCopyLiveContainers(Dictionary<ulong, Container> target)
+            {
+                if (target == null) throw new ArgumentNullException(nameof(target));
+
+                lock (_lock)
+                {
+                    target.Clear();
+                    foreach (var kv in _table)
+                    {
+                        // _table: Dictionary<ulong, Container>
+                        target.Add(kv.Key, kv.Value);
+                    }
+                }
+            }
+#endif
         }
 
 

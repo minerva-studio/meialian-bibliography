@@ -23,7 +23,7 @@ namespace Minerva.DataStorage.Serialization
         private static void WriteJsonTo(this in StorageObject storage, IBufferWriter<char> writer)
         {
             // --- special case: Object Array --------------------------
-            if (storage.IsArray)
+            if (storage.IsArray())
             {
                 ref FieldHeader field = ref storage.Container.GetFieldHeader(0);
                 // --- special case: UTF-16 string (Char16) --------------------------

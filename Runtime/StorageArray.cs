@@ -30,6 +30,15 @@ namespace Minerva.DataStorage
         }
 
 
+        public bool IsNull => _container == null || _container.IsDisposed(_generation);
+
+        public bool IsRefArray => _container.IsArray;
+
+        /// <summary>
+        /// Is a string? (a ref array of char16)
+        /// </summary>
+        public bool IsString => IsRefArray && Type == ValueType.Char16;
+
         /// <summary>
         /// Array Length
         /// </summary>
@@ -52,6 +61,22 @@ namespace Minerva.DataStorage
                 EnsureNotDisposed();
                 return Header.Type;
             }
+        }
+
+        public FieldType FieldType
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                EnsureNotDisposed();
+                return Header.FieldType;
+            }
+        }
+
+        internal Container Container
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _container;
         }
 
         /// <summary>
@@ -92,7 +117,6 @@ namespace Minerva.DataStorage
                 return _container.GetFieldData<ContainerReference>(in header);
             }
         }
-
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

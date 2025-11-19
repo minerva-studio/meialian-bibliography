@@ -181,25 +181,8 @@ namespace Minerva.DataStorage
 
 
         public static implicit operator ReadOnlyValueView(ValueView valueView) => valueView.AsReadOnly();
-    }
 
-    public static class HexExtensions
-    {
-        private static readonly char[] HexUpper = "0123456789ABCDEF".ToCharArray();
-        private static readonly char[] HexLower = "0123456789abcdef".ToCharArray();
 
-        public static string ToHex(this ReadOnlySpan<byte> bytes, bool uppercase = true)
-        {
-            if (bytes.Length == 0) return string.Empty;
-            var table = uppercase ? HexUpper : HexLower;
-            char[] chars = new char[bytes.Length * 2];
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                var b = bytes[i];
-                chars[i * 2] = table[b >> 4];
-                chars[i * 2 + 1] = table[b & 0x0F];
-            }
-            return new string(chars);
-        }
+        public override string ToString() => Migration.ToString(Bytes, Type);
     }
 }

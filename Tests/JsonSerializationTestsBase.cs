@@ -211,8 +211,8 @@ namespace Minerva.DataStorage.Serialization.Tests
             var a0 = nested.GetObject(0);
             var a1 = nested.GetObject(1);
 
-            Assert.IsTrue(a0.IsArray);
-            Assert.IsTrue(a1.IsArray);
+            Assert.IsTrue(a0.IsArray());
+            Assert.IsTrue(a1.IsArray());
 
             var v0 = a0.ReadArray<long>();
             var v1 = a1.ReadArray<long>();
@@ -259,8 +259,8 @@ namespace Minerva.DataStorage.Serialization.Tests
             var a0 = nested.GetObject(0);
             var a1 = nested.GetObject(1);
 
-            Assert.IsTrue(a0.IsArray);
-            Assert.IsTrue(a1.IsArray);
+            Assert.IsTrue(a0.IsArray());
+            Assert.IsTrue(a1.IsArray());
 
             // We do not assume a specific numeric type for empty arrays; byte[] is a safe fallback.
             var e0 = a0.ReadArray<byte>();
@@ -277,8 +277,8 @@ namespace Minerva.DataStorage.Serialization.Tests
             var nested2 = root2.GetArray("Nested");
 
             Assert.AreEqual(2, nested2.Length);
-            Assert.IsTrue(nested2.GetObject(0).IsArray);
-            Assert.IsTrue(nested2.GetObject(1).IsArray);
+            Assert.IsTrue(nested2.GetObject(0).IsArray());
+            Assert.IsTrue(nested2.GetObject(1).IsArray());
 
             storage.Dispose();
             storage2.Dispose();
