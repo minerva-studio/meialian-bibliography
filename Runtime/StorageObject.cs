@@ -628,8 +628,7 @@ namespace Minerva.DataStorage
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
             var type = container.GetFieldHeader(fieldName).Type;
-            var version = StorageWriteEventRegistry.GetFieldVersion(container, fieldName);
-            StorageWriteEventRegistry.NotifyField(container, fieldName, type, version);
+            StorageWriteEventRegistry.NotifyField(container, fieldName, type);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -639,8 +638,7 @@ namespace Minerva.DataStorage
                 return;
             ref var header = ref container.GetFieldHeader(fieldIndex);
             var fieldName = container.GetFieldName(in header).ToString();
-            var version = StorageWriteEventRegistry.GetFieldVersion(container, fieldName);
-            StorageWriteEventRegistry.NotifyField(container, fieldName, header.Type, version);
+            StorageWriteEventRegistry.NotifyField(container, fieldName, header.Type);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -714,8 +712,7 @@ namespace Minerva.DataStorage
 
             if (removed)
             {
-                var version = StorageWriteEventRegistry.BumpFieldVersion(container, fieldName);
-                NotifyFieldChange(container, fieldName, fieldType, deleted: true, versionOverride: version);
+                NotifyFieldChange(container, fieldName, fieldType, deleted: true);
                 StorageWriteEventRegistry.RemoveFieldSubscriptions(container, fieldName);
             }
 
@@ -723,16 +720,12 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void NotifyFieldChange(Container container, string fieldName, ValueType fieldType, bool deleted = false, long? versionOverride = null)
+        private static void NotifyFieldChange(Container container, string fieldName, ValueType fieldType, bool deleted = false)
         {
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
 
-            var type = deleted ? ValueType.Unknown : fieldType;
-            if (versionOverride.HasValue)
-                StorageWriteEventRegistry.NotifyField(container, fieldName, type, versionOverride.Value);
-            else
-                StorageWriteEventRegistry.NotifyField(container, fieldName, type);
+            StorageWriteEventRegistry.NotifyField(container, fieldName, deleted ? ValueType.Unknown : fieldType);
         }
 
 

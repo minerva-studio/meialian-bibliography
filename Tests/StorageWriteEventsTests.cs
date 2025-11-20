@@ -1,8 +1,6 @@
 using NUnit.Framework;
 using System;
 using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Minerva.DataStorage.Tests
 {
@@ -204,72 +202,6 @@ namespace Minerva.DataStorage.Tests
             }
         }
 
-        [Test]
-        public void Field_Subscriptions_StaleTicket_IsIgnored()
-        {
-            var container = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
-            try
-            {
-                int invoked = 0;
-                using var sub = StorageWriteEventRegistry.Subscribe(container, "value", (in StorageFieldWriteEventArgs _) => invoked++);
-
-                long ticket = StorageWriteEventRegistry.GetFieldVersion(container, "value");
-                StorageWriteEventRegistry.NotifyField(container, "value", ValueType.Int32, ticket);
-                Assert.That(invoked, Is.EqualTo(1));
-
-                StorageWriteEventRegistry.BumpFieldVersion(container, "value");
-                StorageWriteEventRegistry.NotifyField(container, "value", ValueType.Int32, ticket);
-                Assert.That(invoked, Is.EqualTo(1), "Stale ticket should not trigger handlers.");
-            }
-            finally
-            {
-                container.Dispose();
-            }
-        }
-
-        [Test]
-        public void Field_Subscriptions_ConcurrentDeleteAndWrite_UsesTickets()
-        {
-            var container = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
-            try
-            {
-                int deleteCount = 0;
-                int writeCount = 0;
-
-                using var sub = StorageWriteEventRegistry.Subscribe(container, "score", (in StorageFieldWriteEventArgs args) =>
-                {
-                    if (args.FieldType == ValueType.Unknown)
-                        Interlocked.Increment(ref deleteCount);
-                    else
-                        Interlocked.Increment(ref writeCount);
-                });
-
-                long ticket = StorageWriteEventRegistry.GetFieldVersion(container, "score");
-
-                var start = new ManualResetEventSlim(false);
-                var notifyTask = Task.Run(() =>
-                {
-                    start.Wait();
-                    StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Int32, ticket);
-                });
-
-                var deleteTask = Task.Run(() =>
-                {
-                    var deleteTicket = StorageWriteEventRegistry.BumpFieldVersion(container, "score");
-                    start.Set();
-                    StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Unknown, deleteTicket);
-                });
-
-                Task.WaitAll(notifyTask, deleteTask);
-
-                Assert.That(deleteCount, Is.EqualTo(1));
-                Assert.That(writeCount, Is.EqualTo(0));
-            }
-            finally
-            {
-                container.Dispose();
-            }
-        }
 
         private static void ForceNewGeneration(Container container)
         {
