@@ -990,17 +990,6 @@ namespace Minerva.DataStorage
         }
 
         /// <summary>
-        /// Get a stack-only view over a child reference array (IDs).
-        /// Field must be a ref field.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        [Obsolete]
-        public StorageObjectArray GetObjectArray(ReadOnlySpan<char> fieldName)
-        {
-            return new StorageObjectArray(_container, _container.View[fieldName]);
-        }
-
-        /// <summary>
         /// Get a scala value view
         /// </summary>
         /// <param name="fieldName"></param>

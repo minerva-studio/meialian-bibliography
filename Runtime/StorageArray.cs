@@ -137,7 +137,14 @@ namespace Minerva.DataStorage
         public StorageObject GetObject(int index, ContainerLayout layout)
         {
             EnsureNotDisposed();
-            return StorageObjectFactory.GetOrCreate(ref References[index], layout);
+            return layout == null ? StorageObjectFactory.GetNoAllocate(References[index]) : StorageObjectFactory.GetOrCreate(ref References[index], layout);
+        }
+
+        /// <summary> Get a child as a StorageObject.</summary>
+        public StorageObject GetObjectNoAllocate(int index)
+        {
+            EnsureNotDisposed();
+            return References[index].GetNoAllocate();
         }
 
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
@@ -146,6 +153,9 @@ namespace Minerva.DataStorage
             EnsureNotDisposed();
             return StorageObjectFactory.TryGet(References[index], out child);
         }
+
+
+
 
         public void CopyFrom<T>(ReadOnlySpan<T> values) where T : unmanaged
         {
