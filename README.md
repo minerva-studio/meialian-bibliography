@@ -689,9 +689,9 @@ You can run them via Unity Test Runner:
 
 * [x] Path for locating a field/object from the root/any position of the storage
 * [x] Subscribe to write events for specific designated fields within the storage
-* [ ] Support for any random unmanaged struct type.
-* [ ] Higher-level typed wrapper API (e.g., generated strongly-typed views).
-* [ ] Editor inspectors for debugging storages in the Unity Editor.
+* [x] Support for any random unmanaged struct type.
+* [x] Higher-level typed wrapper API (e.g., generated strongly-typed views).
+* [x] Editor inspectors for debugging storages in the Unity Editor.
 * [ ] Additional backends (e.g., file-based persistence helpers).
 
 ---
