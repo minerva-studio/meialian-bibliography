@@ -27,7 +27,7 @@ Unity: `2021.3`+
     - [1. (Optional) Define a schema](#1-optional-define-a-schema)
     - [2. Create storage \& write data](#2-create-storage--write-data)
     - [3. Serialize to / from JSON](#3-serialize-to--from-json)
-    - [4. Subscribe to field write events](#4-subscribe-to-field-write-events)
+    - [4. Subscribe to field or container write events](#4-subscribe-to-field-or-container-write-events)
   - [Core Concepts](#core-concepts)
     - [Storage \& StorageObject](#storage--storageobject)
     - [ContainerLayout \& ObjectBuilder](#containerlayout--objectbuilder)
@@ -630,7 +630,7 @@ Namespace: `Minerva.DataStorage.Serialization`
 
   * **Blobs**
 
-    * Unknown bytes (`ValueType.Blob`) are emitted as JSON byte arrays.
+    * Unknown bytes (`ValueType.Blob`) are emitted as an object with "$blob" property and a base64 string.
 
 ---
 
