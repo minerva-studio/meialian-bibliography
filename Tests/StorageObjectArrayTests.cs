@@ -38,13 +38,13 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            var arr = root.GetObjectArray("children");
+            var arr = root.GetArray("children");
             Assert.That(arr.Length, Is.EqualTo(3));
 
             // Initially all null/empty
             for (int i = 0; i < arr.Length; i++)
             {
-                var ok = arr.TryGet(i, out var child);
+                var ok = arr.TryGetObject(i, out var child);
                 Assert.That(ok, Is.False);
                 Assert.That(child.IsNull, Is.True);
             }
@@ -52,7 +52,7 @@ namespace Minerva.DataStorage.Tests
             // Create three children
             for (int i = 0; i < arr.Length; i++)
             {
-                var child = arr[i].GetObject(_childLayout);
+                var child = arr.GetObject(i, _childLayout);
                 Assert.That(child.IsNull, Is.False);
                 child.Write<int>("hp", (i + 1) * 10);
             }
@@ -60,7 +60,7 @@ namespace Minerva.DataStorage.Tests
             // Read back
             for (int i = 0; i < arr.Length; i++)
             {
-                var ok = arr.TryGet(i, out var child);
+                var ok = arr.TryGetObject(i, out var child);
                 Assert.That(ok, Is.True);
                 Assert.That(child.IsNull, Is.False);
                 Assert.That(child.Read<int>("hp"), Is.EqualTo((i + 1) * 10));
@@ -74,21 +74,21 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             // Create via StorageField view
-            var arrField = root.GetObjectArray("children");
+            var arrField = root.GetArray("children");
             Assert.That(arrField.Length, Is.EqualTo(3));
 
             for (int i = 0; i < arrField.Length; i++)
             {
-                var child = arrField[i].GetObject(_childLayout);
+                var child = arrField.GetObject(i, _childLayout);
                 Assert.That(child.IsNull, Is.False);
                 child.Write<int>("hp", 100 + i);
             }
 
-            // Cross-check via StorageObject.GetObjectArray
-            var arr = root.GetObjectArray("children");
+            // Cross-check via StorageObject.GetArray
+            var arr = root.GetArray("children");
             for (int i = 0; i < arr.Length; i++)
             {
-                var c = arr.Get(i);
+                var c = arr.GetObject(i);
                 Assert.That(c.Read<int>("hp"), Is.EqualTo(100 + i));
             }
         }
@@ -99,20 +99,20 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            var arr = root.GetObjectArray("children");
+            var arr = root.GetArray("children");
 
             // Create at 0,1,2
             for (int i = 0; i < arr.Length; i++)
-                arr[i].GetObject(_childLayout);
+                arr.GetObject(i, _childLayout);
 
             // Clear a single slot
             arr.ClearAt(1);
 
             // Check: slot 0,2 present; slot 1 empty
             {
-                var ok0 = arr.TryGet(0, out var c0);
-                var ok1 = arr.TryGet(1, out var c1);
-                var ok2 = arr.TryGet(2, out var c2);
+                var ok0 = arr.TryGetObject(0, out var c0);
+                var ok1 = arr.TryGetObject(1, out var c1);
+                var ok2 = arr.TryGetObject(2, out var c2);
 
                 Assert.That(ok0, Is.True); Assert.That(c0.IsNull, Is.False);
                 Assert.That(ok1, Is.False); Assert.That(c1.IsNull, Is.True);
@@ -120,11 +120,11 @@ namespace Minerva.DataStorage.Tests
             }
 
             // Clear all
-            arr.ClearAll();
+            arr.Clear();
 
             for (int i = 0; i < arr.Length; i++)
             {
-                var ok = arr.TryGet(i, out var child);
+                var ok = arr.TryGetObject(i, out var child);
                 Assert.That(ok, Is.False);
                 Assert.That(child.IsNull, Is.True);
             }
@@ -136,19 +136,19 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            var arr = root.GetObjectArray("children");
+            var arr = root.GetArray("children");
 
             // Create once
-            var c0 = arr[0].GetObject(_childLayout);
+            var c0 = arr.GetObject(0, _childLayout);
             var id0 = c0.ID;
 
             // Get existing without allocation
-            var c0b = arr[0].GetObjectNoAllocate();
+            var c0b = arr.GetObjectNoAllocate(0);
             Assert.That(c0b.IsNull, Is.False);
             Assert.That(c0b.ID, Is.EqualTo(id0));
 
             // GetObject again should still return the same
-            var c0c = arr[0].GetObject(_childLayout);
+            var c0c = arr.GetObject(0, _childLayout);
             Assert.That(c0c.ID, Is.EqualTo(id0));
         }
 
@@ -158,13 +158,14 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            var arr = root.GetObjectArray("children");
+            var arr = root.GetArray("children");
 
             bool threw = false;
             try
             {
-                var el = arr[arr.Length]; // create element
-                el.GetObjectNoAllocate(); // force access -> should throw
+                //var el = arr[arr.Length]; // create element
+                //el.GetObjectNoAllocate(); // force access -> should throw
+                arr.GetObjectNoAllocate(arr.Length);
             }
             catch (IndexOutOfRangeException)
             {
@@ -179,12 +180,12 @@ namespace Minerva.DataStorage.Tests
             var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            var arr = root.GetObjectArray("children");
+            var arr = root.GetArray("children");
             var ids = new ulong[arr.Length];
 
             for (int i = 0; i < arr.Length; i++)
             {
-                var child = arr[i].GetObject(_childLayout);
+                var child = arr.GetObject(i, _childLayout);
                 child.Write<int>("hp", 5 + i);
                 ids[i] = child.ID;
             }
@@ -203,12 +204,11 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            var arr = root.GetObjectArray("children");
+            var arr = root.GetArray("children");
             bool threw = false;
             try
             {
-                var el = arr[arr.Length];
-                el.GetObjectNoAllocate(); // triggers span index
+                arr.GetObjectNoAllocate(arr.Length); // triggers span index
             }
             catch (IndexOutOfRangeException)
             {
@@ -224,18 +224,18 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(_rootLayout);
             var root = storage.Root;
 
-            var arrField = root.GetObjectArray("children");
+            var arrField = root.GetArray("children");
             Assert.That(arrField.Length, Is.EqualTo(3));
 
             for (int i = 0; i < arrField.Length; i++)
             {
-                var child = arrField[i].GetObject(_childLayout);
+                var child = arrField.GetObject(i, _childLayout);
                 child.Write<int>("hp", 100 + i);
             }
 
-            var arr = root.GetObjectArray("children");
+            var arr = root.GetArray("children");
             for (int i = 0; i < arr.Length; i++)
-                Assert.That(arr.Get(i).Read<int>("hp"), Is.EqualTo(100 + i));
+                Assert.That(arr.GetObject(i).Read<int>("hp"), Is.EqualTo(100 + i));
         }
     }
 }

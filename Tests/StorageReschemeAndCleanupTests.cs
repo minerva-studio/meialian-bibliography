@@ -38,12 +38,12 @@ namespace Minerva.DataStorage.Tests
         {
             using var storage = new Storage(_rootLayout);
             var root = storage.Root;
-            var arr = root.GetObjectArray("children");
+            var arr = root.GetArray("children");
             var reg = Container.Registry.Shared;
 
             // create two children
-            var c0 = arr[0].GetObject(_childLayout);
-            var c1 = arr[1].GetObject(_childLayout);
+            var c0 = arr.GetObject(0, _childLayout);
+            var c1 = arr.GetObject(1, _childLayout);
             var oldId0 = c0.ID;
             var id1 = c1.ID;
 
@@ -54,11 +54,11 @@ namespace Minerva.DataStorage.Tests
             Assert.That(reg.GetContainer(oldId0), Is.Null, "Old element should be unregistered after ClearAt.");
 
             // slot 0 now points to the global empty object (no creation)
-            var empty0 = arr[0].GetObjectNoAllocate();
+            var empty0 = arr.GetObjectNoAllocate(0);
             Assert.That(empty0.ID, Is.EqualTo(Container.Registry.ID.Empty), "Cleared slot should reference the global Empty object.");
 
             // re-create at slot 0 -> new object with a new ID
-            var c0b = arr[0].GetObject(_childLayout);
+            var c0b = arr.GetObject(0, _childLayout);
             var newId0 = c0b.ID;
 
             //Assert.That(newId0, Is.Not.EqualTo(oldId0), "Recreated element should have a different ID.");
@@ -74,9 +74,9 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             var direct = root.GetObject("child", false, _childLayout);
-            var arr = root.GetObjectArray("children");
-            var a0 = arr[0].GetObject(_childLayout);
-            var a1 = arr[1].GetObject(_childLayout);
+            var arr = root.GetArray("children");
+            var a0 = arr.GetObject(0, _childLayout);
+            var a1 = arr.GetObject(1, _childLayout);
 
             var ids = new List<ulong> { direct.ID, a0.ID, a1.ID };
 
@@ -131,9 +131,9 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             var direct = root.GetObject("child", false, _childLayout);
-            var arr = root.GetObjectArray("children");
-            var a0 = arr[0].GetObject(_childLayout);
-            var a1 = arr[1].GetObject(_childLayout);
+            var arr = root.GetArray("children");
+            var a0 = arr.GetObject(0, _childLayout);
+            var a1 = arr.GetObject(1, _childLayout);
 
             var ids = new[] { direct.ID, a0.ID, a1.ID };
 
@@ -155,9 +155,9 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             root.Write<int>("hp", 5);
-            var arr = root.GetObjectArray("children");
-            var a0 = arr[0].GetObject(_childLayout);
-            var a1 = arr[1].GetObject(_childLayout);
+            var arr = root.GetArray("children");
+            var a0 = arr.GetObject(0, _childLayout);
+            var a1 = arr.GetObject(1, _childLayout);
             var ids = new[] { a0.ID, a1.ID };
 
             var removed = root.Delete("children", "speeds");

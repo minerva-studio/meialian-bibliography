@@ -115,6 +115,14 @@ namespace Minerva.DataStorage
             _disposed = true;
         }
 
+        ~Container()
+        {
+            if (_id != Container.Registry.ID.Wild)
+            {
+                throw new InvalidOperationException("Non-wild Container Disposed");
+            }
+        }
+
 
 
 
