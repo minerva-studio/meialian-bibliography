@@ -12,8 +12,8 @@ namespace Minerva.DataStorage
     {
         private const char DefaultPathSeparator = '.';
 
-        private readonly Container _container;
-        private readonly int _generation;
+        internal readonly Container _container;
+        internal readonly int _generation;
 
 
         /// <summary>
@@ -22,7 +22,7 @@ namespace Minerva.DataStorage
         public ulong ID
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _container?.ID ?? Container.Registry.ID.Empty;
+            get => IsNull ? Container.Registry.ID.Empty : _container.ID;
         }
 
         /// <summary>
@@ -31,7 +31,7 @@ namespace Minerva.DataStorage
         public bool IsNull
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _container == null || _container.ID == Container.Registry.ID.Empty;
+            get => _container == null || _container.ID == Container.Registry.ID.Empty || IsDisposed;
         }
 
         /// <summary>
@@ -43,19 +43,31 @@ namespace Minerva.DataStorage
             get => IsArray() && _container.GetFieldHeader(0).Type == ValueType.Char16;
         }
 
+        /// <summary>
+        /// Is the storage object already disposed
+        /// </summary>
+        public bool IsDisposed
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _container.IsDisposed(_generation);
+        }
+
         public int FieldCount
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _container.FieldCount;
+            get => Container.FieldCount;
         }
 
         internal readonly ref AllocatedMemory Memory
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => ref _container.Memory;
+            get => ref Container.Memory;
         }
 
-        internal Container Container => _container;
+        /// <summary>
+        /// Validated container reference, or throws if disposed.
+        /// </summary>
+        internal Container Container => _container.EnsureNotDisposed(_generation);
 
 
 
@@ -66,6 +78,14 @@ namespace Minerva.DataStorage
             _container = container ?? throw new InvalidOperationException();
             _generation = container.Generation;
         }
+
+
+
+        /// <summary>
+        /// Ensure container is not disposed
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void EnsureNotDisposed() => _container.EnsureNotDisposed(_generation);
 
 
 
@@ -748,6 +768,7 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public string ReadString()
         {
+            var container = _container.EnsureNotDisposed(_generation);
             if (!IsString)
             {
                 if (FieldCount == 0)
@@ -757,7 +778,7 @@ namespace Minerva.DataStorage
                 throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field count is {FieldCount}.");
             }
 
-            return AsArray().ToString();
+            return new StorageArray(container, 0).ToString();
         }
 
 
@@ -803,7 +824,7 @@ namespace Minerva.DataStorage
             if (!IsArray())
                 throw new InvalidOperationException("This StorageObject does not represent an array.");
 
-            return AsArray().ToArray<T>();
+            return new StorageArray(_container, 0).ToArray<T>();
         }
 
         /// <summary>
@@ -811,7 +832,7 @@ namespace Minerva.DataStorage
         /// </summary>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageArray AsArray() => new(_container, 0);
+        public StorageArray AsArray() => new(_container.EnsureNotDisposed(_generation), 0);
 
         /// <summary>
         /// Make this field an array
@@ -842,6 +863,7 @@ namespace Minerva.DataStorage
 
         public bool IsArray(ReadOnlySpan<char> fieldName)
         {
+            _container.EnsureNotDisposed(_generation);
             if (!_container.TryGetFieldHeader(fieldName, out var headerSpan))
                 return false;
 
@@ -859,7 +881,7 @@ namespace Minerva.DataStorage
         /// Is an array object
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly bool IsArray() => _container.IsArray;//.FieldCount == 1 && _container.GetFieldHeader(0).IsInlineArray;
+        public readonly bool IsArray() => Container.IsArray;//.FieldCount == 1 && _container.GetFieldHeader(0).IsInlineArray;
 
 
 
@@ -905,6 +927,7 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject GetObject(int index, bool reschemeOnMissing, ContainerLayout layout)
         {
+            _container.EnsureNotDisposed(_generation);
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(index) : ref _container.GetRefNoRescheme(index);
             return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
         }
@@ -919,6 +942,7 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject GetObject(ReadOnlySpan<char> fieldName, bool reschemeOnMissing, ContainerLayout layout)
         {
+            _container.EnsureNotDisposed(_generation);
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
             return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
         }
@@ -948,6 +972,7 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageArray GetArray(ReadOnlySpan<char> fieldName)
         {
+            _container.EnsureNotDisposed(_generation);
             int fieldIndex = _container.IndexOf(fieldName);
             var arr = GetArray(fieldIndex);
             if (arr.IsNull) throw new InvalidOperationException($"Field {fieldName.ToString()} is not an array");
@@ -976,11 +1001,15 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ReadOnlyValueView GetValueView(string fieldName) => _container.GetValueView(fieldName);
+        public ValueView GetValueView(string fieldName) => _container.EnsureNotDisposed(_generation).GetValueView(fieldName);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ValueView GetValueView(ReadOnlySpan<char> fieldName) => _container.EnsureNotDisposed(_generation).GetValueView(fieldName);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public FieldInfo GetField(ReadOnlySpan<char> fieldName)
         {
+            _container.EnsureNotDisposed(_generation);
             _container.TryGetFieldHeader(fieldName, out var headerSpan);
             var name = _container.GetFieldName(in headerSpan[0]);
             return new FieldInfo(name, in headerSpan[0]);
@@ -989,6 +1018,7 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public FieldInfo GetField(int index)
         {
+            _container.EnsureNotDisposed(_generation);
             ref var header = ref _container.GetFieldHeader(index);
             var name = _container.GetFieldName(in header);
             return new FieldInfo(name, in header);
@@ -997,14 +1027,14 @@ namespace Minerva.DataStorage
 
         /// <summary>Check a field exist.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool HasField(ReadOnlySpan<char> fieldName) => _container.IndexOf(fieldName) >= 0;
+        public bool HasField(ReadOnlySpan<char> fieldName) => _container.EnsureNotDisposed(_generation).IndexOf(fieldName) >= 0;
 
         /// <summary>
         /// Rescheme the container to match the target schema.
         /// </summary>
         /// <param name="target"></param> 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Rescheme(ContainerLayout target) => _container.Rescheme(target);
+        public void Rescheme(ContainerLayout target) => _container.EnsureNotDisposed(_generation).Rescheme(target);
 
 
 

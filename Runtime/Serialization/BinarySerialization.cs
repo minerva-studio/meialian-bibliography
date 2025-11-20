@@ -111,14 +111,15 @@ namespace Minerva.DataStorage.Serialization
         /// <param name="writer">Destination buffer writer that receives the serialized bytes.</param>
         private static void WriteBinaryTo(this StorageObject storage, IBufferWriter<byte> writer)
         {
+            storage.EnsureNotDisposed(); // ensure not disposed
             WriteBinary_Internal(storage, writer);
             for (int i = 0; i < storage.FieldCount; i++)
             {
-                ref var field = ref storage.Container.GetFieldHeader(i);
+                ref var field = ref storage._container.GetFieldHeader(i);
                 if (!field.IsRef)
                     continue;
 
-                var ids = storage.Container.GetRefSpan(in field);
+                var ids = storage._container.GetRefSpan(in field);
                 for (int i1 = 0; i1 < ids.Length; i1++)
                 {
                     var cid = ids[i1];
@@ -153,7 +154,7 @@ namespace Minerva.DataStorage.Serialization
             BinaryPrimitives.WriteUInt64LittleEndian(idSpan, storage.ID);
             writer.Advance(8);
 
-            var memory = storage.Memory;
+            var memory = storage._container.Memory;
             var dst = writer.GetSpan(memory.Length);
             memory.Span.CopyTo(dst);
             writer.Advance(memory.Length);

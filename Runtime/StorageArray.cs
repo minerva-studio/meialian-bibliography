@@ -247,6 +247,13 @@ namespace Minerva.DataStorage
             throw new InvalidOperationException("Cannot call AsString() on a non-char array.");
         }
 
+        /// <summary>
+        /// Convert to string for display
+        /// </summary>
+        /// <remarks>
+        /// For a char16 array, returns the string representation.
+        /// </remarks>
+        /// <returns></returns>
         public override string ToString()
         {
             if (Type == ValueType.Char16)
