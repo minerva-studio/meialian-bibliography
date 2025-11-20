@@ -27,6 +27,7 @@ namespace Minerva.DataStorage
             }
 
             public static Registry Shared { get; } = new Registry();
+            public static int PoolCount => pool.Count;
 
             private ulong _next = ID.FirstUser; // 0 reserved for "null", 1 reserved for "empty"
             private readonly Queue<ulong> _freed = new();

@@ -23,7 +23,7 @@ namespace Minerva.DataStorage
         private StorageTreeView _treeView;
         private readonly Dictionary<ulong, Container> _snapshot = new();
 
-        [MenuItem("Window/Minerva/Storage Explorer")]
+        [MenuItem("Window/Storage Explorer")]
         private static void Open()
         {
             var window = GetWindow<StorageExplorerWindow>();
@@ -49,7 +49,7 @@ namespace Minerva.DataStorage
                 }
 
                 GUILayout.FlexibleSpace();
-                EditorGUILayout.LabelField($"Containers: {_snapshot.Count}", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField($"Containers: {_snapshot.Count} / Pool: {Container.Registry.PoolCount}", EditorStyles.miniLabel);
             }
 
             Rect rect = GUILayoutUtility.GetRect(0, 100000, 0, 100000);
@@ -177,7 +177,7 @@ namespace Minerva.DataStorage
             {
                 public enum NodeKind
                 {
-                    Container,
+                    Root,
                     Field,
                     Info,
                     ArrayElement
@@ -294,7 +294,7 @@ namespace Minerva.DataStorage
                     var pathVisited = new HashSet<ulong>();
                     foreach (var c in roots)
                     {
-                        var rootItem = CreateContainerItem(c);
+                        var rootItem = CreateRootItem(c);
                         root.AddChild(rootItem);
                         BuildContainerChildrenRecursive(c, rootItem, pathVisited);
                     }
@@ -312,13 +312,26 @@ namespace Minerva.DataStorage
                 return root;
             }
 
+            private Item CreateRootItem(Container container)
+            {
+                return new Item
+                {
+                    id = _nextId++,
+                    depth = 0,
+                    Kind = Item.NodeKind.Root,
+                    Container = container,
+                    GenerationSnapshot = container.Generation,
+                    displayName = $"Storage (ID={container.ID})"
+                };
+            }
+
             private Item CreateContainerItem(Container container)
             {
                 return new Item
                 {
                     id = _nextId++,
                     depth = 0,
-                    Kind = Item.NodeKind.Container,
+                    Kind = Item.NodeKind.Root,
                     Container = container,
                     GenerationSnapshot = container.Generation,
                     displayName = $"Container (ID={container.ID})"
@@ -375,12 +388,19 @@ namespace Minerva.DataStorage
                     parent.AddChild(fieldItem);
 
                     // Array field: either ref array or value-type array
-                    if (TryGetInlineOrRefArray(container, i, out var arr) && (!arr.IsString))
+                    if (TryGetInlineOrRefArray(container, i, out var arr))
                     {
                         Container arrayContainer = arr.Container;
                         fieldItem.displayName = fieldName + $" (ID={arrayContainer.ID})";
+                        // string: dir draw
+                        if (arr.IsString)
+                        {
+                            fieldItem.Container = arrayContainer;
+                            fieldItem.FieldIndex = 0;
+                            fieldItem.GenerationSnapshot = arrayContainer.Generation;
+                        }
                         // Ref array: spawn child containers
-                        if (arr.Type == ValueType.Ref)
+                        else if (arr.Type == ValueType.Ref)
                         {
                             var refs = arr.References;
                             for (int j = 0; j < arr.Length; j++)
@@ -435,11 +455,8 @@ namespace Minerva.DataStorage
                         if (!_snapshot.TryGetValue(id, out var child) || child == null)
                             continue;
 
-                        var childItem = CreateContainerItem(child);
-                        childItem.displayName = $"{fieldName} (ID={child.ID})";
-
-                        fieldItem.AddChild(childItem);
-                        BuildContainerChildrenRecursive(child, childItem, pathVisited);
+                        fieldItem.displayName = $"{fieldName} (ID={child.ID})";
+                        BuildContainerChildrenRecursive(child, fieldItem, pathVisited);
                     }
                 }
 
@@ -506,7 +523,7 @@ namespace Minerva.DataStorage
                                     EditorGUI.LabelField(cellRect, "<stale>");
                                 }
                             }
-                            else if (item.Kind == Item.NodeKind.Container && item.Container != null)
+                            else if (item.Kind == Item.NodeKind.Root && item.Container != null)
                             {
                                 if (IsContainerLive(item.Container, item.GenerationSnapshot))
                                     EditorGUI.LabelField(cellRect, "Container");
@@ -545,7 +562,26 @@ namespace Minerva.DataStorage
                                 if (TryGetLiveContainer(item, out var c))
                                 {
                                     ref var header = ref c.GetFieldHeader(item.FieldIndex);
-                                    EditorGUI.LabelField(cellRect, header.Length.ToString(), _rightAlignMini);
+                                    string length;
+                                    if (header.IsRef)
+                                    {
+                                        var r = c.GetRefSpan(in header)[0];
+                                        _snapshot.TryGetValue(r, out var value);
+                                        length = $"({value?.Length ?? ContainerReference.Size})";
+                                    }
+                                    else length = header.Length.ToString();
+                                    EditorGUI.LabelField(cellRect, length, _rightAlignMini);
+                                }
+                                else
+                                {
+                                    EditorGUI.LabelField(cellRect, "-", _rightAlignMini);
+                                }
+                            }
+                            else if (item.Kind == Item.NodeKind.Root)
+                            {
+                                if (TryGetLiveContainer(item, out var c))
+                                {
+                                    EditorGUI.LabelField(cellRect, $"\"{c.Length}\"", _rightAlignMini);
                                 }
                                 else
                                 {
@@ -668,14 +704,26 @@ namespace Minerva.DataStorage
                     return;
                 }
 
-
-                EditorGUI.BeginChangeCheck();
-                string newText = EditorGUI.DelayedTextField(cellRect, valueText);
-                if (EditorGUI.EndChangeCheck())
+                // toggle for bool
+                if (view.Type == ValueType.Bool)
                 {
-                    var obj = new StorageObject(container);
-                    if (isInlineArray && view.Type == ValueType.Char16) obj.WriteString(item.FieldIndex, newText);
-                    else TryWriteValue(view, newText);
+                    EditorGUI.BeginChangeCheck();
+                    bool value = view.Read<bool>();
+                    var newValue = EditorGUI.Toggle(cellRect, value);
+                    if (value != newValue)
+                        view.Write(newValue);
+                }
+                // default
+                else
+                {
+                    EditorGUI.BeginChangeCheck();
+                    string newText = EditorGUI.DelayedTextField(cellRect, valueText);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        var obj = new StorageObject(container);
+                        if (isInlineArray && view.Type == ValueType.Char16) obj.WriteString(newText);
+                        else TryWriteValue(view, newText);
+                    }
                 }
             }
 
