@@ -83,7 +83,7 @@ namespace Minerva.DataStorage
             return slot.AddContainerSubscriber(handler);
         }
 
-        public static void Notify(Container container, string fieldName, ValueType fieldType)
+        public static void NotifyField(Container container, string fieldName, ValueType fieldType)
         {
             if (container == null || string.IsNullOrEmpty(fieldName))
                 return;
@@ -92,15 +92,70 @@ namespace Minerva.DataStorage
             {
                 if (!slot.TryPrepareGeneration(container.Generation))
                     return;
-                slot.Notify(container, fieldName, fieldType);
+                slot.NotifyWithCurrentVersion(container, fieldName, fieldType);
             }
         }
+
+        public static void NotifyField(Container container, string fieldName, ValueType fieldType, long version)
+        {
+            if (container == null || string.IsNullOrEmpty(fieldName))
+                return;
+
+            if (_table.TryGetValue(container, out var slot))
+            {
+                if (!slot.TryPrepareGeneration(container.Generation))
+                    return;
+                slot.NotifyWithTicket(container, fieldName, fieldType, version);
+            }
+        }
+
+        public static long GetFieldVersion(Container container, string fieldName)
+        {
+            if (container == null || string.IsNullOrEmpty(fieldName))
+                return 0;
+
+            if (_table.TryGetValue(container, out var slot))
+            {
+                if (!slot.TryPrepareGeneration(container.Generation))
+                    return 0;
+                return slot.GetFieldVersion(fieldName);
+            }
+
+            return 0;
+        }
+
+        [Obsolete("Use NotifyField instead")]
+        public static void Notify(Container container, string fieldName, ValueType fieldType)
+            => NotifyField(container, fieldName, fieldType);
 
         public static bool HasSubscribers(Container container)
         {
             return container != null
                 && _table.TryGetValue(container, out var slot)
                 && slot.HasSubscribersForGeneration(container.Generation);
+        }
+
+        public static void RemoveFieldSubscriptions(Container container, string fieldName)
+        {
+            if (container == null || string.IsNullOrEmpty(fieldName))
+                return;
+
+            if (_table.TryGetValue(container, out var slot))
+                slot.RemoveField(fieldName);
+        }
+
+        public static long BumpFieldVersion(Container container, string fieldName)
+        {
+            if (container == null || string.IsNullOrEmpty(fieldName))
+                return 0;
+
+            if (_table.TryGetValue(container, out var slot))
+            {
+                if (!slot.TryPrepareGeneration(container.Generation))
+                    return 0;
+                return slot.BumpFieldVersion(fieldName);
+            }
+            return 0;
         }
     }
 
@@ -111,6 +166,7 @@ namespace Minerva.DataStorage
     {
         private readonly object _gate = new();
         private readonly Dictionary<string, List<Subscriber>> _byField = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, long> _fieldVersions = new(StringComparer.Ordinal);
         private readonly List<Subscriber> _containerSubscribers = new();
         private int _nextId = 1;
         private int _subscriptionCount;
@@ -152,6 +208,7 @@ namespace Minerva.DataStorage
                     return;
 
                 _byField.Clear();
+                _fieldVersions.Clear();
                 _containerSubscribers.Clear();
                 _subscriptionCount = 0;
                 _nextId = 1;
@@ -231,18 +288,52 @@ namespace Minerva.DataStorage
             }
         }
 
-        public void Notify(Container container, string fieldName, ValueType fieldType)
+        public void RemoveField(string fieldName)
+        {
+            lock (_gate)
+            {
+                if (!_byField.Remove(fieldName, out var list) || list.Count == 0)
+                    return;
+
+                _subscriptionCount -= list.Count;
+                if (_subscriptionCount < 0) _subscriptionCount = 0;
+            }
+        }
+
+        private long GetFieldVersion_NoLock(string fieldName)
+        {
+            if (!_fieldVersions.TryGetValue(fieldName, out var version))
+            {
+                version = 0;
+                _fieldVersions[fieldName] = version;
+            }
+            return version;
+        }
+
+        public void NotifyWithCurrentVersion(Container container, string fieldName, ValueType fieldType)
+        {
+            long ticket = GetFieldVersion(fieldName);
+            NotifyWithTicket(container, fieldName, fieldType, ticket);
+        }
+
+        public void NotifyWithTicket(Container container, string fieldName, ValueType fieldType, long ticket)
         {
             Subscriber[] fieldSnapshot = Array.Empty<Subscriber>();
             Subscriber[] containerSnapshot = Array.Empty<Subscriber>();
             lock (_gate)
             {
+                if (ticket != GetFieldVersion_NoLock(fieldName))
+                    return;
+
                 if (_byField.TryGetValue(fieldName, out var list) && list.Count > 0)
                     fieldSnapshot = list.ToArray();
 
                 if (_containerSubscribers.Count > 0)
                     containerSnapshot = _containerSubscribers.ToArray();
             }
+
+            if (fieldSnapshot.Length == 0 && containerSnapshot.Length == 0)
+                return;
 
             var args = new StorageFieldWriteEventArgs(new StorageObject(container), fieldName, fieldType);
 
@@ -254,6 +345,24 @@ namespace Minerva.DataStorage
             for (int i = 0; i < containerSnapshot.Length; i++)
             {
                 containerSnapshot[i].Handler(in args);
+            }
+        }
+
+        public long GetFieldVersion(string fieldName)
+        {
+            lock (_gate)
+            {
+                return GetFieldVersion_NoLock(fieldName);
+            }
+        }
+
+        public long BumpFieldVersion(string fieldName)
+        {
+            lock (_gate)
+            {
+                var next = GetFieldVersion_NoLock(fieldName) + 1;
+                _fieldVersions[fieldName] = next;
+                return next;
             }
         }
 

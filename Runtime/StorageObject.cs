@@ -628,7 +628,8 @@ namespace Minerva.DataStorage
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
             var type = container.GetFieldHeader(fieldName).Type;
-            StorageWriteEventRegistry.Notify(container, fieldName, type);
+            var version = StorageWriteEventRegistry.GetFieldVersion(container, fieldName);
+            StorageWriteEventRegistry.NotifyField(container, fieldName, type, version);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -638,7 +639,8 @@ namespace Minerva.DataStorage
                 return;
             ref var header = ref container.GetFieldHeader(fieldIndex);
             var fieldName = container.GetFieldName(in header).ToString();
-            StorageWriteEventRegistry.Notify(container, fieldName, header.Type);
+            var version = StorageWriteEventRegistry.GetFieldVersion(container, fieldName);
+            StorageWriteEventRegistry.NotifyField(container, fieldName, header.Type, version);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -684,12 +686,7 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Delete(string fieldName)
-        {
-            bool result = false;
-            _container.EnsureNotDisposed(_generation).Rescheme(b => result = b.Remove(fieldName));
-            return result;
-        }
+        public bool Delete(string fieldName) => DeleteInternal(fieldName);
 
         /// <summary>
         /// Delete multiple fields from this object. Returns the number of fields deleted.
@@ -699,14 +696,43 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Delete(params string[] names)
         {
-            _container.EnsureNotDisposed(_generation);
             int result = 0;
             for (int i = 0; i < names.Length; i++)
-            {
-                string item = names[i];
-                _container.Rescheme(b => result += b.Remove(item) ? 1 : 0);
-            }
+                result += DeleteInternal(names[i]) ? 1 : 0;
             return result;
+        }
+
+        private bool DeleteInternal(string fieldName)
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            if (!container.TryGetFieldHeader(fieldName, out var headerSpan))
+                return false;
+
+            var fieldType = headerSpan[0].Type;
+            bool removed = false;
+            container.Rescheme(b => removed = b.Remove(fieldName));
+
+            if (removed)
+            {
+                var version = StorageWriteEventRegistry.BumpFieldVersion(container, fieldName);
+                NotifyFieldChange(container, fieldName, fieldType, deleted: true, versionOverride: version);
+                StorageWriteEventRegistry.RemoveFieldSubscriptions(container, fieldName);
+            }
+
+            return removed;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void NotifyFieldChange(Container container, string fieldName, ValueType fieldType, bool deleted = false, long? versionOverride = null)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+
+            var type = deleted ? ValueType.Unknown : fieldType;
+            if (versionOverride.HasValue)
+                StorageWriteEventRegistry.NotifyField(container, fieldName, type, versionOverride.Value);
+            else
+                StorageWriteEventRegistry.NotifyField(container, fieldName, type);
         }
 
 

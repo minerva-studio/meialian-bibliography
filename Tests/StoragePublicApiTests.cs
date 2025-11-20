@@ -1111,6 +1111,66 @@ namespace Minerva.DataStorage.Tests
         }
 
         [Test]
+        public void Storage_Subscribe_Field_Delete_Notifies()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("hp", 10);
+
+            int invoked = 0;
+            using var sub = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => invoked++);
+
+            Assert.That(root.Delete("hp"), Is.True);
+            Assert.That(invoked, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Container_DeleteChild_Notifies()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            var player = root.GetObject("player");
+            player.Write("hp", 1);
+
+            int invoked = 0;
+            using var sub = player.Subscribe((in StorageFieldWriteEventArgs _) => invoked++);
+
+            Assert.That(player.Delete("hp"), Is.True);
+            Assert.That(invoked, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_Delete_Multiple_Notifies_All()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("hp", 1);
+            root.Write("mp", 2);
+
+            int hp = 0;
+            int mp = 0;
+            using var hpSub = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => hp++);
+            using var mpSub = root.Subscribe("mp", (in StorageFieldWriteEventArgs _) => mp++);
+
+            Assert.That(root.Delete("hp", "mp"), Is.EqualTo(2));
+            Assert.That(hp, Is.EqualTo(1));
+            Assert.That(mp, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Container_DeleteMissing_NoNotify()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            int invoked = 0;
+            using var sub = root.Subscribe((in StorageFieldWriteEventArgs _) => invoked++);
+
+            Assert.That(root.Delete("missing"), Is.False);
+            Assert.That(invoked, Is.EqualTo(0));
+        }
+
+        [Test]
         public void Storage_Subscribe_Field_DeleteThenRewrite_Notifies()
         {
             using var storage = new Storage(ContainerLayout.Empty);
@@ -1119,11 +1179,224 @@ namespace Minerva.DataStorage.Tests
 
             int invoked = 0;
             using var sub = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked++);
-
             root.Delete("score");
+
             root.Write("score", 55);
+            int invoked2 = 0;
+            using var sub2 = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked2++);
+            root.Write("score", 55);
+            root.Delete("score");
 
             Assert.That(invoked, Is.EqualTo(1));
+            Assert.That(invoked2, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Field_DeleteAndFailRewrite_NoNotification()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("score", 0);
+
+            int invoked = 0;
+            using var sub = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked++);
+            root.Delete("score");
+
+            // rewrite attempt without resubscribe should not notify old handler
+            root.Write("score", 10);
+            Assert.That(invoked, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Field_DeleteResubscribeThenDelete_NotifiesNewOnly()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("flag", 1);
+
+            int first = 0;
+            using var sub = root.Subscribe("flag", (in StorageFieldWriteEventArgs _) => first++);
+            root.Delete("flag");
+            Assert.That(first, Is.EqualTo(1));
+
+            root.Write("flag", 2);
+            int second = 0;
+            using var sub2 = root.Subscribe("flag", (in StorageFieldWriteEventArgs _) => second++);
+            root.Delete("flag");
+
+            Assert.That(first, Is.EqualTo(1), "Original subscription should remain at 1");
+            Assert.That(second, Is.EqualTo(1), "New subscription should see delete");
+        }
+
+        [Test]
+        public void Storage_Subscribe_Field_DeleteResubscribeThenWrite_NotifiesNewOnly()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("hp", 100);
+
+            int first = 0;
+            using var sub = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => first++);
+            root.Delete("hp");
+
+            root.Write("hp", 50);
+            int second = 0;
+            using var sub2 = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => second++);
+
+            root.Write("hp", 25);
+            Assert.That(first, Is.EqualTo(1));
+            Assert.That(second, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Field_RecreateAfterDeleteRequiresResubscribe()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("mp", 5);
+
+            int invoked = 0;
+            using var sub = root.Subscribe("mp", (in StorageFieldWriteEventArgs _) => invoked++);
+            root.Delete("mp");
+
+            root.Write("mp", 20);
+            Assert.That(invoked, Is.EqualTo(1));
+
+            using var sub2 = root.Subscribe("mp", (in StorageFieldWriteEventArgs _) => invoked++);
+            root.Write("mp", 30);
+            Assert.That(invoked, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Field_DeleteMultipleResubscribeEach()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("a", 1);
+            root.Write("b", 2);
+
+            int aCount = 0;
+            using var aSub = root.Subscribe("a", (in StorageFieldWriteEventArgs _) => aCount++);
+            int bCount = 0;
+            using var bSub = root.Subscribe("b", (in StorageFieldWriteEventArgs _) => bCount++);
+
+            root.Delete("a", "b");
+            Assert.That(aCount, Is.EqualTo(1));
+            Assert.That(bCount, Is.EqualTo(1));
+
+            root.Write("a", 10);
+            root.Write("b", 20);
+
+            using var aSub2 = root.Subscribe("a", (in StorageFieldWriteEventArgs _) => aCount++);
+            using var bSub2 = root.Subscribe("b", (in StorageFieldWriteEventArgs _) => bCount++);
+            root.Write("a", 30);
+            root.Write("b", 40);
+
+            Assert.That(aCount, Is.EqualTo(2));
+            Assert.That(bCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Field_DeleteWriteInterleaved_NoStaleNotifications()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("score", 0);
+
+            int deleteCount = 0;
+            using var sub = root.Subscribe("score", (in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.FieldType == ValueType.Unknown)
+                    deleteCount++;
+            });
+
+            root.Delete("score"); // delete event
+            root.Write("score", 10); // no notification because field removed
+
+            Assert.That(deleteCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Field_ResubscribeAfterDeleteGetsNewWrites()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("score", 0);
+
+            using (root.Subscribe("score", (in StorageFieldWriteEventArgs _) => { }))
+                root.Delete("score");
+
+            root.Write("score", 10);
+
+            int invoked = 0;
+            using var sub2 = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked++);
+            root.Write("score", 20);
+
+            Assert.That(invoked, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Field_WriteDuringDelete_NoNotificationAfterward()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("value", 1);
+
+            int deleteNotified = 0;
+            using var sub = root.Subscribe("value", (in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.FieldType == ValueType.Unknown)
+                    deleteNotified++;
+            });
+
+            root.Delete("value");
+            root.Write("value", 2);
+
+            Assert.That(deleteNotified, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Field_DeleteWriteDelete_WriteRequiresResubscribe()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("hp", 1);
+
+            using (root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => { }))
+                root.Delete("hp");
+
+            root.Write("hp", 2);
+            using var sub2 = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => { });
+            root.Delete("hp");
+
+            int writeCount = 0;
+            root.Write("hp", 3);
+            using var sub3 = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => writeCount++);
+            root.Write("hp", 4);
+
+            Assert.That(writeCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Storage_Subscribe_Field_MultipleDeleteWriteSequences()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("flag", 1);
+
+            int deleteCount = 0;
+            using var sub = root.Subscribe("flag", (in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.FieldType == ValueType.Unknown)
+                    deleteCount++;
+            });
+
+            root.Delete("flag");
+            root.Write("flag", 2);
+            root.Delete("flag");
+            root.Write("flag", 3);
+
+            Assert.That(deleteCount, Is.EqualTo(1));
         }
 
         [Test]
