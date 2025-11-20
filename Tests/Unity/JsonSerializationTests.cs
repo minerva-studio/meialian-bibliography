@@ -5,7 +5,7 @@ using Unity.Serialization.Json;
 namespace Minerva.DataStorage.Serialization.Tests.Unity
 {
     [TestFixture]
-    public class JsonSerializationTest : JsonSerializationTestsBase
+    public class JsonSerializationTests : JsonSerializationTestsBase
     {
         private static JsonSerializationParameters ParamsWithAdapter() => new JsonSerializationParameters
         {
