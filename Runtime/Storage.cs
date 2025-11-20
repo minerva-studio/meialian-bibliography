@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 
 namespace Minerva.DataStorage
 {
@@ -12,6 +13,14 @@ namespace Minerva.DataStorage
         private bool _disposed;
 
         public StorageObject Root => new StorageObject(_root);
+
+        public StorageMember this[ReadOnlySpan<char> path]
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Root.GetMember(path);
+        }
+
+
 
 
         public Storage() : this(ContainerLayout.Empty) { }

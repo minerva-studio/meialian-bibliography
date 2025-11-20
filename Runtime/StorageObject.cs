@@ -69,6 +69,11 @@ namespace Minerva.DataStorage
         /// </summary>
         internal Container Container => _container.EnsureNotDisposed(_generation);
 
+        public StorageMember this[ReadOnlySpan<char> path]
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => GetMember(path);
+        }
 
 
 
@@ -1023,6 +1028,23 @@ namespace Minerva.DataStorage
             var name = _container.GetFieldName(in header);
             return new FieldInfo(name, in header);
         }
+
+
+
+
+
+        /// <summary>
+        /// General member access by path
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        public StorageMember GetMember(ReadOnlySpan<char> path, char separator = DefaultPathSeparator)
+        {
+            var obj = NavigateToObject(path, separator, false, out var fieldName);
+            return new StorageMember(obj, fieldName);
+        }
+
+
 
 
         /// <summary>Check a field exist.</summary>
