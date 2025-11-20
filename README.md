@@ -103,10 +103,10 @@ Use it when you need a **small in-memory “database” for game stats / scorebo
   - `StorageAdapter` integrates with `Unity.Serialization.Json`.
   - Supports round-tripping `Storage` to/from JSON for saves, debugging, or tools.
   - Basic “self-heal” behavior when JSON shape drifts from the current schema.
-- **Field write subscriptions**
-  - Register callbacks for specific fields or paths.
-  - Observe when hot stats change without polling your data tree.
-  - Unsubscribe via the returned `IDisposable` when no longer needed.
+- **Write subscriptions**
+  - Register callbacks for specific fields or entire containers.
+  - Observe changes without polling; useful for hot stats or debugging tools.
+  - Dispose the returned handle to unsubscribe cleanly.
 
 - **Tested & benchmarked**
   - NUnit tests cover memory safety, public API semantics, and migration.
@@ -282,9 +282,9 @@ StorageObject loadedRoot = loaded.Root;
 
 ---
 
-### 4. Subscribe to field write events
+### 4. Subscribe to field or container write events
 
-Hook into individual fields to react when critical stats change without scanning the storage:
+Hook into individual fields or an entire container when critical stats change without scanning the storage:
 
 ```csharp
 using Minerva.DataStorage;
@@ -292,17 +292,25 @@ using Minerva.DataStorage;
 using var storage = new Storage();
 var root = storage.Root;
 
-using var subscription = root.Subscribe("score", (in StorageFieldWriteEventArgs args) =>
+// Subscribe to a specific field
+using var fieldSubscription = root.Subscribe("score", (in StorageFieldWriteEventArgs args) =>
 {
     int score = args.Target.Read<int>(args.FieldName);
     UnityEngine.Debug.Log($"Score updated to {score}");
 });
 
+// Subscribe to the entire container
+using var containerSubscription = root.Subscribe(args =>
+{
+    UnityEngine.Debug.Log($"{args.FieldName} changed on root.");
+});
+
 root.Write("score", 42);
-// handler fires once, then you can dispose the subscription when done
+root.Write("hp", 99);
+// both handlers fire; dispose the subscriptions when done
 ```
 
-Need to watch a nested field? Use path-based subscriptions:
+Need to watch a nested field? Pass a dotted path or navigate manually:
 
 ```csharp
 using var sub = root.Subscribe("player.stats.hp", args =>
@@ -310,6 +318,12 @@ using var sub = root.Subscribe("player.stats.hp", args =>
     var hp = args.Target.Read<int>("hp");
     OnHpChanged(hp);
 });
+
+// Equivalent manual navigation:
+var stats = root.GetObject("player").GetObject("stats");
+using var sub2 = stats.Subscribe("hp", args => ...);
+
+> `Subscribe()` or `Subscribe("")` targets the current container. Use dotted paths to reach deeper containers or fields; paths must point at data that already exists (create child containers up front with `GetObject` if needed).
 ```
 
 The adapter:

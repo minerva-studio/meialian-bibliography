@@ -204,8 +204,9 @@ namespace Minerva.DataStorage
             if (valueType == ValueType.Ref)
                 ThrowHelper.ThrowArugmentException(nameof(value));
 
-            _container.EnsureNotDisposed(_generation);
+            var container = _container.EnsureNotDisposed(_generation);
             _container.Override(fieldName, value, valueType, inlineArrayLength);
+            NotifyFieldWrite(container, fieldName);
         }
 
 
@@ -213,41 +214,31 @@ namespace Minerva.DataStorage
 
 
         /// <summary>
-        /// Subscribe to write notifications for a field located by a path relative to this object.
+        /// Subscribe to write notifications for this container (all fields under it).
         /// </summary>
-        /// <param name="path">Dot-separated path to the field.</param>
-        /// <param name="handler">Callback invoked after the field is written.</param> 
-        /// <returns>An IDisposable subscription handle.</returns> 
-        public StorageWriteSubscription Subscribe(string path, StorageFieldWriteHandler handler)
+        public StorageWriteSubscription Subscribe(StorageFieldWriteHandler handler)
         {
-            if (path == null) throw new ArgumentNullException(nameof(path));
             if (handler == null) throw new ArgumentNullException(nameof(handler));
-
-            var container = NavigateToObject(path, DefaultPathSeparator, true, out var fieldSegment);
-            if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
-
-            return StorageWriteEventRegistry.Subscribe(container._container, fieldSegment.ToString(), handler);
+            var container = _container.EnsureNotDisposed(_generation);
+            return StorageWriteEventRegistry.SubscribeToContainer(container, handler);
         }
 
         /// <summary>
-        /// Subscribe to write notifications for a field located by a path relative to this object.
+        /// Subscribe to a field or child container specified by path segments separated with the default separator.
         /// </summary>
-        /// <param name="path">Dot-separated path to the field.</param>
-        /// <param name="handler">Callback invoked after the field is written.</param>
-        /// <param name="createIfMissing">Create intermediate objects if they do not exist.</param>
-        /// <param name="separator">Path separator character.</param>
-        /// <returns>An IDisposable subscription handle.</returns>
-        public StorageWriteSubscription Subscribe(string path, StorageFieldWriteHandler handler, bool createIfMissing = true, char separator = DefaultPathSeparator)
+        public StorageWriteSubscription Subscribe(string path, StorageFieldWriteHandler handler, char separator = DefaultPathSeparator)
         {
             if (path == null) throw new ArgumentNullException(nameof(path));
             if (handler == null) throw new ArgumentNullException(nameof(handler));
 
-            var container = NavigateToObject(path, separator, createIfMissing, out var fieldSegment);
-            if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+            if (path.Length == 0)
+                return Subscribe(handler);
 
-            return StorageWriteEventRegistry.Subscribe(container._container, fieldSegment.ToString(), handler);
+            var container = NavigateToObject(path.AsSpan(), separator, createIfMissing: false, out var fieldSegment);
+            if (fieldSegment.Length == 0)
+                return container.Subscribe(handler);
+
+            return container.SubscribeLocal(fieldSegment, handler);
         }
 
 
@@ -656,6 +647,30 @@ namespace Minerva.DataStorage
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
             NotifyFieldWrite(container, fieldName.ToString());
+        }
+
+        /// <summary>
+        /// Subscribe to a local field/child without performing path navigation.
+        /// </summary>
+        private StorageWriteSubscription SubscribeLocal(ReadOnlySpan<char> name, StorageFieldWriteHandler handler)
+        {
+            if (name.Length == 0)
+                return Subscribe(handler);
+
+            var container = _container.EnsureNotDisposed(_generation);
+            if (!container.TryGetFieldHeader(name, out var headerSpan))
+                throw new ArgumentException($"Field '{name.ToString()}' does not exist on this container.", nameof(name));
+
+            ref var header = ref headerSpan[0];
+            if (header.IsRef)
+            {
+                var child = GetObject(name, reschemeOnMissing: false, layout: null);
+                if (child.IsNull)
+                    throw new ArgumentException($"Container '{name.ToString()}' is null or missing.", nameof(name));
+                return child.Subscribe(handler);
+            }
+
+            return StorageWriteEventRegistry.Subscribe(container, name.ToString(), handler);
         }
 
 

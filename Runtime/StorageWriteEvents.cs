@@ -33,31 +33,31 @@ namespace Minerva.DataStorage
     /// <param name="args">Context for the write.</param>
     public delegate void StorageFieldWriteHandler(in StorageFieldWriteEventArgs args);
 
+
     /// <summary>
-    /// Disposable handle that represents a subscription to a field write event.
+    /// Represents a registered subscription that can be disposed to stop notifications.
     /// </summary>
     public sealed class StorageWriteSubscription : IDisposable
     {
-        private readonly ContainerSubscriptions _owner;
-        private readonly string _fieldName;
-        private readonly int _id;
+        private readonly Action _disposeAction;
         private bool _disposed;
 
-        internal StorageWriteSubscription(ContainerSubscriptions owner, string fieldName, int id)
+        internal StorageWriteSubscription(Action disposeAction)
         {
-            _owner = owner;
-            _fieldName = fieldName;
-            _id = id;
+            _disposeAction = disposeAction ?? throw new ArgumentNullException(nameof(disposeAction));
         }
 
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-            _owner?.Remove(_fieldName, _id);
+            _disposeAction();
         }
     }
 
+    /// <summary>
+    /// Central registry that maps containers to their subscription lists.
+    /// </summary>
     internal static class StorageWriteEventRegistry
     {
         private static readonly ConditionalWeakTable<Container, ContainerSubscriptions> _table = new();
@@ -70,7 +70,17 @@ namespace Minerva.DataStorage
 
             var slot = _table.GetValue(container, static c => new ContainerSubscriptions(c.Generation));
             slot.EnsureGeneration(container.Generation);
-            return slot.Add(fieldName, handler);
+            return slot.AddFieldSubscriber(fieldName, handler);
+        }
+
+        public static StorageWriteSubscription SubscribeToContainer(Container container, StorageFieldWriteHandler handler)
+        {
+            if (container == null) throw new ArgumentNullException(nameof(container));
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+
+            var slot = _table.GetValue(container, static c => new ContainerSubscriptions(c.Generation));
+            slot.EnsureGeneration(container.Generation);
+            return slot.AddContainerSubscriber(handler);
         }
 
         public static void Notify(Container container, string fieldName, ValueType fieldType)
@@ -94,10 +104,14 @@ namespace Minerva.DataStorage
         }
     }
 
+    /// <summary>
+    /// Holds all subscriptions (field-level and container-level) for a single Container.
+    /// </summary>
     internal sealed class ContainerSubscriptions
     {
         private readonly object _gate = new();
         private readonly Dictionary<string, List<Subscriber>> _byField = new(StringComparer.Ordinal);
+        private readonly List<Subscriber> _containerSubscribers = new();
         private int _nextId = 1;
         private int _subscriptionCount;
         private int _generation;
@@ -138,13 +152,14 @@ namespace Minerva.DataStorage
                     return;
 
                 _byField.Clear();
+                _containerSubscribers.Clear();
                 _subscriptionCount = 0;
                 _nextId = 1;
                 _generation = generation;
             }
         }
 
-        public StorageWriteSubscription Add(string fieldName, StorageFieldWriteHandler handler)
+        public StorageWriteSubscription AddFieldSubscriber(string fieldName, StorageFieldWriteHandler handler)
         {
             if (handler == null) throw new ArgumentNullException(nameof(handler));
 
@@ -159,11 +174,24 @@ namespace Minerva.DataStorage
                 var subscriber = new Subscriber(_nextId++, handler);
                 list.Add(subscriber);
                 Interlocked.Increment(ref _subscriptionCount);
-                return new StorageWriteSubscription(this, fieldName, subscriber.Id);
+                return new StorageWriteSubscription(() => RemoveFieldSubscriber(fieldName, subscriber.Id));
             }
         }
 
-        public void Remove(string fieldName, int id)
+        public StorageWriteSubscription AddContainerSubscriber(StorageFieldWriteHandler handler)
+        {
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+
+            lock (_gate)
+            {
+                var subscriber = new Subscriber(_nextId++, handler);
+                _containerSubscribers.Add(subscriber);
+                Interlocked.Increment(ref _subscriptionCount);
+                return new StorageWriteSubscription(() => RemoveContainerSubscriber(subscriber.Id));
+            }
+        }
+
+        private void RemoveFieldSubscriber(string fieldName, int id)
         {
             lock (_gate)
             {
@@ -187,21 +215,45 @@ namespace Minerva.DataStorage
             }
         }
 
-        public void Notify(Container container, string fieldName, ValueType fieldType)
+        private void RemoveContainerSubscriber(int id)
         {
-            Subscriber[] snapshot;
             lock (_gate)
             {
-                if (!_byField.TryGetValue(fieldName, out var list) || list.Count == 0)
-                    return;
-                snapshot = list.ToArray();
+                for (int i = _containerSubscribers.Count - 1; i >= 0; i--)
+                {
+                    if (_containerSubscribers[i].Id == id)
+                    {
+                        _containerSubscribers.RemoveAt(i);
+                        Interlocked.Decrement(ref _subscriptionCount);
+                        break;
+                    }
+                }
+            }
+        }
+
+        public void Notify(Container container, string fieldName, ValueType fieldType)
+        {
+            Subscriber[] fieldSnapshot = Array.Empty<Subscriber>();
+            Subscriber[] containerSnapshot = Array.Empty<Subscriber>();
+            lock (_gate)
+            {
+                if (_byField.TryGetValue(fieldName, out var list) && list.Count > 0)
+                    fieldSnapshot = list.ToArray();
+
+                if (_containerSubscribers.Count > 0)
+                    containerSnapshot = _containerSubscribers.ToArray();
             }
 
             var args = new StorageFieldWriteEventArgs(new StorageObject(container), fieldName, fieldType);
 
-            for (int i = 0; i < snapshot.Length; i++)
+            for (int i = 0; i < fieldSnapshot.Length; i++)
             {
-                snapshot[i].Handler(in args);
+                fieldSnapshot[i].Handler(in args);
+            }
+
+            for (int i = 0; i < containerSnapshot.Length; i++)
+            {
+                containerSnapshot[i].Handler(in args);
             }
         }
 
