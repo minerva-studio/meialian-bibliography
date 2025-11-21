@@ -18,13 +18,16 @@ namespace Minerva.DataStorage
         /// <param name="fieldIndex"></param>
         internal StorageArray(Container container)
         {
-            this._handle = new FieldHandle(container, ContainerLayout.ArrayName);
+            var name = container.GetFieldName(0);
+            if (name.SequenceEqual(ContainerLayout.ArrayName))
+                this._handle = new FieldHandle(container, ContainerLayout.ArrayName);
+            else
+                this._handle = new FieldHandle(container, name.ToString()); // have to create a new string then
         }
 
         internal StorageArray(Container container, ReadOnlySpan<char> fieldName)
         {
-            // Determine if we might lose the name when schema changed.
-            ThrowHelper.ThrowIfOverlap(container.Span, MemoryMarshal.AsBytes(fieldName));
+            // Determine if we might lose the name when schema changed. 
             this._handle = new FieldHandle(container, fieldName);
         }
 
@@ -199,8 +202,9 @@ namespace Minerva.DataStorage
         {
             int fieldIndex = _handle.EnsureNotDisposed();
             ref var header = ref _handle.Container.GetFieldHeader(fieldIndex);
+
             if (header.IsRef)
-                Container.Registry.Shared.Unregister(ref _handle.Container.GetFieldData<ContainerReference>(in header)[0]);
+                Container.Registry.Shared.Unregister(ref _handle.Container.GetFieldData<ContainerReference>(in header)[index]);
 
             int elementSize = header.ElemSize;
             var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
@@ -230,36 +234,15 @@ namespace Minerva.DataStorage
             if (header.IsRef)
                 throw new InvalidOperationException("Cannot call ToArray<T>() on a ref field. Use object accessors instead.");
 
-            int length = header.Length / header.ElemSize;
-            var result = new T[length];
-
-            var dstType = TypeUtil<T>.ValueType;
-
-            Span<byte> data = _handle.Container.GetFieldData(in header);
-            ValueType type = header.FieldType.Type;
-            for (int i = 0; i < length; i++)
-            {
-                // Get a byte-span view over result[i].
-                Span<byte> dstBytes = MemoryMarshal.AsBytes(result.AsSpan(i, 1));
-
-                // Read from container element -> write into dst (target T) using your conversion path. 
-                var span = data.Slice(header.ElemSize * i, header.ElemSize);
-                Migration.TryWriteTo(span, type, dstBytes, dstType, true);
-            }
-
-            return result;
+            return ToArray<T>(in header, _handle.Container);
         }
 
         public string AsString()
         {
             // 1) Disallow ref fields for value extraction.
             ref var header = ref Header;
-            if (header.Type == ValueType.Char16)
-            {
-                var data = _handle.Container.GetFieldData<char>(in header);
-                return data.ToString();
-            }
-            throw new InvalidOperationException("Cannot call AsString() on a non-char array.");
+            Container container = _handle.Container;
+            return AsString(header, container);
         }
 
         /// <summary>
@@ -277,6 +260,45 @@ namespace Minerva.DataStorage
             }
             return $"{TypeUtil.ToString(Type)}[{Length}]";
         }
+
+
+
+
+        internal static T[] ToArray<T>(in FieldHeader header, Container container) where T : unmanaged
+        {
+            int length = header.Length / header.ElemSize;
+            var result = new T[length];
+
+            var dstType = TypeUtil<T>.ValueType;
+
+            Span<byte> data = container.GetFieldData(in header);
+            ValueType type = header.FieldType.Type;
+            for (int i = 0; i < length; i++)
+            {
+                // Get a byte-span view over result[i].
+                Span<byte> dstBytes = MemoryMarshal.AsBytes(result.AsSpan(i, 1));
+
+                // Read from container element -> write into dst (target T) using your conversion path. 
+                var span = data.Slice(header.ElemSize * i, header.ElemSize);
+                Migration.TryWriteTo(span, type, dstBytes, dstType, true);
+            }
+
+            return result;
+        }
+
+        internal static string AsString(in FieldHeader header, Container container)
+        {
+            if (header.Type == ValueType.Char16)
+            {
+                var data = container.GetFieldData<char>(in header);
+                return data.ToString();
+            }
+            throw new InvalidOperationException("Cannot call AsString() on a non-char array.");
+        }
+
+
+
+
 
         /// <summary>
         /// No notification on write access

@@ -37,7 +37,7 @@ namespace Minerva.DataStorage
             // Prepare destination buffer
             //byte[] dstBuf = DefaultPool.Rent(newSchema.TotalLength);
             AllocatedMemory dstBuf = AllocatedMemory.Create(newSchema.TotalLength);
-            var dst = dstBuf.Span;
+            var dst = dstBuf.Buffer.Span;
             dst.Clear();
             newSchema.Span.CopyTo(dst);
 
@@ -180,7 +180,7 @@ namespace Minerva.DataStorage
             try
             {
                 // header copy
-                Span<byte> span = next.Span;
+                Span<byte> span = next.Buffer.Span;
                 ref var nextHeader = ref ContainerHeader.FromSpan(span);
                 nextHeader = currentHeader;
                 nextHeader.FieldCount += isNewField ? 1 : 0; // count increment

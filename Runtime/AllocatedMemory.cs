@@ -30,16 +30,7 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Current visible window of data. May refer to _buffer or external memory.
         /// </summary>
-        private Memory<byte> _data;
-
-        /// <summary>
-        /// Current logical size (length of the visible region).
-        /// </summary>
-        public readonly int Length
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _data.Length;
-        }
+        internal Memory<byte> Buffer;
 
         /// <summary>
         /// True when there is no visible data.
@@ -47,25 +38,7 @@ namespace Minerva.DataStorage
         public readonly bool IsEmpty
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _data.IsEmpty;
-        }
-
-        /// <summary>
-        /// Returns a Span over the current visible region.
-        /// </summary>
-        public readonly Span<byte> Span
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _data.Span;
-        }
-
-        /// <summary>
-        /// Returns a Memory over the current visible region.
-        /// </summary>
-        public readonly Memory<byte> Memory
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _data;
+            get => Buffer.IsEmpty;
         }
 
         /// <summary>
@@ -80,7 +53,7 @@ namespace Minerva.DataStorage
         public readonly ref byte this[int index]
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => ref _data.Span[index];
+            get => ref Buffer.Span[index];
         }
 
 
@@ -96,7 +69,7 @@ namespace Minerva.DataStorage
         public AllocatedMemory(Memory<byte> buffer)
         {
             _buffer = null;  // not owned
-            _data = buffer;
+            Buffer = buffer;
         }
 
         /// <summary>
@@ -120,14 +93,14 @@ namespace Minerva.DataStorage
 
             if (buffer == null || buffer.Length == 0)
             {
-                _data = Memory<byte>.Empty;
+                Buffer = Memory<byte>.Empty;
             }
             else
             {
                 if (size > buffer.Length)
                     size = buffer.Length;
 
-                _data = new Memory<byte>(buffer, 0, size);
+                Buffer = new Memory<byte>(buffer, 0, size);
             }
         }
 
@@ -136,19 +109,19 @@ namespace Minerva.DataStorage
         /// </summary>
         public readonly void Clear()
         {
-            _data.Span.Clear();
+            Buffer.Span.Clear();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly Span<byte> AsSpan(int start, int length) => _data.Slice(start, length).Span;
+        public readonly Span<byte> AsSpan(int start, int length) => Buffer.Slice(start, length).Span;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly Span<byte> AsSpan(int start) => _data[start..].Span;
+        public readonly Span<byte> AsSpan(int start) => Buffer[start..].Span;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal readonly unsafe void* GetPointer(int offset)
         {
-            fixed (byte* ptr = _data.Span)
+            fixed (byte* ptr = Buffer.Span)
             {
                 return ptr + offset;
             }
@@ -173,9 +146,9 @@ namespace Minerva.DataStorage
                 throw new ArgumentOutOfRangeException(nameof(size));
 
             // size <= current logical length: only shrink or keep the view
-            if (size <= _data.Length)
+            if (size <= Buffer.Length)
             {
-                _data = _data.Slice(0, size);
+                Buffer = Buffer.Slice(0, size);
                 return;
             }
 
@@ -184,7 +157,7 @@ namespace Minerva.DataStorage
             // Case 1: we already own a buffer and it has enough capacity.
             if (_buffer != null && size <= _buffer.Length)
             {
-                _data = new Memory<byte>(_buffer, 0, size);
+                Buffer = new Memory<byte>(_buffer, 0, size);
                 return;
             }
 
@@ -192,9 +165,9 @@ namespace Minerva.DataStorage
             var newBuffer = DefaultPool.Rent(size);
 
             // Copy existing data (from either external memory or old owned buffer).
-            if (!_data.IsEmpty)
+            if (!Buffer.IsEmpty)
             {
-                var src = _data.Span;
+                var src = Buffer.Span;
                 src.CopyTo(newBuffer.AsSpan(0, src.Length));
             }
 
@@ -205,7 +178,7 @@ namespace Minerva.DataStorage
             }
 
             _buffer = newBuffer;
-            _data = new Memory<byte>(newBuffer, 0, size);
+            Buffer = new Memory<byte>(newBuffer, 0, size);
         }
 
         /// <summary>
@@ -220,7 +193,7 @@ namespace Minerva.DataStorage
                 _buffer = null;
             }
 
-            _data = default;
+            Buffer = default;
         }
 
         /// <summary>
@@ -247,7 +220,7 @@ namespace Minerva.DataStorage
         public static AllocatedMemory Create(ReadOnlySpan<byte> buffer)
         {
             var m = Create(buffer.Length);
-            buffer.CopyTo(m.Span);
+            buffer.CopyTo(m.Buffer.Span);
             return m;
         }
     }

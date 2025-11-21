@@ -66,7 +66,7 @@ namespace Minerva.DataStorage
         public Span<byte> Span
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _memory.Span;
+            get => _memory.Buffer.Span;
         }
 
         /// <summary>Headers slice [0..DataBase).</summary>
@@ -137,7 +137,7 @@ namespace Minerva.DataStorage
             _disposed = false;
             _memory = AllocatedMemory.Create(size);
             _schemaVersion = 0;
-            ContainerHeader.WriteLength(_memory.Span, size);
+            ContainerHeader.WriteLength(_memory.Buffer.Span, size);
         }
 
         private void Initialize(in AllocatedMemory m)
@@ -272,10 +272,10 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Span<byte> GetFieldData(in FieldHeader header) => _memory.AsSpan(header.DataOffset, header.Length);// MemoryMarshal.CreateSpan(ref _memory[header.DataOffset], header.Length);
+        public Span<byte> GetFieldData(in FieldHeader header) => _memory.Buffer.Span.Slice(header.DataOffset, header.Length);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Span<T> GetFieldData<T>(in FieldHeader header) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetFieldData(in header));
+        public Span<T> GetFieldData<T>(in FieldHeader header) where T : unmanaged => MemoryMarshal.Cast<byte, T>(_memory.Buffer.Span.Slice(header.DataOffset, header.Length));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe void* GetFieldData_Unsafe(in FieldHeader header) => _memory.GetPointer(header.DataOffset);
@@ -529,7 +529,7 @@ namespace Minerva.DataStorage
         public Container Clone()
         {
             EnsureNotDisposed();
-            return Registry.Shared.CreateWild(_memory.Span);
+            return Registry.Shared.CreateWild(_memory.Buffer.Span);
         }
 
         public void CopyFrom(Container other)

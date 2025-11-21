@@ -947,7 +947,7 @@ namespace Minerva.DataStorage
                 throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field count is {FieldCount}.");
             }
 
-            return new StorageArray(container).ToString();
+            return StorageArray.AsString(in container.GetFieldHeader(0), container);
         }
 
 
@@ -1006,7 +1006,7 @@ namespace Minerva.DataStorage
             if (!IsArray())
                 throw new InvalidOperationException("This StorageObject does not represent an array.");
 
-            return new StorageArray(_container).ToArray<T>();
+            return StorageArray.ToArray<T>(in _container.GetFieldHeader(0), _container);
         }
 
         /// <summary>

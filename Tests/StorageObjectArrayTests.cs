@@ -103,7 +103,20 @@ namespace Minerva.DataStorage.Tests
 
             // Create at 0,1,2
             for (int i = 0; i < arr.Length; i++)
-                arr.GetObject(i, _childLayout);
+            {
+                var obj = arr.GetObject(i, _childLayout);
+                Assert.That(obj.IsNull, Is.False);
+            }
+
+            {
+                var ok0 = arr.TryGetObject(0, out var c0);
+                var ok1 = arr.TryGetObject(1, out var c1);
+                var ok2 = arr.TryGetObject(2, out var c2);
+
+                Assert.That(ok0, Is.True); Assert.That(c0.IsNull, Is.False);
+                Assert.That(ok1, Is.True); Assert.That(c1.IsNull, Is.False);
+                Assert.That(ok2, Is.True); Assert.That(c2.IsNull, Is.False);
+            }
 
             // Clear a single slot
             arr.ClearAt(1);

@@ -303,7 +303,7 @@ namespace Minerva.DataStorage.Serialization
             Memory<byte> buffer = src.Slice(idSize, length);
             AllocatedMemory allocated = allocate ? AllocatedMemory.Create(buffer.Span) : new AllocatedMemory(buffer);
 
-            var view = new ContainerView(allocated.Span);
+            var view = new ContainerView(allocated.Buffer.Span);
             int totalConsumption = idSize + length;
             for (int i = 0; i < view.Header.FieldCount; i++)
             {
@@ -350,12 +350,12 @@ namespace Minerva.DataStorage.Serialization
         /// </returns>
         private static (Container, int) ReadContainer(ReadOnlySpan<byte> src)
         {
-            var idSize = Unsafe.SizeOf<ContainerReference>();
+            var idSize = TypeUtil<ContainerReference>.Size;
             var offset = idSize + ContainerHeader.LengthOffset;
             var length = BitConverter.ToInt32(src[offset..(offset + ContainerHeader.LengthSize)]);
 
             AllocatedMemory allocated = AllocatedMemory.Create(src.Slice(idSize, length));
-            Span<byte> span = allocated.Span;
+            Span<byte> span = allocated.Buffer.Span;
 
             ref var containerHeader = ref ContainerHeader.FromSpan(span);
             int totalConsumption = idSize + length;
