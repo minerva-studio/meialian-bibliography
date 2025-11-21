@@ -137,7 +137,7 @@ namespace Minerva.DataStorage.Tests
 
             bool threw = false;
             try { root.WriteNoRescheme<int>("v", 1); }
-            catch (IndexOutOfRangeException) { threw = true; }
+            catch (ArgumentException) { threw = true; }
             Assert.That(threw, Is.True);
 
             root.Write<float>("v", 1000.0f);
@@ -145,7 +145,7 @@ namespace Minerva.DataStorage.Tests
 
             threw = false;
             try { root.WriteNoRescheme<double>("v", 1000.0); }
-            catch (IndexOutOfRangeException) { threw = true; }
+            catch (ArgumentException) { threw = true; }
             Assert.That(threw, Is.True);
         }
 
