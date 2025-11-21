@@ -10,13 +10,13 @@ namespace Minerva.DataStorage
 
         [DoesNotReturn]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowWriteError(int err, Type t, Container c, int index, bool allowRescheme)
+        public static void ThrowWriteError(int err, Type t, Container c, FieldType fieldType, bool allowRescheme)
         {
             throw err switch
             {
-                1 => new ArgumentException($"Type {t.Name} cannot cast to {c.GetFieldHeader(index).Type}.", ParamName),
-                2 => new ArgumentException($"Type {t.Name} exceeds field length and cannot write into {c.GetFieldName(index).ToString()} without rescheme.", ParamName),
-                _ => new ArgumentException($"Type {t.Name} cannot write to {c.GetFieldHeader(index).Type}.", ParamName),
+                1 => new ArgumentException($"Type {t.Name} cannot cast to {fieldType}.", ParamName),
+                2 => new ArgumentException($"Type {t.Name} cannot cast to {fieldType} without rescheme.", ParamName),
+                _ => new ArgumentException($"Type {t.Name} cannot cast to {fieldType}.", ParamName),
             };
         }
 

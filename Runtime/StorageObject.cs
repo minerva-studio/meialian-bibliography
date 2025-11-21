@@ -690,8 +690,13 @@ namespace Minerva.DataStorage
                     if (arrayView.IsDisposed)
                         throw new InvalidOperationException($"Segment '{segName.ToString()}' is not an array.");
 
-                    if (!arrayView.TryGetObject(segIndex, out next))
+                    if (createIfMissing)
+                        next = arrayView.GetObject(segIndex);
+                    else if (!arrayView.TryGetObject(segIndex, out next))
                         throw new IndexOutOfRangeException($"Index {segIndex} out of range for segment '{segName.ToString()}'.");
+
+                    if (next.IsNull)
+                        throw new InvalidOperationException($"Path segment '{segName.ToString()}[{index}]' refers to a null child object.");
                 }
                 else
                 {

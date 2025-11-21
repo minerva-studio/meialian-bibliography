@@ -112,5 +112,33 @@ namespace Minerva.DataStorage.Tests
             storage.Root.Delete("temp");
             Assert.AreEqual(1, _count);
         }
+
+        [Test]
+        public void WriteArrayElement_ByIndexedPath_RaisesEventWithIndexedPath()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            using var sub = SubscribeAll(storage.Root);
+            // Create an int array field named numbers
+            storage.Root.WriteArrayPath<int>("numbers".AsSpan(), new int[] { 1, 2, 3 });
+            _count = 0;
+
+            // Write to element [1]
+            storage.Root.WritePath<int>("numbers[1]", 99);
+            Assert.AreEqual(1, _count, "Exactly one event should fire for element write");
+            Assert.AreEqual("numbers[1]", _last.FieldName, "Event path should include index");
+        }
+
+        [Test]
+        public void WriteNestedObjectInsideArray_RaisesEventWithFullIndexedPath()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            using var sub = SubscribeAll(storage.Root);
+
+            // Write to an object field inside an array slot; this should implicitly create the array and object if supported
+            storage.Root.GetObject("items").MakeObjectArray(5);
+            storage.Root.WritePath<int>("items[2].value", 7);
+            Assert.GreaterOrEqual(_count, 1);
+            Assert.AreEqual("items[2].value", _last.FieldName, "Event path should include array index and child field name");
+        }
     }
 }

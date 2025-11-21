@@ -369,7 +369,7 @@ namespace Minerva.DataStorage
         {
             int v = TryWrite_Internal(ref header, value, allowResize);
             if (v == 0) return;
-            ThrowHelper.ThrowWriteError(v, typeof(T), this, -1, allowResize);
+            ThrowHelper.ThrowWriteError(v, typeof(T), this, header.FieldType, allowResize);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

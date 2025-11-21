@@ -153,20 +153,28 @@ namespace Minerva.DataStorage
         /// <summary> Get a child as a StorageObject </summary>
         public StorageObject GetObject(int index)
         {
-            Span<ContainerReference> references = References;
-            return references[index].TryGet(out var obj)
-                ? obj
-                : StorageObjectFactory.GetOrCreate(ref references[index], _handle.Container, ContainerLayout.Empty, _handle.Name);
+            ref ContainerReference reference = ref References[index];
+            return reference.TryGet(out var obj) ? obj : CreateObject(ref reference, index, ContainerLayout.Empty);
         }
 
         /// <summary> Get a child as a StorageObject.</summary>
         public StorageObject GetObject(int index, ContainerLayout layout)
         {
-            Span<ContainerReference> references = References;
-            if (layout == null) return StorageObjectFactory.GetNoAllocate(references[index]);
-            return references[index].TryGet(out var obj)
-                ? obj
-                : StorageObjectFactory.GetOrCreate(ref references[index], _handle.Container, layout, _handle.Name);
+            ref ContainerReference reference = ref References[index];
+            if (layout == null) return StorageObjectFactory.GetNoAllocate(reference);
+            return reference.TryGet(out var obj) ? obj : CreateObject(ref reference, index, layout);
+        }
+
+        private readonly StorageObject CreateObject(ref ContainerReference reference, int index, ContainerLayout layout)
+        {
+            using var tempString = new TempString(_handle.Name);
+            tempString.Append('[');
+            Span<char> span = stackalloc char[11];
+            if (!index.TryFormat(span, out var len))
+                ThrowHelper.ThrowArugmentException(nameof(index));
+            tempString.Append(span[..len]);
+            tempString.Append(']');
+            return StorageObjectFactory.GetOrCreate(ref reference, _handle.Container, layout, tempString);
         }
 
         /// <summary> Get a child as a StorageObject.</summary>

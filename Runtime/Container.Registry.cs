@@ -281,8 +281,6 @@ namespace Minerva.DataStorage
                 return created;
             }
 
-            public Container CreateAt(ref ContainerReference position, Container parent, ReadOnlySpan<char> name) => CreateAt(ref position, parent, ContainerLayout.Empty, name);
-
             public Container CreateAt(ref ContainerReference position, Container parent, ContainerLayout layout, ReadOnlySpan<char> name)
             {
                 // 1) If an old tracked container exists in the slot, unregister it first.
@@ -319,9 +317,6 @@ namespace Minerva.DataStorage
                 container._id = ID.Wild;
                 return container;
             }
-
-
-
 
             /// <summary>
             /// Create a wild container, which means that container is not tracked by anything
