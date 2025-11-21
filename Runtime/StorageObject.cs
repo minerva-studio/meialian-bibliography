@@ -108,10 +108,10 @@ namespace Minerva.DataStorage
         // Basic read/write passthroughs (blittable)
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write(string fieldName, string value) => WriteString(fieldName, (ReadOnlySpan<char>)value);
+        public void Write(ReadOnlySpan<char> fieldName, ReadOnlySpan<char> value) => WriteString(fieldName, value);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write(int index, string value) => WriteString(index, (ReadOnlySpan<char>)value);
+        public void Write(int index, ReadOnlySpan<char> value) => WriteString(index, value);
 
         /// <summary>
         /// Write a value to a field, if the field does not exist, it will be added to the schema.
@@ -129,7 +129,7 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write<T>(string fieldName, T value) where T : unmanaged
+        public void Write<T>(ReadOnlySpan<char> fieldName, T value) where T : unmanaged
         {
             var container = _container.EnsureNotDisposed(_generation);
             container.Write_Internal(ref container.GetFieldHeader<T>(fieldName, true), value, true);
@@ -143,7 +143,7 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
+        public void Write<T>(ReadOnlySpan<char> fieldName, T value, bool allowRescheme = true) where T : unmanaged
         {
             var container = _container.EnsureNotDisposed(_generation);
             container.Write_Internal(ref container.GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
@@ -178,7 +178,7 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryWrite<T>(string fieldName, T value) where T : unmanaged
+        public bool TryWrite<T>(ReadOnlySpan<char> fieldName, T value) where T : unmanaged
         {
             var container = _container.EnsureNotDisposed(_generation);
             if (container.TryWrite_Internal(ref container.GetFieldHeader<T>(fieldName, true), value, true) == 0)
@@ -196,7 +196,7 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryWrite<T>(string fieldName, T value, bool allowRescheme = true) where T : unmanaged
+        public bool TryWrite<T>(ReadOnlySpan<char> fieldName, T value, bool allowRescheme = true) where T : unmanaged
         {
             var container = _container.EnsureNotDisposed(_generation);
             if (container.TryWrite_Internal(ref container.GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme) == 0)
@@ -211,10 +211,10 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Override<T>(string fieldName, T value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref value, 1)), TypeUtil<T>.ValueType);
+        public void Override<T>(ReadOnlySpan<char> fieldName, T value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref value, 1)), TypeUtil<T>.ValueType);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Override<T>(string fieldName, ReadOnlySpan<T> value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(value), TypeUtil<T>.ValueType, value.Length);
+        public void Override<T>(ReadOnlySpan<char> fieldName, ReadOnlySpan<T> value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(value), TypeUtil<T>.ValueType, value.Length);
 
         /// <summary>
         /// Override existing data with given bytes
@@ -224,7 +224,7 @@ namespace Minerva.DataStorage
         /// <param name="valueType"></param>
         /// <param name="inlineArrayLength"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Override(string fieldName, ReadOnlySpan<byte> value, ValueType valueType, int? inlineArrayLength = null)
+        public void Override(ReadOnlySpan<char> fieldName, ReadOnlySpan<byte> value, ValueType valueType, int? inlineArrayLength = null)
         {
             if (valueType == ValueType.Ref)
                 ThrowHelper.ThrowArugmentException(nameof(value));
@@ -259,7 +259,10 @@ namespace Minerva.DataStorage
             if (path.Length == 0)
                 return Subscribe(handler);
 
-            var container = NavigateToObject(path.AsSpan(), separator, createIfMissing: false, out var fieldSegment);
+            // ignore the index for subscription, subscribe to the array field instead
+            // e.g. "items[3]" -> subscribe to "items"
+            // but it might be to noisy if someone is writing to other index and we only interested in one item
+            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out _);
             if (fieldSegment.Length == 0)
                 return container.Subscribe(handler);
 
@@ -366,11 +369,12 @@ namespace Minerva.DataStorage
         /// </summary>
         public void WritePath<T>(ReadOnlySpan<char> path, T value, char separator = DefaultPathSeparator) where T : unmanaged
         {
-            var container = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment);
+            var obj = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment, out var index);
             if (fieldSegment.Length == 0)
                 throw new ArgumentException("Path must contain at least one segment.", nameof(path));
 
-            container.Write(fieldSegment.ToString(), value);
+            if (index >= 0) obj.GetArray(fieldSegment).Write(index, value);
+            else obj.Write(fieldSegment, value);
         }
 
         /// <summary>
@@ -390,11 +394,15 @@ namespace Minerva.DataStorage
         /// </summary>
         public void WritePath(ReadOnlySpan<char> path, ReadOnlySpan<char> value, char separator = DefaultPathSeparator)
         {
-            var container = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment);
+            var obj = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment, out var index);
             if (fieldSegment.Length == 0)
                 throw new ArgumentException("Path must contain at least one segment.", nameof(path));
 
-            container.WriteString(fieldSegment.ToString(), value);
+            if (index >= 0)
+            {
+                obj.GetArray(fieldSegment).GetObject(index).WriteString(value);
+            }
+            obj.WriteString(fieldSegment.ToString(), value);
         }
 
         /// <summary>
@@ -415,10 +423,14 @@ namespace Minerva.DataStorage
         /// </summary>
         public void WriteArrayPath<T>(ReadOnlySpan<char> path, ReadOnlySpan<T> value, char separator = DefaultPathSeparator) where T : unmanaged
         {
-            var container = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment);
+            var container = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment, out var index);
             if (fieldSegment.Length == 0)
                 throw new ArgumentException("Path must contain at least one segment.", nameof(path));
 
+            if (index >= 0)
+            {
+                container.GetObjectInArray(fieldSegment, index).WriteArray(value);
+            }
             container.WriteArray(fieldSegment, value);
         }
 
@@ -439,11 +451,14 @@ namespace Minerva.DataStorage
         /// </summary>
         public T ReadPath<T>(ReadOnlySpan<char> path, char separator = DefaultPathSeparator) where T : unmanaged
         {
-            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment);
+            var obj = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out var index);
             if (fieldSegment.Length == 0)
                 throw new ArgumentException("Path must contain at least one segment.", nameof(path));
 
-            if (!container.TryRead(fieldSegment, out T value))
+            if (index >= 0)
+                return obj.GetArray(fieldSegment).Read<T>(index);
+
+            if (!obj.TryRead(fieldSegment, out T value))
                 throw new InvalidOperationException($"Field '{fieldSegment.ToString()}' not found for path '{path.ToString()}'.");
 
             return value;
@@ -470,10 +485,14 @@ namespace Minerva.DataStorage
 
             try
             {
-                var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment);
+                var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out var index);
                 if (fieldSegment.Length == 0)
                     return false;
-
+                if (index >= 0)
+                {
+                    value = container.GetArray(fieldSegment).Read<T>(index);
+                    return true;
+                }
                 return container.TryRead(fieldSegment, out value);
             }
             catch (ArgumentException)
@@ -503,7 +522,7 @@ namespace Minerva.DataStorage
         /// </summary>
         public string ReadStringPath(ReadOnlySpan<char> path, char separator = DefaultPathSeparator)
         {
-            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment);
+            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out var index);
             if (fieldSegment.Length == 0)
                 throw new ArgumentException("Path must contain at least one segment.", nameof(path));
 
@@ -514,7 +533,9 @@ namespace Minerva.DataStorage
             if (child.IsNull)
                 throw new InvalidOperationException($"Path segment '{fieldSegment.ToString()}' refers to a null child object.");
 
-            return child.ReadString();
+            var ts = child.AsArray();
+            if (index >= 0) ts = ts.GetObject(index).AsArray();
+            return ts.ToString();
         }
 
         /// <summary>
@@ -534,7 +555,7 @@ namespace Minerva.DataStorage
         /// </summary>
         public T[] ReadArrayPath<T>(ReadOnlySpan<char> path, char separator = DefaultPathSeparator) where T : unmanaged
         {
-            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment);
+            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out var index);
             if (fieldSegment.Length == 0)
                 throw new ArgumentException("Path must contain at least one segment.", nameof(path));
 
@@ -545,10 +566,127 @@ namespace Minerva.DataStorage
             if (child.IsNull)
                 throw new InvalidOperationException($"Path segment '{fieldSegment.ToString()}' refers to a null child object.");
 
-            return child.ReadArray<T>();
+            var ts = child.AsArray();
+            if (index >= 0) ts = ts.GetObject(index).AsArray();
+            return ts.ToArray<T>();
         }
 
 
+
+
+        // ---------------- Segment parsing & forward-only path state machine ----------------
+        // A forward-only reader over path segments supporting optional [index] suffix. z
+        /// <summary>
+        /// Navigate to the object owning the final field in the path.
+        /// Returns the StorageObject containing the final field, and outputs:
+        ///   - fieldSegment: the name of the last segment (without index)
+        ///   - index: optional index for an array field (or -1 if no index)
+        /// Throws on any syntax error or structural mismatch.
+        /// </summary>
+        private StorageObject NavigateToObject(ReadOnlySpan<char> path, char separator, bool createIfMissing, out ReadOnlySpan<char> fieldSegment, out int index)
+        {
+            if (path.Length == 0)
+                throw new ArgumentException("Path cannot be empty.", nameof(path));
+
+            var current = this;
+            fieldSegment = default;
+            index = -1;
+
+            var reader = new PathReader(path, separator);
+
+            while (reader.MoveNext(out var segName, out var segIndex))
+            {
+                if (!reader.HasNext)
+                {
+                    if (segName.Length == 0)
+                        throw new ArgumentException("Path cannot end with a separator.", nameof(path));
+
+                    fieldSegment = segName;
+                    index = segIndex;
+                    return current;
+                }
+
+                StorageObject next;
+
+                if (segIndex >= 0)
+                {
+                    // Segment like "Items[3]" -> array field on the current object
+                    var arrayView = current.GetArray(segName);
+                    if (arrayView.IsNull)
+                        throw new InvalidOperationException($"Segment '{segName.ToString()}' is not an array.");
+
+                    if (!arrayView.TryGetObject(segIndex, out next))
+                        throw new IndexOutOfRangeException($"Index {segIndex} out of range for segment '{segName.ToString()}'.");
+                }
+                else
+                {
+                    // Plain child object segment like "Player"
+                    if (createIfMissing)
+                        next = current.GetObject(segName);
+                    else if (!current.TryGetObject(segName, out next))
+                        throw new ArgumentException($"Path segment '{segName.ToString()}' does not exist on the current object.", nameof(path));
+
+                    if (next.IsNull)
+                        throw new InvalidOperationException($"Path segment '{segName.ToString()}' refers to a null child object.");
+                }
+
+                current = next;
+            }
+
+            throw new InvalidOperationException($"Cannot resovle Path '{path.ToString()}'.");
+        }
+
+        /// <summary>
+        /// Non-throwing version of NavigateToObject.
+        /// Returns false on any syntax error, missing object, or invalid array access.
+        /// </summary>
+        private bool TryNavigateToObject(ReadOnlySpan<char> path, char separator, out StorageObject storageObject, out ReadOnlySpan<char> fieldSegment, out int index)
+        {
+            storageObject = default;
+            fieldSegment = default;
+            index = -1;
+
+            if (path.Length == 0)
+                return false;
+
+            var current = this;
+            var reader = new PathReader(path, separator);
+
+            while (reader.MoveNext(out var segName, out var segIndex))
+            {
+                if (!reader.HasNext)
+                {
+                    if (segName.Length == 0)
+                        return false;
+
+                    storageObject = current;
+                    fieldSegment = segName;
+                    index = segIndex;
+                    return true;
+                }
+
+                StorageObject next;
+
+                if (segIndex >= 0)
+                {
+                    // "Items[3]" segment
+                    var arrayView = current.GetArray(segName);
+                    if (arrayView.IsNull)
+                        return false;
+                    if (!arrayView.TryGetObject(segIndex, out next))
+                        return false;
+                }
+                else
+                {
+                    // Non-allocating child lookup
+                    if (!current.TryGetObject(segName, out next))
+                        return false;
+                }
+
+                current = next;
+            }
+            return false;
+        }
 
 
 
@@ -597,81 +735,6 @@ namespace Minerva.DataStorage
                 current = current.GetObject(part);
                 start += rel + 1;
             }
-        }
-
-        /// <summary>
-        /// Navigate to the container that owns the final field in a path.
-        /// For example, with "a.b.c", this returns object "b" and fieldSegment "c".
-        /// </summary>
-        private StorageObject NavigateToObject(ReadOnlySpan<char> path, char separator, bool createIfMissing, out ReadOnlySpan<char> fieldSegment)
-        {
-            if (path.Length == 0)
-                throw new ArgumentException("Path cannot be empty.", nameof(path));
-
-            var current = this;
-            int start = 0;
-
-            while (true)
-            {
-                var remaining = path.Slice(start);
-                int rel = remaining.IndexOf(separator);
-                if (rel < 0)
-                {
-                    fieldSegment = remaining;
-                    if (fieldSegment.Length == 0)
-                        throw new ArgumentException("Path cannot end with a separator.", nameof(path));
-                    return current;
-                }
-
-                var part = remaining.Slice(0, rel);
-                if (part.Length == 0)
-                    throw new ArgumentException("Path contains an empty segment.", nameof(path));
-
-                if (createIfMissing)
-                {
-                    current = current.GetObject(part);
-                }
-                else
-                {
-                    if (!current.HasField(part))
-                        throw new ArgumentException($"Path segment '{part.ToString()}' does not exist on the current object.", nameof(path));
-
-                    var next = current.GetObject(part, reschemeOnMissing: false, layout: null);
-                    if (next.IsNull)
-                        throw new InvalidOperationException($"Path segment '{part.ToString()}' refers to a null child object.");
-
-                    current = next;
-                }
-
-                start += rel + 1;
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void NotifyFieldWrite(Container container, string fieldName)
-        {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
-                return;
-            var type = container.GetFieldHeader(fieldName).Type;
-            StorageWriteEventRegistry.Notify(container, fieldName, type);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void NotifyFieldWrite(Container container, int fieldIndex)
-        {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
-                return;
-            ref var header = ref container.GetFieldHeader(fieldIndex);
-            var fieldName = container.GetFieldName(in header).ToString();
-            StorageWriteEventRegistry.Notify(container, fieldName, header.Type);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName)
-        {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
-                return;
-            NotifyFieldWrite(container, fieldName.ToString());
         }
 
         /// <summary>
@@ -749,7 +812,7 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteString(string fieldName, ReadOnlySpan<char> value)
+        public void WriteString(ReadOnlySpan<char> fieldName, ReadOnlySpan<char> value)
         {
             var container = _container.EnsureNotDisposed(_generation);
             GetObject(fieldName).WriteArray(value);
@@ -848,7 +911,6 @@ namespace Minerva.DataStorage
         public void MakeArray<T>(int length) where T : unmanaged
         {
             Rescheme(ContainerLayout.BuildArray<T>(length));
-            _container.GetFieldData(in _container.GetFieldHeader(0)).Clear();
         }
 
         /// <summary>
@@ -915,13 +977,7 @@ namespace Minerva.DataStorage
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject GetObject(ReadOnlySpan<char> fieldName, ContainerLayout layout = null) => GetObject(fieldName, reschemeOnMissing: true, layout: layout ?? ContainerLayout.Empty);
-        /// <summary>
-        /// Get without allocating a 
-        /// </summary>
-        /// <param name="fieldName"></param>
-        /// <returns></returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageObject GetObjectNoAllocate(string fieldName) => GetObject(fieldName, reschemeOnMissing: false, layout: null);
+
         /// <summary>
         /// Get child object with layout
         /// </summary>
@@ -943,7 +999,10 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <param name="reschemeOnMissing"></param>
         /// <param name="layout"></param>
-        /// <returns></returns>
+        /// <returns>storage object, null storage object if object does not exist </returns>
+        /// <exception cref="ObjectDisposedException">If container is disposed</exception>
+        /// <exception cref="InvalidOperationException">If field is not a reference field</exception>"
+        /// <exception cref="ArgumentException">If field does not exist and reschemeOnMissing is false</exception>"
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject GetObject(ReadOnlySpan<char> fieldName, bool reschemeOnMissing, ContainerLayout layout)
         {
@@ -955,15 +1014,54 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Get child object with layout
         /// </summary>
-        /// <param name="fieldName"></param>
-        /// <param name="reschemeOnMissing"></param>
+        /// <param name="header"></param>
         /// <param name="layout"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private StorageObject GetObject(in FieldHeader fieldName, ContainerLayout layout)
+        private StorageObject GetObject(in FieldHeader header, ContainerLayout layout)
         {
-            ref ContainerReference idRef = ref _container.GetRefSpan(fieldName)[0];
+            ref ContainerReference idRef = ref _container.GetRefSpan(header)[0];
             return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+        }
+
+        /// <exception cref="ArgumentException">If field does not exist and reschemeOnMissing is false</exception>"
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryGetObject(ReadOnlySpan<char> fieldName, out StorageObject storageObject)
+        {
+            _container.EnsureNotDisposed(_generation);
+            if (!_container.TryGetRef(fieldName, out var containerReferences))
+            {
+                storageObject = default;
+                return false;
+            }
+            //ref var idRef = ref _container.GetRefNoRescheme(fieldName);
+            storageObject = StorageObjectFactory.GetNoAllocate(containerReferences[0]);
+            return !storageObject.IsNull;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StorageObject GetObjectInArray(ReadOnlySpan<char> fieldName, int index)
+        {
+            ref var header = ref _container.GetFieldHeader(fieldName);
+            // inline array
+            if (header.IsInlineArray)
+            {
+                if (header.FieldType != TypeUtil<ContainerReference>.ArrayFieldType)
+                    throw new InvalidOperationException($"Field {fieldName.ToString()} is not an object array.");
+
+                var rs = _container.GetFieldData<ContainerReference>(in header);
+                return StorageObjectFactory.GetNoAllocate(rs[index]);
+            }
+
+            // obj array
+            var obj = GetObject(in header, null);
+            if (!obj.IsNull && obj.IsArray())
+            {
+                var rs = obj._container.GetRefSpan(0);
+                return StorageObjectFactory.GetNoAllocate(rs[index]);
+            }
+
+            return default;
         }
 
 
@@ -1040,8 +1138,26 @@ namespace Minerva.DataStorage
         /// <returns></returns>
         public StorageMember GetMember(ReadOnlySpan<char> path, char separator = DefaultPathSeparator)
         {
-            var obj = NavigateToObject(path, separator, false, out var fieldName);
-            return new StorageMember(obj, fieldName);
+            var obj = NavigateToObject(path, separator, true, out var fieldName, out var index);
+            return new StorageMember(obj, fieldName, index);
+        }
+
+        /// <summary>
+        /// General member access by path
+        /// </summary>
+        /// <param name="path"></param>
+        /// <param name="member"></param>
+        /// <param name="separator"></param>
+        /// <returns></returns>
+        public bool TryGetMember(ReadOnlySpan<char> path, out StorageMember member, char separator = DefaultPathSeparator)
+        {
+            member = default;
+            if (!TryNavigateToObject(path, separator, out var obj, out var fieldName, out var index))
+                return false;
+            if (!HasField(fieldName))
+                return false;
+            member = new StorageMember(obj, fieldName, index);
+            return !obj.IsNull;
         }
 
 
@@ -1072,6 +1188,39 @@ namespace Minerva.DataStorage
             if (IsNull) return other.IsNull;
             if (other.IsNull) return false;
             return _container == other._container && _generation == other._generation;
+        }
+
+
+
+
+
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void NotifyFieldWrite(Container container, string fieldName)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+            var type = container.GetFieldHeader(fieldName).Type;
+            StorageWriteEventRegistry.Notify(container, fieldName, type);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void NotifyFieldWrite(Container container, int fieldIndex)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+            ref var header = ref container.GetFieldHeader(fieldIndex);
+            var fieldName = container.GetFieldName(in header).ToString();
+            StorageWriteEventRegistry.Notify(container, fieldName, header.Type);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+            NotifyFieldWrite(container, fieldName.ToString());
         }
     }
 }

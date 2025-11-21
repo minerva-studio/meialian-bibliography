@@ -33,7 +33,7 @@ namespace Minerva.DataStorage.Serialization
                 }
                 else if (field.IsRef)
                 {
-                    var ids = storage._container.GetRefSpan(in field);
+                    var ids = storage._container.GetFieldData<ContainerReference>(in field);
                     WriteObject(in field, ids, writer);
                 }
                 else
@@ -81,7 +81,7 @@ namespace Minerva.DataStorage.Serialization
             // --- case: ref ------------------------------------------------------
             if (field.IsRef)
             {
-                var ids = storage._container.GetRefSpan(in field);
+                var ids = storage._container.GetFieldData<ContainerReference>(in field);
                 WriteObject(in field, ids, writer);
                 return;
             }
@@ -368,28 +368,6 @@ namespace Minerva.DataStorage.Serialization
         /// </summary>
         internal ref struct JsonToStorageReader
         {
-            [StructLayout(LayoutKind.Explicit)]
-            public struct ElementValue
-            {
-                [FieldOffset(0)]
-                ValueType type;
-                [FieldOffset(4)]
-                bool b;
-                [FieldOffset(4)]
-                long l;
-                [FieldOffset(4)]
-                double d;
-
-                public bool BoolValue => type == ValueType.Bool ? b : (l != 0 || d != 0);
-                public long IntValue => type == ValueType.Int64 ? l : (type == ValueType.Bool ? (b ? 1 : 0) : (long)d);
-                public double FloatValue => type == ValueType.Float64 ? d : (type == ValueType.Bool ? (b ? 1 : 0) : l);
-
-
-                public static implicit operator ElementValue(long value) => new ElementValue() { type = ValueType.Int64, l = value };
-                public static implicit operator ElementValue(double value) => new ElementValue() { type = ValueType.Float64, d = value };
-                public static implicit operator ElementValue(bool value) => new ElementValue() { type = ValueType.Bool, b = value };
-            }
-
             private readonly ReadOnlySpan<char> _text;
             private readonly int _maxDepth;
             private int _pos;
@@ -682,13 +660,13 @@ namespace Minerva.DataStorage.Serialization
                             switch (arrayType)
                             {
                                 case ValueType.Bool:
-                                    arrayView[i].Write(scalarValues[i].BoolValue);
+                                    arrayView.Raw[i].Write(scalarValues[i].BoolValue);
                                     break;
                                 case ValueType.Int64:
-                                    arrayView[i].Write(scalarValues[i].IntValue);
+                                    arrayView.Raw[i].Write(scalarValues[i].IntValue);
                                     break;
                                 case ValueType.Float64:
-                                    arrayView[i].Write(scalarValues[i].FloatValue);
+                                    arrayView.Raw[i].Write(scalarValues[i].FloatValue);
                                     break;
                             }
                         }
@@ -700,7 +678,7 @@ namespace Minerva.DataStorage.Serialization
                         var arrayView = arrayObject.AsArray();
                         for (int i = 0; i < blobs.Count; i++)
                         {
-                            blobs[i].CopyTo(arrayView[i].Bytes);
+                            blobs[i].CopyTo(arrayView.Raw[i].Bytes);
                         }
                         return;
                     }
@@ -1010,4 +988,5 @@ namespace Minerva.DataStorage.Serialization
             }
         }
     }
+
 }

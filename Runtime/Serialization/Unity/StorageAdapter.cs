@@ -271,17 +271,17 @@ namespace Minerva.DataStorage.Serialization
                                 else if (prim.IsBoolean())
                                 {
                                     SetArrayType(ref arrayType, ValueType.Bool, fieldName);
-                                    scalarValues.Add(ElementValue.FromBool(prim.AsBoolean()));
+                                    scalarValues.Add(prim.AsBoolean());
                                 }
                                 else if (prim.IsIntegral())
                                 {
                                     SetArrayType(ref arrayType, ValueType.Int64, fieldName);
-                                    scalarValues.Add(ElementValue.FromInt64(prim.AsInt64()));
+                                    scalarValues.Add(prim.AsInt64());
                                 }
                                 else
                                 {
                                     SetArrayType(ref arrayType, ValueType.Float64, fieldName);
-                                    scalarValues.Add(ElementValue.FromFloat64(prim.AsDouble()));
+                                    scalarValues.Add(prim.AsDouble());
                                 }
 
                                 break;
@@ -353,15 +353,15 @@ namespace Minerva.DataStorage.Serialization
                         switch (arrayType)
                         {
                             case ValueType.Bool:
-                                array[i].Write(scalarValues[i].BoolValue);
+                                array.Raw[i].Write(scalarValues[i].BoolValue);
                                 break;
 
                             case ValueType.Int64:
-                                array[i].Write(scalarValues[i].IntValue);
+                                array.Raw[i].Write(scalarValues[i].IntValue);
                                 break;
 
                             case ValueType.Float64:
-                                array[i].Write(scalarValues[i].FloatValue);
+                                array.Raw[i].Write(scalarValues[i].FloatValue);
                                 break;
                         }
                     }
@@ -381,7 +381,7 @@ namespace Minerva.DataStorage.Serialization
                     var array = target.AsArray();
                     for (int i = 0; i < blobs.Count; i++)
                     {
-                        blobs[i].CopyTo(array[i].Bytes);
+                        blobs[i].CopyTo(array.Raw[i].Bytes);
                     }
 
                     return;
@@ -448,40 +448,6 @@ namespace Minerva.DataStorage.Serialization
         #endregion
 
         #region Helpers
-
-        /// <summary>
-        /// Describes a scalar numeric/bool element in a JSON array.
-        /// Mirrors the ElementValue struct from JsonToStorageReader.
-        /// </summary>
-        private struct ElementValue
-        {
-            public ValueType Type;
-            public bool Bool;
-            public long Int64;
-            public double Float64;
-
-            public bool BoolValue =>
-                Type == ValueType.Bool ? Bool : (Int64 != 0 || Math.Abs(Float64) > double.Epsilon);
-
-            public long IntValue =>
-                Type == ValueType.Int64
-                    ? Int64
-                    : (Type == ValueType.Bool ? (Bool ? 1L : 0L) : (long)Float64);
-
-            public double FloatValue =>
-                Type == ValueType.Float64
-                    ? Float64
-                    : (Type == ValueType.Bool ? (Bool ? 1.0 : 0.0) : Int64);
-
-            public static ElementValue FromBool(bool v) =>
-                new ElementValue { Type = ValueType.Bool, Bool = v };
-
-            public static ElementValue FromInt64(long v) =>
-                new ElementValue { Type = ValueType.Int64, Int64 = v };
-
-            public static ElementValue FromFloat64(double v) =>
-                new ElementValue { Type = ValueType.Float64, Float64 = v };
-        }
 
         /// <summary>
         /// Merges the incoming element type into the current arrayType,

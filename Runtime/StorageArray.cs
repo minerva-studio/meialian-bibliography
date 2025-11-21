@@ -84,7 +84,7 @@ namespace Minerva.DataStorage
         /// </summary>
         /// <param name="index"></param>
         /// <returns></returns>
-        public ValueView this[int index]
+        public ReadOnlyValueView this[int index]
         {
             readonly get
             {
@@ -97,7 +97,12 @@ namespace Minerva.DataStorage
             set
             {
                 EnsureNotDisposed();
-                this[index].Write(value.Bytes, Header.Type);
+                ref FieldHeader header = ref Header;
+                int elementSize = header.ElemSize;
+                var span = _container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                value.TryWriteTo(span, header.Type);
+
+                StorageObject.NotifyFieldWrite(_container, _fieldIndex);
             }
         }
 
@@ -106,6 +111,8 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => ref _container.GetFieldHeader(_fieldIndex);
         }
+
+        internal WriteView Raw => new WriteView(this);
 
         /// <summary>Direct access to the underlying ID span (use with care).</summary>
         internal Span<ContainerReference> References
@@ -118,11 +125,29 @@ namespace Minerva.DataStorage
             }
         }
 
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void EnsureNotDisposed() => _container.EnsureNotDisposed(_generation);
 
 
+
+
+        public void Write<T>(int index, T value) where T : unmanaged
+        {
+            var src = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref value, 1));
+            Write(index, src, TypeUtil<T>.ValueType);
+        }
+
+        public void Write(int index, Span<byte> src, ValueType valueType)
+        {
+            ref FieldHeader header = ref Header;
+            int elementSize = header.ElemSize;
+            var span = _container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+            Migration.TryWriteTo(src, valueType, span, header.Type, false);
+
+            StorageObject.NotifyFieldWrite(_container, _fieldIndex);
+        }
+
+        public T Read<T>(int index) where T : unmanaged => this[index].Read<T>();
 
 
 
@@ -261,6 +286,38 @@ namespace Minerva.DataStorage
                 return AsString();
             }
             return base.ToString();
+        }
+
+        /// <summary>
+        /// No notification on write access
+        /// </summary>
+        internal readonly struct WriteView
+        {
+            private readonly StorageArray _arr;
+            public WriteView(StorageArray arr)
+            {
+                _arr = arr;
+            }
+
+            public ValueView this[int index]
+            {
+                readonly get
+                {
+                    _arr.EnsureNotDisposed();
+                    ref FieldHeader header = ref _arr.Header;
+                    int elementSize = header.ElemSize;
+                    var span = _arr._container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                    return new ValueView(span, header.Type);
+                }
+                set
+                {
+                    _arr.EnsureNotDisposed();
+                    ref FieldHeader header = ref _arr.Header;
+                    int elementSize = header.ElemSize;
+                    var span = _arr._container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                    value.TryWriteTo(span, header.Type);
+                }
+            }
         }
     }
 }

@@ -59,5 +59,10 @@ namespace Minerva.DataStorage
                 _root = null;
             }
         }
+
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryGetMember(ReadOnlySpan<char> path, out StorageMember member) => Root.TryGetMember(path, out member);
     }
 }

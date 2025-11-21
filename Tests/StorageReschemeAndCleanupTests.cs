@@ -111,7 +111,7 @@ namespace Minerva.DataStorage.Tests
 
             root.Write<int>("hp", 77);
             var speeds = root.GetArray("speeds"); // 4 floats
-            for (int i = 0; i < speeds.Length; i++) speeds[i].Write(i + 0.25f);
+            for (int i = 0; i < speeds.Length; i++) speeds.Write(i, i + 0.25f);
 
             // Delete "speeds"
             var deleted = root.Delete("speeds");

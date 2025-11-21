@@ -119,7 +119,7 @@ namespace Minerva.DataStorage.Serialization
                 if (!field.IsRef)
                     continue;
 
-                var ids = storage._container.GetRefSpan(in field);
+                var ids = storage._container.GetFieldData<ContainerReference>(in field);
                 for (int i1 = 0; i1 < ids.Length; i1++)
                 {
                     var cid = ids[i1];

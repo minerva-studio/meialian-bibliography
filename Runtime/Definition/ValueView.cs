@@ -181,8 +181,34 @@ namespace Minerva.DataStorage
 
 
         public static implicit operator ReadOnlyValueView(ValueView valueView) => valueView.AsReadOnly();
+        public static unsafe implicit operator ValueView(int* valueView) => new ValueView(new Span<byte>(valueView, sizeof(int)), ValueType.Int32);
+        public static unsafe implicit operator ValueView(long* valueView) => new ValueView(new Span<byte>(valueView, sizeof(long)), ValueType.Int64);
+        public static unsafe implicit operator ValueView(float* valueView) => new ValueView(new Span<byte>(valueView, sizeof(float)), ValueType.Float32);
+        public static unsafe implicit operator ValueView(double* valueView) => new ValueView(new Span<byte>(valueView, sizeof(double)), ValueType.Float64);
 
 
         public override string ToString() => Migration.ToString(Bytes, Type);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public readonly unsafe struct ValueView<T> where T : unmanaged
+    {
+        public ValueType Type => TypeUtil<T>.ValueType;
+        private readonly T* value;
+
+        public ValueView(T* value)
+        {
+            this.value = value;
+        }
+
+        public T Read() => *value;
+        public void Write(in T value)
+        {
+            *this.value = value;
+        }
+
+        public static implicit operator ReadOnlyValueView(ValueView<T> valueView) => new ValueView(new Span<byte>(valueView.value, TypeUtil<T>.Size), valueView.Type);
+        public static implicit operator ValueView(ValueView<T> valueView) => new ValueView(new Span<byte>(valueView.value, TypeUtil<T>.Size), valueView.Type);
+        public static implicit operator ValueView<T>(T* v) => new ValueView<T>(v);
     }
 }

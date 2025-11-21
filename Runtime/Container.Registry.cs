@@ -92,8 +92,8 @@ namespace Minerva.DataStorage
                     ref var field = ref container.GetFieldHeader(i1);
                     if (!field.IsRef) continue;
 
-                    // This Span<ulong> views the parent's buffer. We only read it, not modify.
-                    var ids = container.GetRefSpan(in field);
+                    // This Span<ContainerReference> views the parent's buffer. We only read it, not modify.
+                    var ids = container.GetFieldData<ContainerReference>(in field);
                     for (int i = 0; i < ids.Length; i++)
                     {
                         ulong cid = ids[i];

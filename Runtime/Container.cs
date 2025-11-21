@@ -470,6 +470,8 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref ContainerReference GetRef(int index)
         {
+            if (index < 0 || index >= FieldCount)
+                ThrowHelper.ThrowIndexOutOfRange();
             ref var f = ref GetFieldHeader(index);
             if (!f.IsRef)
                 throw new ArgumentException($"Field '{GetFieldName(in f).ToString()}' is not a ref slot.");
@@ -489,6 +491,19 @@ namespace Minerva.DataStorage
             if (f.Length % ContainerReference.Size != 0)
                 throw new ArgumentException($"Field '{GetFieldName(in f).ToString()}' byte length is not multiple of {ContainerReference.Size}.");
             return GetFieldData<ContainerReference>(in f);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryGetRef(ReadOnlySpan<char> fieldName, out Span<ContainerReference> containerReferences)
+        {
+            int index = IndexOf(fieldName);
+            if (index < 0)
+            {
+                containerReferences = default;
+                return false;
+            }
+            containerReferences = GetRefSpan(index);
+            return true;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

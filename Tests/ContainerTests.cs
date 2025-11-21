@@ -312,7 +312,7 @@ namespace Minerva.DataStorage.Tests
             Assert.AreEqual(99UL, c.GetRef("childA").id);
 
             // array of refs
-            var span = c.GetRefSpan("children");
+            var span = c.GetFieldData<ContainerReference>(c.GetFieldHeader("children"));
             Assert.AreEqual(3, span.Length);
             span[0] = 101UL;
             span[1] = 202UL;

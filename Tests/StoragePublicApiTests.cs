@@ -65,7 +65,7 @@ namespace Minerva.DataStorage.Tests
             StorageObject child = default;
             try
             {
-                child = root.GetObjectNoAllocate("child");
+                child = root.GetObject("child", false, null);
             }
             catch (InvalidOperationException)
             {
