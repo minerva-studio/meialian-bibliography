@@ -26,19 +26,6 @@ namespace Minerva.DataStorage
             private readonly object _lock = new();
             private readonly Dictionary<ulong, Container> _table = new();
             private readonly Dictionary<ulong, ulong> _parentMap = new();
-            private readonly Dictionary<ulong, ParentLink> _parents = new();
-
-            private readonly struct ParentLink
-            {
-                public readonly ulong ParentId;
-                public readonly string Segment;
-
-                public ParentLink(ulong parentId, string segment)
-                {
-                    ParentId = parentId;
-                    Segment = segment;
-                }
-            }
 
             public void RegisterParent(Container child, Container parent, ReadOnlySpan<char> segment, int? index = null)
             {
@@ -48,7 +35,6 @@ namespace Minerva.DataStorage
                 var seg = BuildSegment(segment, index);
                 lock (_lock)
                 {
-                    _parents[child.ID] = new ParentLink(parent.ID, seg);
                     _parentMap[child.ID] = parent.ID;
                 }
             }
@@ -76,24 +62,6 @@ namespace Minerva.DataStorage
                     //}
                 }
                 return null;
-            }
-
-            public bool TryGetParentLink(Container child, out Container? parent, out string? segment)
-            {
-                parent = null;
-                segment = null;
-                if (child == null) return false;
-
-                lock (_lock)
-                {
-                    if (_parents.TryGetValue(child.ID, out var link))
-                    {
-                        parent = _table.GetValueOrDefault(link.ParentId);
-                        segment = link.Segment;
-                        return parent != null && segment != null;
-                    }
-                }
-                return false;
             }
 
             internal bool TryGetParent(Container child, out Container? parent)
@@ -124,7 +92,6 @@ namespace Minerva.DataStorage
 
                     Assign_NoLock(container);
                     _parentMap[container.ID] = parent.ID;
-                    _parents[container.ID] = new ParentLink(parent.ID, string.Empty);
                 }
             }
 
@@ -166,10 +133,14 @@ namespace Minerva.DataStorage
                 var parentNotifications = new List<(Container Parent, string Segment)>(descendants.Count);
                 foreach (var child in descendants)
                 {
-                    if (TryGetParentLink(child, out var parent, out var segment) && parent != null && !string.IsNullOrEmpty(segment))
+                    if (TryGetParent(child, out var parent) && parent != null)
                     {
-                        parentNotifications.Add((parent, segment));
+                        parentNotifications.Add((parent, child.Name.ToString()));
                     }
+                    //if (TryGetParentLink(child, out var parent, out var segment) && parent != null && !string.IsNullOrEmpty(segment))
+                    //{
+                    //    parentNotifications.Add((parent, segment));
+                    //}
                 }
 
                 lock (_lock)
@@ -178,7 +149,6 @@ namespace Minerva.DataStorage
                     {
                         ulong id = c._id;
                         // Removing parent link immediately prevents stale state if unregister crashes later
-                        _parents.Remove(id);
                         _parentMap.Remove(id);
 
                         if (_table.Remove(id))

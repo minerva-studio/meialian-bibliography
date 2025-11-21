@@ -115,11 +115,15 @@ namespace Minerva.DataStorage
                         slot.Notify(in args, fieldKey, broadcastToFields);
                     }
                 }
-                if (!Container.Registry.Shared.TryGetParentLink(current, out var parent, out var segment))
+                if (!Container.Registry.Shared.TryGetParent(current, out var parent))
                     break;
 
-                if (!string.IsNullOrEmpty(segment))
-                    segments.Insert(0, segment);
+                segments.Insert(0, current.Name.ToString());
+                //if (!Container.Registry.Shared.TryGetParentLink(current, out var parent, out var segment))
+                //    break;
+
+                //if (!string.IsNullOrEmpty(segment))
+                //    segments.Insert(0, segment);
 
                 current = parent;
                 isOrigin = false;

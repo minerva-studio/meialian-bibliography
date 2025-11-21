@@ -18,7 +18,7 @@ namespace Minerva.DataStorage
         /// <summary> Absolute offset to data </summary>
         public int DataOffset;
         /// <summary> in byte </summary>
-        public short containerNameLength;
+        public short ContainerNameLength;
         public short _reserved;
 
 
@@ -38,7 +38,7 @@ namespace Minerva.DataStorage
         public readonly int NameOffset
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => Size + (FieldHeader.Size * FieldCount) + containerNameLength;
+            get => Size + (FieldHeader.Size * FieldCount) + ContainerNameLength;
         }
 
         public static ref ContainerHeader FromSpan(Span<byte> span)

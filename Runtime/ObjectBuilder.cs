@@ -64,7 +64,7 @@ namespace Minerva.DataStorage
 
 
 
-
+        private ReadOnlyMemory<char> _name;
         private readonly SortedList<ReadOnlyMemory<char>, Entry> _map = new(ReadOnlyMemoryComparer.Default);
 
         int Version { get; set; } = Container.Version;
@@ -73,6 +73,15 @@ namespace Minerva.DataStorage
         // --------------------------
         // Mutating API
         // --------------------------
+
+
+        public void SetName(string name) => _name = name.AsMemory();
+
+        internal void SetName(ReadOnlySpan<char> name)
+        {
+            _name = name.ToString().AsMemory();
+        }
+
 
 
 
@@ -359,7 +368,7 @@ namespace Minerva.DataStorage
             }
         }
 
-        internal void BuildLayout(ref AllocatedMemory target, bool includeData = true)
+        internal void BuildLayout(ref AllocatedMemory target, bool includeData = true, bool includeContainerName = true)
         {
             int n = _map.Count;
 
@@ -370,7 +379,9 @@ namespace Minerva.DataStorage
 
             // Fixed offsets
             int fhSize = n * FieldHeader.Size;
-            int nameStart = ContainerHeader.Size + fhSize;
+            int baseNameStart = ContainerHeader.Size + fhSize;
+            int nameStart = baseNameStart;
+            if (includeContainerName) nameStart += _name.Length * sizeof(byte);
             int dataStart = nameStart + namesBytes;
 
             // Sum data length for total size
@@ -388,11 +399,12 @@ namespace Minerva.DataStorage
             ContainerHeader.WriteLength(span, dataStart + totalDataBytes);
 
             // Header
-            ref var h2 = ref ContainerHeader.FromSpan(span);
-            h2.Version = Version;
-            h2.FieldCount = n;
+            ref var containerHeader = ref ContainerHeader.FromSpan(span);
+            containerHeader.Version = Version;
+            containerHeader.FieldCount = n;
             //h2.NameOffset = nameStart;  // absolute
-            h2.DataOffset = dataStart;  // absolute
+            containerHeader.DataOffset = dataStart;  // absolute
+            containerHeader.ContainerNameLength = (short)(includeContainerName ? _name.Length * sizeof(char) : 0);
 
             // Field headers (absolute DataOffset)
             int nameOffset = 0;      // relative within Names blob
@@ -419,9 +431,16 @@ namespace Minerva.DataStorage
                 running += e.Data.Length;              // advance absolute cursor
             }
 
+            // try copy container name
+            if (includeContainerName)
+            {
+                var nameBytes = MemoryMarshal.AsBytes(_name.Span);
+                nameBytes.CopyTo(target.AsSpan(baseNameStart, nameBytes.Length));
+            }
+
             // Write Names blob (UTF-16) into NameSegment (relative slicing OK)
             int nameCursor = 0; // relative within NameSegment
-            var nameDst = target.AsSpan(h2.NameOffset);
+            var nameDst = target.AsSpan(containerHeader.NameOffset);
             for (int i = 0; i < n; i++)
             {
                 var s = _map.Keys[i];
@@ -455,7 +474,7 @@ namespace Minerva.DataStorage
         public ContainerLayout BuildLayout()
         {
             AllocatedMemory header = default;
-            BuildLayout(ref header, false);
+            BuildLayout(ref header, false, false);
             return new ContainerLayout(header.Array);
         }
 
@@ -482,6 +501,7 @@ namespace Minerva.DataStorage
         internal static ObjectBuilder FromContainer(Container container)
         {
             var builder = new ObjectBuilder();
+            builder.SetName(container.Name);
             for (int i = 0; i < container.FieldCount; i++)
             {
                 ref var header = ref container.GetFieldHeader(i);

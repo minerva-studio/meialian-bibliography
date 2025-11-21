@@ -7,6 +7,44 @@ namespace Minerva.DataStorage
 {
     internal sealed partial class Container
     {
+        public void Rename(ReadOnlySpan<char> newContainerName)
+        {
+            var nameBytes = MemoryMarshal.AsBytes(newContainerName);
+            ThrowHelper.ThrowIfOverlap(_memory.Buffer.Span, nameBytes);
+            ref var containerHeader = ref this.Header;
+            int newNameByteLength = nameBytes.Length;
+            int offsetDelta = newNameByteLength - containerHeader.ContainerNameLength;
+            var newSize = _memory.Buffer.Length + offsetDelta;
+            var newMemory = AllocatedMemory.Create(newSize);
+
+            // Copy old data
+            // headers
+            int preName = ContainerHeader.Size + FieldHeader.Size * containerHeader.FieldCount;
+            //  copy up to container name
+            _memory.Buffer.Span[..preName].CopyTo(newMemory.Buffer.Span);
+            ref var newContainerHeader = ref Unsafe.As<byte, ContainerHeader>(ref newMemory.Buffer.Span[0]);
+            newContainerHeader.Length = newSize;
+            newContainerHeader.DataOffset += offsetDelta;
+            newContainerHeader.ContainerNameLength = checked((short)newNameByteLength);
+            // apply offset delta
+            for (int i = 0; i < containerHeader.FieldCount; i++)
+            {
+                ref var fieldHeader = ref Unsafe.As<byte, FieldHeader>(ref newMemory.Buffer.Span[ContainerHeader.Size + FieldHeader.Size * i]);
+                fieldHeader.NameOffset += offsetDelta;
+                fieldHeader.DataOffset += offsetDelta;
+            }
+
+            // copy new container name
+            nameBytes.CopyTo(newMemory.Buffer.Span.Slice(preName, newNameByteLength));
+            // copy after container name
+            _memory.Buffer.Span[(preName + Header.ContainerNameLength)..].CopyTo(newMemory.Buffer.Span[(preName + newNameByteLength)..]);
+
+            ChangeContent(newMemory);
+        }
+
+
+
+
         /// <summary>
         /// Migrate this container to a new schema by adding/removing fields.
         /// Rules:
@@ -25,21 +63,24 @@ namespace Minerva.DataStorage
         /// Internal overload allowing to skip zero-initialization when the caller
         /// will fully overwrite the new buffer manually.
         /// </summary>  
-        public void Rescheme(ContainerLayout newSchema)
+        public void Rescheme(ContainerLayout newLayout)
         {
-            if (newSchema is null) throw new ArgumentNullException(nameof(newSchema));
+            if (newLayout is null) throw new ArgumentNullException(nameof(newLayout));
             EnsureNotDisposed();
 
             // same header
-            if (HeadersSegment.SequenceEqual(newSchema.Span))
+            if (HeadersSegment.SequenceEqual(newLayout.Span))
                 return;
 
             // Prepare destination buffer
             //byte[] dstBuf = DefaultPool.Rent(newSchema.TotalLength);
-            AllocatedMemory dstBuf = AllocatedMemory.Create(newSchema.TotalLength);
+            ref ContainerHeader header = ref Header;
+            int newLength = newLayout.TotalLength + header.ContainerNameLength;
+            AllocatedMemory dstBuf = AllocatedMemory.Create(newLength);
             var dst = dstBuf.Buffer.Span;
             dst.Clear();
-            newSchema.Span.CopyTo(dst);
+
+            newLayout.WriteTo(dst, _memory.AsSpan(header.ContainerNameOffset, header.ContainerNameLength));
 
             // Prepare new header hints (migrate by name)            
             ContainerView newView = new ContainerView(dst);
@@ -187,6 +228,10 @@ namespace Minerva.DataStorage
                 nextHeader.DataOffset += isNewField ? FieldHeader.Size + fieldName.Length * sizeof(char) : 0;
                 nextHeader.Length = newLength;
 
+                // copy container name
+                _memory.AsSpan(currentHeader.ContainerNameOffset, currentHeader.ContainerNameLength).CopyTo(span.Slice(currentHeader.ContainerNameOffset + (isNewField ? FieldHeader.Size : 0), currentHeader.ContainerNameLength));
+                nextHeader.ContainerNameLength = currentHeader.ContainerNameLength; // preserve old name length
+
                 int newFieldCount = nextHeader.FieldCount;
                 int nameOffset = nextHeader.NameOffset;
                 int dataOffset = nextHeader.DataOffset;
@@ -234,12 +279,6 @@ namespace Minerva.DataStorage
                 throw;
             }
             return targetIndex;
-        }
-
-        private void ChangeContent(AllocatedMemory next)
-        {
-            _memory = next;
-            _schemaVersion++;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -298,6 +337,15 @@ namespace Minerva.DataStorage
             }
         }
 
+
+
+
+
+        private void ChangeContent(AllocatedMemory next)
+        {
+            _memory = next;
+            _schemaVersion++;
+        }
 
 
 
