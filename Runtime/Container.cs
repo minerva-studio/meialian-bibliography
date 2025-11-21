@@ -492,7 +492,12 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteObject(ReadOnlySpan<char> fieldName, Container container) => GetRefNoRescheme(fieldName) = container.ID;
+        public void WriteObject(ReadOnlySpan<char> fieldName, Container container)
+        {
+            GetRefNoRescheme(fieldName) = container.ID;
+            if (container != null)
+                Registry.Shared.RegisterParent(container, this, fieldName);
+        }
 
         #endregion  
 

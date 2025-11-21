@@ -7,6 +7,95 @@ namespace Minerva.DataStorage.Tests
     [TestFixture]
     public class StorageWriteEventsTests
     {
+        // ... existing tests ...
+
+        [Test]
+        public void Unregister_Fires_Deletion_Events_Recursively()
+        {
+            var builder = new ObjectBuilder();
+            builder.SetRef("child");
+            var layout = builder.BuildLayout();
+
+            using var storage = new Storage(layout);
+            var root = storage.Root;
+            var child = root.GetObject("child");
+            var grandChild = child.GetObject("grandChild");
+
+            bool childDeleted = false;
+            bool grandChildDeleted = false;
+            bool parentBubbled = false;
+
+            // Subscribe to child container directly
+            StorageWriteEventRegistry.Subscribe(child.Container, "child", (in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.Target.IsNull) childDeleted = true;
+            });
+
+            // Subscribe to grandchild
+            StorageWriteEventRegistry.Subscribe(grandChild.Container, "grandChild", (in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.Target.IsNull) grandChildDeleted = true;
+            });
+
+            // Subscribe to root (parent) to check bubbling (descendant deletion)
+            StorageWriteEventRegistry.SubscribeToContainer(root.Container, (in StorageFieldWriteEventArgs args) => 
+            {
+                if (args.Target.IsNull) parentBubbled = true;
+            });
+
+            // Action: Unregister the child (middle of the chain)
+            Container.Registry.Shared.Unregister(child.Container);
+
+            // Assert
+            Assert.That(grandChildDeleted, Is.True, "Grandchild should receive deletion event.");
+            Assert.That(childDeleted, Is.True, "Child should receive deletion event.");
+        }
+
+        [Test]
+        public void Unregister_Notifies_After_Disposal()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            bool isDisposedAtNotification = false;
+
+            StorageWriteEventRegistry.SubscribeToContainer(root.Container, (in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.Target.IsNull)
+                {
+                    // Check if container is effectively disposed (ID == 0)
+                    isDisposedAtNotification = true;
+                }
+            });
+
+            Container.Registry.Shared.Unregister(root.Container);
+
+            Assert.That(isDisposedAtNotification, Is.True, "Should be notified after ID is cleared (effectively disposed state).");
+        }
+
+        [Test]
+        public void Delete_Field_Unregisters_Ref_Child()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            var child = root.GetObject("child");
+            
+            ulong childId = child.ID;
+            bool childDeleted = false;
+
+            // Subscribe to child to verify it gets killed
+            StorageWriteEventRegistry.Subscribe(child.Container, "child", (in StorageFieldWriteEventArgs args) => { if (args.Target.IsNull) childDeleted = true; });
+
+            // Delete the field "child" from root
+            root.Delete("child");
+
+            Assert.That(childDeleted, Is.True, "Child container should be unregistered when Ref field is deleted.");
+            
+            // Verify registry doesn't have it
+            var lookup = Container.Registry.Shared.GetContainer((ContainerReference)childId);
+            Assert.That(lookup, Is.Null, "Child should be removed from registry.");
+        }
+
+        
         /// <summary>
         /// ensures field subscriptions are cleared when generation changes (pool reuse).
         /// </summary>
@@ -214,4 +303,3 @@ namespace Minerva.DataStorage.Tests
         }
     }
 }
-

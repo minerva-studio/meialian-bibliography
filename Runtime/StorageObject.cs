@@ -706,7 +706,18 @@ namespace Minerva.DataStorage
             if (!container.TryGetFieldHeader(fieldName, out var headerSpan))
                 return false;
 
-            var fieldType = headerSpan[0].Type;
+            ref var header = ref headerSpan[0];
+            var fieldType = header.Type;
+            
+            // If this is a Ref field, capture IDs to unregister them later
+            ContainerReference[] idsToFree = null;
+            if (header.IsRef)
+            {
+                var refs = container.GetRefSpan(in header);
+                if (refs.Length > 0)
+                    idsToFree = refs.ToArray();
+            }
+
             bool removed = false;
             container.Rescheme(b => removed = b.Remove(fieldName));
 
@@ -714,6 +725,16 @@ namespace Minerva.DataStorage
             {
                 NotifyFieldChange(container, fieldName, fieldType, deleted: true);
                 StorageWriteEventRegistry.RemoveFieldSubscriptions(container, fieldName);
+
+                // Prevent leaks: Unregister the detached children
+                if (idsToFree != null)
+                {
+                    for (int i = 0; i < idsToFree.Length; i++)
+                    {
+                        ref var id = ref idsToFree[i];
+                        Container.Registry.Shared.Unregister(ref id);
+                    }
+                }
             }
 
             return removed;
@@ -925,7 +946,13 @@ namespace Minerva.DataStorage
         public StorageObject GetObject(int index, bool reschemeOnMissing, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(index) : ref _container.GetRefNoRescheme(index);
-            return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+            var obj = layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+            if (!obj.IsNull)
+            {
+                var name = _container.GetFieldName(index).ToString();
+                Container.Registry.Shared.RegisterParent(obj.Container, _container, name);
+            }
+            return obj;
         }
 
         /// <summary>
@@ -939,7 +966,13 @@ namespace Minerva.DataStorage
         public StorageObject GetObject(ReadOnlySpan<char> fieldName, bool reschemeOnMissing, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
-            return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+            var obj = layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+            if (!obj.IsNull)
+            {
+                var name = fieldName.ToString();
+                Container.Registry.Shared.RegisterParent(obj.Container, _container, name);
+            }
+            return obj;
         }
 
         /// <summary>
@@ -953,7 +986,13 @@ namespace Minerva.DataStorage
         private StorageObject GetObject(in FieldHeader fieldName, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref _container.GetRefSpan(fieldName)[0];
-            return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+            var obj = layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+            if (!obj.IsNull)
+            {
+                var name = _container.GetFieldName(in fieldName).ToString();
+                Container.Registry.Shared.RegisterParent(obj.Container, _container, name);
+            }
+            return obj;
         }
 
 

@@ -33,6 +33,70 @@ namespace Minerva.DataStorage
             private readonly Queue<ulong> _freed = new();
             private readonly object _lock = new();
             private readonly Dictionary<ulong, Container> _table = new();
+            private readonly Dictionary<ulong, ParentLink> _parents = new();
+
+            private readonly struct ParentLink
+            {
+                public readonly ulong ParentId;
+                public readonly string Segment;
+
+                public ParentLink(ulong parentId, string segment)
+                {
+                    ParentId = parentId;
+                    Segment = segment;
+                }
+            }
+
+            public void RegisterParent(Container child, Container parent, ReadOnlySpan<char> segment, int? index = null)
+            {
+                if (child == null || parent == null)
+                    return;
+
+                var seg = BuildSegment(segment, index);
+                lock (_lock)
+                {
+                    _parents[child.ID] = new ParentLink(parent.ID, seg);
+                }
+            }
+
+            private static string BuildSegment(ReadOnlySpan<char> segment, int? index)
+            {
+                var name = segment.ToString();
+                if (index.HasValue)
+                    return $"{name}[{index.Value}]";
+                return name;
+            }
+
+            public Container GetParent(Container child)
+            {
+                if (child == null) return null;
+                lock (_lock)
+                {
+                    if (_parents.TryGetValue(child.ID, out var link))
+                    {
+                        return _table.GetValueOrDefault(link.ParentId);
+                    }
+                }
+                return null;
+            }
+
+            public bool TryGetParentLink(Container child, out Container parent, out string segment)
+            {
+                parent = null;
+                segment = null;
+                if (child == null) return false;
+
+                lock (_lock)
+                {
+                    if (_parents.TryGetValue(child.ID, out var link))
+                    {
+                        parent = _table.GetValueOrDefault(link.ParentId);
+                        segment = link.Segment;
+                        return parent != null && segment != null;
+                    }
+                }
+                return false;
+            }
 
             //public void SetEmpty(Container container)
             //{
@@ -71,47 +135,78 @@ namespace Minerva.DataStorage
 
             public void Unregister(Container container)
             {
-                // should not happen, but just in case
                 if (container is null) return;
-                if (container._id == ID.Wild) return;
+                if (container._id == ID.Wild || container._id == 0UL) return;
 
-                // 1) Remove self from registry and recycle its id under lock.
-                ulong id;
+                var descendants = new List<Container>();
+                CollectDescendants(container, descendants);
+                var parentLinksToRemove = new List<ulong>(descendants.Count);
+
                 lock (_lock)
                 {
-                    id = container._id;
-                    if (!_table.Remove(id)) return;   // not found -> treat as done
-                    _freed.Enqueue(id);               // recycle id now
-                    container._id = 0UL;              // mark as unregistered
-                }
-
-                // 2) Without holding the lock, walk each ref field and recurse immediately.
-                //    No snapshot, no allocations. Assumes callers do not modify these fields
-                for (int i1 = 0; i1 < container.FieldCount; i1++)
-                {
-                    ref var field = ref container.GetFieldHeader(i1);
-                    if (!field.IsRef) continue;
-
-                    // This Span<ulong> views the parent's buffer. We only read it, not modify.
-                    var ids = container.GetRefSpan(in field);
-                    for (int i = 0; i < ids.Length; i++)
+                    foreach (var c in descendants)
                     {
-                        ulong cid = ids[i];
-                        if (cid == 0UL) continue;
-
-                        // Lookup is short critical section inside GetContainer (locks _lock briefly).
-                        var child = GetContainer(cid);
-                        if (child != null)
+                        ulong id = c._id;
+                        parentLinksToRemove.Add(id);
+                        if (_table.Remove(id))
                         {
-                            // Depth-first direct recursion, still no allocations.
-                            Unregister(child);
+                            _freed.Enqueue(id);
                         }
+                        c._id = 0UL; // mark as unregistered
                     }
                 }
 
-                // 3) Finally, dispose the container to return its pooled byte[] etc.
-                container.Dispose();
-                pool.Return(container);
+                // Dispose first
+                foreach (var c in descendants)
+                {
+                    c.Dispose();
+                    pool.Return(c);
+                }
+
+                // Notify all descendants
+                foreach (var c in descendants)
+                {
+                    // NOTE: c is Disposed. Accessing c.Memory will throw.
+                    // Subscribers must only check c.ID (which is 0) or reference equality.
+                    StorageWriteEventRegistry.Notify(c, null, ValueType.Unknown, isDeleted: true);
+                }
+
+                if (parentLinksToRemove.Count > 0)
+                {
+                    lock (_lock)
+                    {
+                        foreach (var id in parentLinksToRemove)
+                            _parents.Remove(id);
+                    }
+                }
+            }
+
+            private void CollectDescendants(Container root, List<Container> list)
+            {
+                // Depth-first post-order traversal
+                // 1. Children
+                for (int i = 0; i < root.FieldCount; i++)
+                {
+                    ref var field = ref root.GetFieldHeader(i);
+                    if (!field.IsRef) continue;
+
+                    var ids = root.GetRefSpan(in field);
+                    for (int k = 0; k < ids.Length; k++)
+                    {
+                        ulong cid = ids[k];
+                        if (cid == 0UL) continue;
+                        
+                        // Careful: GetContainer locks. We should minimize locking or lock inside.
+                        // But this is recursive.
+                        var child = GetContainer(cid);
+                        if (child != null)
+                        {
+                            CollectDescendants(child, list);
+                        }
+                    }
+                }
+                // 2. Self
+                list.Add(root);
             }
 
 
