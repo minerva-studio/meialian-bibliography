@@ -1170,7 +1170,13 @@ namespace Minerva.DataStorage
         {
             _container.EnsureNotDisposed(_generation);
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(index) : ref _container.GetRefNoRescheme(index);
-            var obj = layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+            var obj = layout == null
+                ? StorageObjectFactory.GetNoAllocate(idRef)
+                : (idRef.TryGet(out var existingObj)
+                    ? existingObj
+                    : StorageObjectFactory.GetOrCreate(ref idRef, _container, layout, _container.GetFieldName(index))
+                );
+
             if (!obj.IsNull)
             {
                 var name = _container.GetFieldName(index).ToString();
@@ -1214,7 +1220,13 @@ namespace Minerva.DataStorage
         {
             _container.EnsureNotDisposed(_generation);
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
-            var obj = layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+
+            var obj = layout == null
+                ? StorageObjectFactory.GetNoAllocate(idRef)
+                : (idRef.TryGet(out var existingObj)
+                    ? existingObj
+                    : StorageObjectFactory.GetOrCreate(ref idRef, _container, layout, fieldName)
+                );
             if (!obj.IsNull)
             {
                 var name = fieldName.ToString();
@@ -1233,7 +1245,12 @@ namespace Minerva.DataStorage
         private StorageObject GetObject(in FieldHeader header, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref _container.GetRefSpan(header)[0];
-            var obj = layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+            var obj = layout == null
+                ? StorageObjectFactory.GetNoAllocate(idRef)
+                : (idRef.TryGet(out var existingObj)
+                    ? existingObj
+                    : StorageObjectFactory.GetOrCreate(ref idRef, _container, layout, _container.GetFieldName(in header))
+                );
             if (!obj.IsNull)
             {
                 var name = _container.GetFieldName(in header).ToString();

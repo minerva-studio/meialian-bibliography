@@ -108,7 +108,7 @@ namespace Minerva.DataStorage
                     if (slot.TryPrepareGeneration(current.Generation))
                     {
                         string fieldKey = isOrigin ? fieldName : null;
-                        
+
                         // If we are deleting the container itself (origin) we broadcast to all fields.
                         bool broadcastToFields = (isDeleted && isOrigin);
 
@@ -141,10 +141,10 @@ namespace Minerva.DataStorage
             var current = container;
             while (current != null)
             {
-                 if (_table.TryGetValue(current, out var slot) && slot.HasSubscribersForGeneration(current.Generation))
-                     return true;
-                 if (!Container.Registry.Shared.TryGetParentLink(current, out current, out _))
-                     break;
+                if (_table.TryGetValue(current, out var slot) && slot.HasSubscribersForGeneration(current.Generation))
+                    return true;
+                if (!Container.Registry.Shared.TryGetParent(current, out current))
+                    break;
             }
             return false;
         }
@@ -303,7 +303,7 @@ namespace Minerva.DataStorage
         {
             Subscriber[] fieldSnapshot = Array.Empty<Subscriber>();
             Subscriber[] containerSnapshot = Array.Empty<Subscriber>();
-            
+
             // We might need to snapshot all fields if broadcasting
             List<(string Key, Subscriber[] Subs)> broadcastSnapshot = null;
 

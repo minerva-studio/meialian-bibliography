@@ -293,7 +293,7 @@ namespace Minerva.DataStorage.Serialization
 
                                 // In the text parser, strings in arrays are wrapped into
                                 // a wild container that holds a single string field.
-                                var wild = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+                                var wild = Container.Registry.Shared.CreateWild(ContainerLayout.Empty, fieldName);
                                 var child = new StorageObject(wild);
                                 string s = item.AsStringView().ToString();
                                 child.WriteString(s);
@@ -313,7 +313,7 @@ namespace Minerva.DataStorage.Serialization
                                 else
                                 {
                                     SetArrayType(ref arrayType, ValueType.Ref, fieldName);
-                                    var wild = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+                                    var wild = Container.Registry.Shared.CreateWild(ContainerLayout.Empty, fieldName);
                                     var child = new StorageObject(wild);
                                     ReadObject(objView, child, depth - 1);
                                     containers.Add(wild);
@@ -325,7 +325,7 @@ namespace Minerva.DataStorage.Serialization
                         case TokenType.Array:
                             {
                                 SetArrayType(ref arrayType, ValueType.Ref, fieldName);
-                                var wild = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+                                var wild = Container.Registry.Shared.CreateWild(ContainerLayout.Empty, fieldName);
                                 var child = new StorageObject(wild);
                                 ReadNestedArray(array: item.AsArrayView(), arrayObject: child, depth: depth - 1);
                                 containers.Add(wild);
@@ -400,7 +400,7 @@ namespace Minerva.DataStorage.Serialization
                         }
                         else
                         {
-                            Container.Registry.Shared.Register(container);
+                            Container.Registry.Shared.Register(container, target.Container);
                             array.References[i] = containers[i].ID;
                         }
                     }

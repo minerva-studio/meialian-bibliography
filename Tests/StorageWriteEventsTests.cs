@@ -7,7 +7,10 @@ namespace Minerva.DataStorage.Tests
     [TestFixture]
     public class StorageWriteEventsTests
     {
-        // ... existing tests ...
+        private static Container CreateWildContainer()
+        {
+            return Container.Registry.Shared.CreateWild(ContainerLayout.Empty, "");
+        }
 
         [Test]
         public void Unregister_Fires_Deletion_Events_Recursively()
@@ -38,7 +41,7 @@ namespace Minerva.DataStorage.Tests
             });
 
             // Subscribe to root (parent) to check bubbling (descendant deletion)
-            StorageWriteEventRegistry.SubscribeToContainer(root.Container, (in StorageFieldWriteEventArgs args) => 
+            StorageWriteEventRegistry.SubscribeToContainer(root.Container, (in StorageFieldWriteEventArgs args) =>
             {
                 if (args.Target.IsNull) parentBubbled = true;
             });
@@ -78,7 +81,7 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage();
             var root = storage.Root;
             var child = root.GetObject("child");
-            
+
             ulong childId = child.ID;
             bool childDeleted = false;
 
@@ -89,20 +92,20 @@ namespace Minerva.DataStorage.Tests
             root.Delete("child");
 
             Assert.That(childDeleted, Is.True, "Child container should be unregistered when Ref field is deleted.");
-            
+
             // Verify registry doesn't have it
             var lookup = Container.Registry.Shared.GetContainer((ContainerReference)childId);
             Assert.That(lookup, Is.Null, "Child should be removed from registry.");
         }
 
-        
+
         /// <summary>
         /// ensures field subscriptions are cleared when generation changes (pool reuse).
         /// </summary>
         [Test]
         public void Subscriptions_Cleared_After_Pooling()
         {
-            var container = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+            var container = CreateWildContainer();
             try
             {
                 int invoked = 0;
@@ -136,7 +139,7 @@ namespace Minerva.DataStorage.Tests
         [Test]
         public void Subscriptions_NoLeak_After_Pooling()
         {
-            var container = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+            var container = CreateWildContainer();
             try
             {
                 int totalInvocations = 0;
@@ -165,7 +168,7 @@ namespace Minerva.DataStorage.Tests
         [Test]
         public void Container_Subscription_Fires_For_All_Writes()
         {
-            var container = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+            var container = CreateWildContainer();
             try
             {
                 int count = 0;
@@ -192,7 +195,7 @@ namespace Minerva.DataStorage.Tests
         [Test]
         public void Container_Subscription_Reset_On_Generation_Change()
         {
-            var container = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+            var container = CreateWildContainer();
             try
             {
                 int count = 0;
@@ -219,7 +222,7 @@ namespace Minerva.DataStorage.Tests
         [Test]
         public void Field_Subscriptions_Are_Isolated_By_Name()
         {
-            var container = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+            var container = CreateWildContainer();
             try
             {
                 int scoreCount = 0;
@@ -247,7 +250,7 @@ namespace Minerva.DataStorage.Tests
         [Test]
         public void Container_Subscription_Dispose_Stops_Notifications()
         {
-            var container = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+            var container = CreateWildContainer();
             try
             {
                 int count = 0;
@@ -272,7 +275,7 @@ namespace Minerva.DataStorage.Tests
         [Test]
         public void Field_Subscriptions_Multiple_Handlers_All_Fire()
         {
-            var container = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+            var container = CreateWildContainer();
             try
             {
                 int a = 0;

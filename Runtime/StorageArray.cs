@@ -151,15 +151,22 @@ namespace Minerva.DataStorage
 
 
         /// <summary> Get a child as a StorageObject </summary>
-        public readonly StorageObject GetObject(int index)
+        public StorageObject GetObject(int index)
         {
-            return StorageObjectFactory.GetOrCreate(ref References[index], ContainerLayout.Empty);
+            Span<ContainerReference> references = References;
+            return references[index].TryGet(out var obj)
+                ? obj
+                : StorageObjectFactory.GetOrCreate(ref references[index], _handle.Container, ContainerLayout.Empty, _handle.Name);
         }
 
         /// <summary> Get a child as a StorageObject.</summary>
-        public readonly StorageObject GetObject(int index, ContainerLayout layout)
+        public StorageObject GetObject(int index, ContainerLayout layout)
         {
-            return layout == null ? StorageObjectFactory.GetNoAllocate(References[index]) : StorageObjectFactory.GetOrCreate(ref References[index], layout);
+            Span<ContainerReference> references = References;
+            if (layout == null) return StorageObjectFactory.GetNoAllocate(references[index]);
+            return references[index].TryGet(out var obj)
+                ? obj
+                : StorageObjectFactory.GetOrCreate(ref references[index], _handle.Container, layout, _handle.Name);
         }
 
         /// <summary> Get a child as a StorageObject.</summary>
@@ -169,9 +176,9 @@ namespace Minerva.DataStorage
         }
 
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
-        public readonly bool TryGetObject(int index, out StorageObject child)
+        public bool TryGetObject(int index, out StorageObject child)
         {
-            return StorageObjectFactory.TryGet(References[index], out child);
+            return References[index].TryGet(out child);
         }
 
 

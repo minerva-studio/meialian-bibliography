@@ -54,6 +54,7 @@ namespace Minerva.DataStorage.Tests
         [Test]
         public void WriteString_RaisesEvent()
         {
+            _count = 0;
             using var storage = new Storage(ContainerLayout.Empty);
             using var sub = SubscribeAll(storage.Root);
             storage.Root.Write("name", "hero");
@@ -76,9 +77,19 @@ namespace Minerva.DataStorage.Tests
         {
             using var storage = new Storage(ContainerLayout.Empty);
             using var sub = SubscribeAll(storage.Root);
-            storage.Root.WritePath<int>("stats.hp".AsSpan(), 33);
+            storage.Root.WritePath<int>("stats.hp", 33);
             Assert.GreaterOrEqual(_count, 1);
-            Assert.AreEqual("hp", _last.FieldName);
+            Assert.AreEqual("stats.hp", _last.FieldName);
+        }
+
+        [Test]
+        public void Write_RaisesEvent()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            using var sub = SubscribeAll(storage.Root);
+            storage.Root.Write<int>("stats", 33);
+            Assert.GreaterOrEqual(_count, 1);
+            Assert.AreEqual("stats", _last.FieldName);
         }
 
         [Test]
@@ -92,14 +103,14 @@ namespace Minerva.DataStorage.Tests
         }
 
         [Test]
-        public void Delete_DoesNotRaiseEvent()
+        public void Delete_RaiseEvent()
         {
             using var storage = new Storage(ContainerLayout.Empty);
             using var sub = SubscribeAll(storage.Root);
             storage.Root.Write("temp", 1);
             _count = 0;
             storage.Root.Delete("temp");
-            Assert.AreEqual(0, _count);
+            Assert.AreEqual(1, _count);
         }
     }
 }

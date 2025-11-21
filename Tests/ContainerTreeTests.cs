@@ -45,9 +45,9 @@ namespace Minerva.DataStorage.Tests
             var reg = Container.Registry.Shared;
             Span<ContainerReference> ids = stackalloc ContainerReference[3];
 
-            var root = reg.CreateAt(ref ids[0], _nodeLayout_1Child);
-            var child = reg.CreateAt(ref ids[1], _nodeLayout_1Child);
-            var grand = reg.CreateAt(ref ids[2], _nodeLayout_1Child);
+            var root = reg.CreateRoot(ref ids[0], _nodeLayout_1Child);
+            var child = reg.CreateRoot(ref ids[1], _nodeLayout_1Child);
+            var grand = reg.CreateRoot(ref ids[2], _nodeLayout_1Child);
 
             // write root.hp, child.hp, grand.hp
             root.Write("hp", 10, allowRescheme: false);
@@ -100,10 +100,10 @@ namespace Minerva.DataStorage.Tests
             var reg = Container.Registry.Shared;
             Span<ContainerReference> ids = stackalloc ContainerReference[4];
 
-            var root = reg.CreateAt(ref ids[0], _nodeLayout_3Children);
-            var c0 = reg.CreateAt(ref ids[1], _nodeLayout_1Child);
-            var c1 = reg.CreateAt(ref ids[2], _nodeLayout_1Child);
-            var c2 = reg.CreateAt(ref ids[3], _nodeLayout_1Child);
+            var root = reg.CreateRoot(ref ids[0], _nodeLayout_3Children);
+            var c0 = reg.CreateRoot(ref ids[1], _nodeLayout_1Child);
+            var c1 = reg.CreateRoot(ref ids[2], _nodeLayout_1Child);
+            var c2 = reg.CreateRoot(ref ids[3], _nodeLayout_1Child);
 
             // set hp
             root.Write("hp", 1, allowRescheme: false);
@@ -145,8 +145,8 @@ namespace Minerva.DataStorage.Tests
             var reg = Container.Registry.Shared;
             Span<ContainerReference> ids = stackalloc ContainerReference[2];
 
-            var root = reg.CreateAt(ref ids[0], _nodeLayout_3Children);
-            var c0 = reg.CreateAt(ref ids[1], _nodeLayout_1Child);
+            var root = reg.CreateRoot(ref ids[0], _nodeLayout_3Children);
+            var c0 = reg.CreateRoot(ref ids[1], _nodeLayout_1Child);
 
             // only set c0; leave c1/c2 as 0
             root.WriteObject("c0", c0);
@@ -176,7 +176,7 @@ namespace Minerva.DataStorage.Tests
 
             var nodes = new Container[depth];
             for (int i = 0; i < depth; i++)
-                nodes[i] = reg.CreateAt(ref ids[i], _nodeLayout_1Child);
+                nodes[i] = reg.CreateRoot(ref ids[i], _nodeLayout_1Child);
 
             // link chain: nodes[i] -> nodes[i+1]
             for (int i = 0; i < depth - 1; i++)

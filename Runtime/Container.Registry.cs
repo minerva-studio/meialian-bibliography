@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -24,6 +25,7 @@ namespace Minerva.DataStorage
             private readonly Queue<ulong> _freed = new();
             private readonly object _lock = new();
             private readonly Dictionary<ulong, Container> _table = new();
+            private readonly Dictionary<ulong, ulong> _parentMap = new();
             private readonly Dictionary<ulong, ParentLink> _parents = new();
 
             private readonly struct ParentLink
@@ -47,6 +49,7 @@ namespace Minerva.DataStorage
                 lock (_lock)
                 {
                     _parents[child.ID] = new ParentLink(parent.ID, seg);
+                    _parentMap[child.ID] = parent.ID;
                 }
             }
 
@@ -58,20 +61,24 @@ namespace Minerva.DataStorage
                 return name;
             }
 
-            public Container GetParent(Container child)
+            public Container? GetParent(Container child)
             {
                 if (child == null) return null;
                 lock (_lock)
                 {
-                    if (_parents.TryGetValue(child.ID, out var link))
+                    if (_parentMap.TryGetValue(child.ID, out var parent))
                     {
-                        return _table.GetValueOrDefault(link.ParentId);
+                        return _table.GetValueOrDefault(parent);
                     }
+                    //if (_parents.TryGetValue(child.ID, out var link))
+                    //{
+                    //    return _table.GetValueOrDefault(link.ParentId);
+                    //}
                 }
                 return null;
             }
 
-            public bool TryGetParentLink(Container child, out Container parent, out string segment)
+            public bool TryGetParentLink(Container child, out Container? parent, out string? segment)
             {
                 parent = null;
                 segment = null;
@@ -89,9 +96,41 @@ namespace Minerva.DataStorage
                 return false;
             }
 
-
-            public void Register(Container container)
+            internal bool TryGetParent(Container child, out Container? parent)
             {
+                parent = null;
+                if (child == null) return false;
+
+                lock (_lock)
+                {
+                    if (_parentMap.TryGetValue(child.ID, out var parentId))
+                    {
+                        parent = _table.GetValueOrDefault(parentId);
+                        return parent != null;
+                    }
+                }
+                return false;
+            }
+
+
+            public void Register(Container container, Container parent)
+            {
+                ThrowHelper.ThrowIfNull(container, nameof(container));
+                ThrowHelper.ThrowIfNull(parent, nameof(parent));
+                lock (_lock)
+                {
+                    if (container.ID != ID.Wild)
+                        throw new InvalidOperationException("Container already registered.");
+
+                    Assign_NoLock(container);
+                    _parentMap[container.ID] = parent.ID;
+                    _parents[container.ID] = new ParentLink(parent.ID, string.Empty);
+                }
+            }
+
+            public void RegisterRoot(Container container)
+            {
+                ThrowHelper.ThrowIfNull(container, nameof(container));
                 if (container is null) throw new ArgumentNullException(nameof(container));
                 lock (_lock)
                 {
@@ -122,7 +161,7 @@ namespace Minerva.DataStorage
 
                 var descendants = new List<Container>();
                 CollectDescendants(container, descendants);
-                
+
                 // Capture parent links for notification before they are removed
                 var parentNotifications = new List<(Container Parent, string Segment)>(descendants.Count);
                 foreach (var child in descendants)
@@ -140,6 +179,7 @@ namespace Minerva.DataStorage
                         ulong id = c._id;
                         // Removing parent link immediately prevents stale state if unregister crashes later
                         _parents.Remove(id);
+                        _parentMap.Remove(id);
 
                         if (_table.Remove(id))
                         {
@@ -172,13 +212,15 @@ namespace Minerva.DataStorage
 
                     StorageWriteEventRegistry.Notify(parent, segment, ValueType.Unknown, isDeleted: true);
                 }
-                
+
                 // Finally return to pool
                 foreach (var c in descendants)
                 {
                     pool.Return(c);
                 }
             }
+
+
 
             private void CollectDescendants(Container root, List<Container> list)
             {
@@ -202,7 +244,7 @@ namespace Minerva.DataStorage
                     {
                         ulong cid = ids[k];
                         if (cid == 0UL) continue;
-                        
+
                         // Careful: GetContainer locks. We should minimize locking or lock inside.
                         // But this is recursive.
                         var child = GetContainer(cid);
@@ -217,7 +259,7 @@ namespace Minerva.DataStorage
             }
 
 
-            public Container GetContainer(ContainerReference id)
+            public Container? GetContainer(ContainerReference id)
             {
                 if (id == 0UL) return null;
                 lock (_lock) return _table.GetValueOrDefault(id);
@@ -253,9 +295,7 @@ namespace Minerva.DataStorage
 
             #region Create
 
-            public Container CreateAt(ref ContainerReference position) => CreateAt(ref position, ContainerLayout.Empty);
-
-            public Container CreateAt(ref ContainerReference position, ContainerLayout layout)
+            public Container CreateRoot(ref ContainerReference position, ContainerLayout layout)
             {
                 // 1) If an old tracked container exists in the slot, unregister it first.
                 var old = GetContainer(position);
@@ -263,8 +303,26 @@ namespace Minerva.DataStorage
                     Unregister(old);
 
                 // 2) Create a new container and register it (assign a unique tracked ID).
-                var created = CreateWild(layout, true);
-                Register(created);
+                var created = CreateWild(layout, "", true);
+                RegisterRoot(created);
+
+                // 3) Bind atomically: write ID into the slot.
+                position = created.ID;
+                return created;
+            }
+
+            public Container CreateAt(ref ContainerReference position, Container parent, ReadOnlySpan<char> name) => CreateAt(ref position, parent, ContainerLayout.Empty, name);
+
+            public Container CreateAt(ref ContainerReference position, Container parent, ContainerLayout layout, ReadOnlySpan<char> name)
+            {
+                // 1) If an old tracked container exists in the slot, unregister it first.
+                var old = GetContainer(position);
+                if (old != null)
+                    Unregister(old);
+
+                // 2) Create a new container and register it (assign a unique tracked ID).
+                var created = CreateWild(layout, name, true);
+                Register(created, parent);
 
                 // 3) Bind atomically: write ID into the slot.
                 position = created.ID;
@@ -300,13 +358,6 @@ namespace Minerva.DataStorage
             /// </summary>
             /// <param name="position"></param>
             /// <param name="schema"></param> 
-            public Container CreateWild() => CreateWild(ContainerHeader.Size);
-
-            /// <summary>
-            /// Create a wild container, which means that container is not tracked by anything
-            /// </summary>
-            /// <param name="position"></param>
-            /// <param name="schema"></param> 
             public Container CreateWild(int size)
             {
                 var container = pool.Rent();
@@ -314,7 +365,6 @@ namespace Minerva.DataStorage
                 container._id = ID.Wild;
                 return container;
             }
-
 
             /// <summary>
             /// Create a wild container, which means that container is not tracked by anything
@@ -329,13 +379,14 @@ namespace Minerva.DataStorage
                 return container;
             }
 
-            public Container CreateWild(ContainerLayout layout) => CreateWild(layout, true);
-            public Container CreateWild(ContainerLayout layout, bool zero)
+            public Container CreateWild(ContainerLayout layout, ReadOnlySpan<char> name) => CreateWild(layout, name, true);
+            public Container CreateWild(ContainerLayout layout, ReadOnlySpan<char> name, bool zero)
             {
                 var container = CreateWild(layout.TotalLength);
                 layout.Span.CopyTo(container.Span);
                 // clear data segment
                 if (zero) container.DataSegment.Clear();
+                container.Rename(name);
                 return container;
             }
 
@@ -379,7 +430,7 @@ namespace Minerva.DataStorage
     {
         private readonly ConcurrentStack<T> _stack;
         private readonly Func<T> _factory;
-        private readonly Action<T> _reset;
+        private readonly Action<T>? _reset;
         private readonly int _maxSize; // 0 or negative => unbounded
         private readonly object _lock = new object();
 
@@ -396,7 +447,7 @@ namespace Minerva.DataStorage
         /// Optional cap for the number of cached instances (0 or negative = unbounded).
         /// Returned instances beyond this cap are simply dropped.
         /// </param>
-        public ObjectPool(Func<T> factory, Action<T> reset = null, int maxSize = 0)
+        public ObjectPool(Func<T> factory, Action<T>? reset = null, int maxSize = 0)
         {
             _factory = factory ?? throw new ArgumentNullException(nameof(factory));
             _reset = reset;

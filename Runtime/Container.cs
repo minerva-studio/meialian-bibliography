@@ -13,12 +13,11 @@ namespace Minerva.DataStorage
     {
         public const int Version = 0;
 
-
         private ulong _id;              // assigned by registry 
         private AllocatedMemory _memory;
-        private bool _disposed;
         private int _generation;
         private int _schemaVersion;
+        private bool _disposed;
 
         /// <summary> object id </summary>
         public ulong ID => _id;
@@ -102,6 +101,16 @@ namespace Minerva.DataStorage
             }
         }
 
+        public Span<char> ContainerName
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                ref var header = ref this.Header;
+                return MemoryMarshal.Cast<byte, char>(_memory.AsSpan(header.ContainerNameOffset, header.containerNameLength));
+            }
+        }
+
         public ref AllocatedMemory Memory => ref _memory;
 
 
@@ -173,6 +182,44 @@ namespace Minerva.DataStorage
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Container EnsureNotDisposed(int generation, int schemaVersion) => !IsDisposed(generation, schemaVersion) ? this : ThrowHelper.ThrowDisposed<Container>();
+
+
+
+
+        public void Rename(ReadOnlySpan<char> newContainerName)
+        {
+            var nameBytes = MemoryMarshal.AsBytes(newContainerName);
+            ThrowHelper.ThrowIfOverlap(_memory.Buffer.Span, nameBytes);
+            ref var containerHeader = ref this.Header;
+            int newNameByteLength = nameBytes.Length;
+            int offsetDelta = newNameByteLength - containerHeader.containerNameLength;
+            var newSize = _memory.Buffer.Length + offsetDelta;
+            var newMemory = AllocatedMemory.Create(newSize);
+
+            // Copy old data
+            // headers
+            int preName = ContainerHeader.Size + FieldHeader.Size * containerHeader.FieldCount;
+            //  copy up to container name
+            _memory.Buffer.Span[..preName].CopyTo(newMemory.Buffer.Span);
+            ref var newContainerHeader = ref Unsafe.As<byte, ContainerHeader>(ref newMemory.Buffer.Span[0]);
+            newContainerHeader.Length = newSize;
+            newContainerHeader.DataOffset += offsetDelta;
+            newContainerHeader.containerNameLength = checked((short)newNameByteLength);
+            // apply offset delta
+            for (int i = 0; i < containerHeader.FieldCount; i++)
+            {
+                ref var fieldHeader = ref Unsafe.As<byte, FieldHeader>(ref newMemory.Buffer.Span[ContainerHeader.Size + FieldHeader.Size * i]);
+                fieldHeader.NameOffset += offsetDelta;
+                fieldHeader.DataOffset += offsetDelta;
+            }
+
+            // copy new container name
+            nameBytes.CopyTo(newMemory.Buffer.Span.Slice(preName, newNameByteLength));
+            // copy after container name
+            _memory.Buffer.Span[(preName + Header.containerNameLength)..].CopyTo(newMemory.Buffer.Span[(preName + newNameByteLength)..]);
+
+            ChangeContent(newMemory);
+        }
 
 
 
