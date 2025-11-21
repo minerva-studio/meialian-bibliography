@@ -207,13 +207,13 @@ namespace Minerva.DataStorage.Serialization.Tests.Unity
         [Test]
         public void SelfHeal_Array_LengthChange_CopyAndZeroFill()
         {
-            Assert.Inconclusive("Not supported yet");
             var json = "{ \"arr\": [10, 20, 30] }";
             var storage = global::Unity.Serialization.Json.JsonSerialization.FromJson<Storage>(json, ParamsWithAdapter());
             var root = storage.Root;
 
             // Access as int[5]; your array accessor should self-heal schema to new fixed length
-            var span5 = root.GetArray("arr"); // If you don't have lengthed overload, adapt to your API
+            root.GetObject("arr").MakeArray<int>(5);
+            var span5 = root.GetArray("arr");
             Assert.That(span5.Length, Is.EqualTo(5));
             Assert.That(span5[0].Read<int>(), Is.EqualTo(10));
             Assert.That(span5[1].Read<int>(), Is.EqualTo(20));

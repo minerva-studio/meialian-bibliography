@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -19,12 +18,14 @@ namespace Minerva.DataStorage
         private AllocatedMemory _memory;
         private bool _disposed;
         private int _generation;
-
+        private int _schemaVersion;
 
         /// <summary> object id </summary>
         public ulong ID => _id;
         /// <summary> Generation </summary>
         public int Generation => _generation;
+        /// <summary> Version </summary>
+        public int SchemaVersion => _schemaVersion;
 
 
         /// <summary> Field Header <summary>
@@ -65,7 +66,7 @@ namespace Minerva.DataStorage
         public Span<byte> Span
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _memory.Span;
+            get => _memory.Buffer.Span;
         }
 
         /// <summary>Headers slice [0..DataBase).</summary>
@@ -135,7 +136,8 @@ namespace Minerva.DataStorage
             _generation++;
             _disposed = false;
             _memory = AllocatedMemory.Create(size);
-            ContainerHeader.WriteLength(_memory.Span, size);
+            _schemaVersion = 0;
+            ContainerHeader.WriteLength(_memory.Buffer.Span, size);
         }
 
         private void Initialize(in AllocatedMemory m)
@@ -143,6 +145,7 @@ namespace Minerva.DataStorage
             _generation++;
             _disposed = false;
             _memory = m;
+            _schemaVersion = 0;
         }
 
         public void Dispose()
@@ -155,10 +158,9 @@ namespace Minerva.DataStorage
             _memory = default;
         }
 
-        public bool IsDisposed(int generation)
-        {
-            return _disposed || _generation != generation;
-        }
+        public bool IsDisposed(int generation) => _disposed || _generation != generation;
+
+        public bool IsDisposed(int generation, int schemaVersion) => _disposed || _generation != generation || _schemaVersion != schemaVersion;
 
 
 
@@ -168,6 +170,9 @@ namespace Minerva.DataStorage
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Container EnsureNotDisposed(int generation) => !_disposed && this._generation == generation ? this : ThrowHelper.ThrowDisposed<Container>();
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Container EnsureNotDisposed(int generation, int schemaVersion) => !IsDisposed(generation, schemaVersion) ? this : ThrowHelper.ThrowDisposed<Container>();
 
 
 
@@ -267,10 +272,10 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Span<byte> GetFieldData(in FieldHeader header) => _memory.AsSpan(header.DataOffset, header.Length);// MemoryMarshal.CreateSpan(ref _memory[header.DataOffset], header.Length);
+        public Span<byte> GetFieldData(in FieldHeader header) => _memory.Buffer.Span.Slice(header.DataOffset, header.Length);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Span<T> GetFieldData<T>(in FieldHeader header) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetFieldData(in header));
+        public Span<T> GetFieldData<T>(in FieldHeader header) where T : unmanaged => MemoryMarshal.Cast<byte, T>(_memory.Buffer.Span.Slice(header.DataOffset, header.Length));
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe void* GetFieldData_Unsafe(in FieldHeader header) => _memory.GetPointer(header.DataOffset);
@@ -470,6 +475,8 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref ContainerReference GetRef(int index)
         {
+            if (index < 0 || index >= FieldCount)
+                ThrowHelper.ThrowIndexOutOfRange();
             ref var f = ref GetFieldHeader(index);
             if (!f.IsRef)
                 throw new ArgumentException($"Field '{GetFieldName(in f).ToString()}' is not a ref slot.");
@@ -490,6 +497,17 @@ namespace Minerva.DataStorage
                 throw new ArgumentException($"Field '{GetFieldName(in f).ToString()}' byte length is not multiple of {ContainerReference.Size}.");
             return GetFieldData<ContainerReference>(in f);
         }
+        public bool TryGetRef(ReadOnlySpan<char> fieldName, out Span<ContainerReference> containerReferences)
+        {
+            int index = IndexOf(fieldName);
+            if (index < 0)
+            {
+                containerReferences = default;
+                return false;
+            }
+            containerReferences = GetRefSpan(index);
+            return true;
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteObject(ReadOnlySpan<char> fieldName, Container container)
@@ -499,7 +517,7 @@ namespace Minerva.DataStorage
                 Registry.Shared.RegisterParent(container, this, fieldName);
         }
 
-        #endregion  
+        #endregion
 
 
 
@@ -514,7 +532,7 @@ namespace Minerva.DataStorage
         public Container Clone()
         {
             EnsureNotDisposed();
-            return Registry.Shared.CreateWild(_memory.Span);
+            return Registry.Shared.CreateWild(_memory.Buffer.Span);
         }
 
         public void CopyFrom(Container other)
@@ -563,39 +581,5 @@ namespace Minerva.DataStorage
             sb.AppendLine("}");
             return sb.ToString();
         }
-    }
-
-    static class ThrowHelper
-    {
-        private const string ParamName = "value";
-
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowWriteError(int err, Type t, Container c, int index, bool allowRescheme)
-        {
-            throw err switch
-            {
-                1 => new ArgumentException($"Type {t.Name} cannot cast to {c.GetFieldHeader(index).Type}.", ParamName),
-                2 => new ArgumentException($"Type {t.Name} exceeds field length and cannot write into {c.GetFieldName(index).ToString()} without rescheme.", ParamName),
-                _ => new ArgumentException($"Type {t.Name} cannot write to {c.GetFieldHeader(index).Type}.", ParamName),
-            };
-        }
-
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static T ThrowDisposed<T>() => throw new ObjectDisposedException(nameof(Container));
-
-
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowIndexOutOfRange() => throw new ArgumentOutOfRangeException("index");
-
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowInvalidOperation() => throw new InvalidOperationException();
-
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowArugmentException(string v) => throw new ArgumentException(v);
     }
 }

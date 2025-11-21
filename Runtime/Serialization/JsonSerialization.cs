@@ -25,20 +25,20 @@ namespace Minerva.DataStorage.Serialization
             // --- special case: Object Array --------------------------
             if (storage.IsArray())
             {
-                ref FieldHeader field = ref storage.Container.GetFieldHeader(0);
+                ref FieldHeader field = ref storage._container.GetFieldHeader(0);
                 // --- special case: UTF-16 string (Char16) --------------------------
                 if (storage.IsString)
                 {
-                    WriteJsonString(ref writer, storage.Container.GetFieldData<char>(in field));
+                    WriteJsonString(ref writer, storage._container.GetFieldData<char>(in field));
                 }
                 else if (field.IsRef)
                 {
-                    var ids = storage.Container.GetRefSpan(in field);
+                    var ids = storage._container.GetFieldData<ContainerReference>(in field);
                     WriteObject(in field, ids, writer);
                 }
                 else
                 {
-                    var span = storage.Container.GetFieldData(in field);
+                    var span = storage._container.GetFieldData(in field);
                     WriteScalarArray(in field, span, writer);
                 }
                 return;
@@ -48,7 +48,7 @@ namespace Minerva.DataStorage.Serialization
             int fieldCount = storage.FieldCount;
             for (int i = 0; i < fieldCount; i++)
             {
-                ref var field = ref storage.Container.GetFieldHeader(i);
+                ref var field = ref storage._container.GetFieldHeader(i);
                 WriteField(in storage, field, writer);
                 if (i < fieldCount - 1) writer.Write(",");
             }
@@ -58,7 +58,7 @@ namespace Minerva.DataStorage.Serialization
         private static void WriteField(in StorageObject storage, in FieldHeader field, IBufferWriter<char> writer)
         {
             // --- field name -----------------------------------------------------
-            ReadOnlySpan<char> name = storage.Container.GetFieldName(field);
+            ReadOnlySpan<char> name = storage._container.GetFieldName(field);
             writer.Write("\"");
             writer.Write(name);
             writer.Write("\":");
@@ -66,7 +66,7 @@ namespace Minerva.DataStorage.Serialization
             // --- special case: UTF-16 string (Char16) --------------------------
             if (field.Type == ValueType.Char16)
             {
-                var span = storage.Container.GetFieldData(in field);
+                var span = storage._container.GetFieldData(in field);
                 WriteJsonString(ref writer, MemoryMarshal.Cast<byte, char>(span));
                 return;
             }
@@ -74,14 +74,14 @@ namespace Minerva.DataStorage.Serialization
             // --- special case: Blob -> base64 string ---------------------------
             if (field.Type == ValueType.Blob)
             {
-                var span = storage.Container.GetFieldData(in field);
+                var span = storage._container.GetFieldData(in field);
                 WriteBlob(span, writer); return;
             }
 
             // --- case: ref ------------------------------------------------------
             if (field.IsRef)
             {
-                var ids = storage.Container.GetRefSpan(in field);
+                var ids = storage._container.GetFieldData<ContainerReference>(in field);
                 WriteObject(in field, ids, writer);
                 return;
             }
@@ -89,14 +89,14 @@ namespace Minerva.DataStorage.Serialization
             // --- case: inline primitive array ----------------------------------
             if (field.IsInlineArray)
             {
-                var span = storage.Container.GetFieldData(in field);
+                var span = storage._container.GetFieldData(in field);
                 WriteScalarArray(in field, span, writer);
                 return;
             }
 
             // --- case: single primitive value ----------------------------------
             {
-                var span = storage.Container.GetFieldData(in field);
+                var span = storage._container.GetFieldData(in field);
                 WriteScalar(field.Type, span, writer);
             }
         }
@@ -368,28 +368,6 @@ namespace Minerva.DataStorage.Serialization
         /// </summary>
         internal ref struct JsonToStorageReader
         {
-            [StructLayout(LayoutKind.Explicit)]
-            public struct ElementValue
-            {
-                [FieldOffset(0)]
-                ValueType type;
-                [FieldOffset(4)]
-                bool b;
-                [FieldOffset(4)]
-                long l;
-                [FieldOffset(4)]
-                double d;
-
-                public bool BoolValue => type == ValueType.Bool ? b : (l != 0 || d != 0);
-                public long IntValue => type == ValueType.Int64 ? l : (type == ValueType.Bool ? (b ? 1 : 0) : (long)d);
-                public double FloatValue => type == ValueType.Float64 ? d : (type == ValueType.Bool ? (b ? 1 : 0) : l);
-
-
-                public static implicit operator ElementValue(long value) => new ElementValue() { type = ValueType.Int64, l = value };
-                public static implicit operator ElementValue(double value) => new ElementValue() { type = ValueType.Float64, d = value };
-                public static implicit operator ElementValue(bool value) => new ElementValue() { type = ValueType.Bool, b = value };
-            }
-
             private readonly ReadOnlySpan<char> _text;
             private readonly int _maxDepth;
             private int _pos;
@@ -682,13 +660,13 @@ namespace Minerva.DataStorage.Serialization
                             switch (arrayType)
                             {
                                 case ValueType.Bool:
-                                    arrayView[i].Write(scalarValues[i].BoolValue);
+                                    arrayView.Raw[i].Write(scalarValues[i].BoolValue);
                                     break;
                                 case ValueType.Int64:
-                                    arrayView[i].Write(scalarValues[i].IntValue);
+                                    arrayView.Raw[i].Write(scalarValues[i].IntValue);
                                     break;
                                 case ValueType.Float64:
-                                    arrayView[i].Write(scalarValues[i].FloatValue);
+                                    arrayView.Raw[i].Write(scalarValues[i].FloatValue);
                                     break;
                             }
                         }
@@ -700,7 +678,7 @@ namespace Minerva.DataStorage.Serialization
                         var arrayView = arrayObject.AsArray();
                         for (int i = 0; i < blobs.Count; i++)
                         {
-                            blobs[i].CopyTo(arrayView[i].Bytes);
+                            blobs[i].CopyTo(arrayView.Raw[i].Bytes);
                         }
                         return;
                     }
@@ -1010,4 +988,5 @@ namespace Minerva.DataStorage.Serialization
             }
         }
     }
+
 }

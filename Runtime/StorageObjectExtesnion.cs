@@ -65,6 +65,13 @@ namespace Minerva.DataStorage
             var data = list.ToArray();
             storageObject.WriteArray<T>(data.AsSpan());
         }
+
+
+        public static StorageArray MakeObjectArray(this StorageObject storageObject, int length)
+        {
+            storageObject.MakeArray(ValueType.Ref, length);
+            return storageObject.AsArray();
+        }
     }
 }
 

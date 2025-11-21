@@ -341,14 +341,14 @@ namespace Minerva.DataStorage
         {
             if (_map.Count == 0)
             {
-                ContainerHeader.WriteEmptyHeader(target.Span, Version);
+                ContainerHeader.WriteEmptyHeader(target.Buffer.Span, Version);
                 return;
             }
 
             BuildLayout(ref target);
 
             // Write Data payloads using ABSOLUTE offsets into full buffer
-            var buf = target.Span;
+            var buf = target.Buffer.Span;
             int dataCursor = ContainerHeader.FromSpan(buf).DataOffset; //view.Header.DataOffset;
             for (int i = 0; i < _map.Count; i++)
             {
@@ -384,7 +384,7 @@ namespace Minerva.DataStorage
             // Create buffer/view
             target.Expand(allocSize);
             target.Clear();
-            Span<byte> span = target.Span;
+            Span<byte> span = target.Buffer.Span;
             ContainerHeader.WriteLength(span, dataStart + totalDataBytes);
 
             // Header

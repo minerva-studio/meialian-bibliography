@@ -312,7 +312,7 @@ namespace Minerva.DataStorage.Tests
             Assert.AreEqual(99UL, c.GetRef("childA").id);
 
             // array of refs
-            var span = c.GetRefSpan("children");
+            var span = c.GetFieldData<ContainerReference>(c.GetFieldHeader("children"));
             Assert.AreEqual(3, span.Length);
             span[0] = 101UL;
             span[1] = 202UL;
@@ -343,7 +343,7 @@ namespace Minerva.DataStorage.Tests
             Assert.AreEqual(9, BitConverter.ToInt32(cv.GetFieldBytes(1)));
 
             // CopyTo
-            Assert.AreEqual(c.Length, c.Memory.Length);
+            Assert.AreEqual(c.Length, c.Memory.Buffer.Length);
             var dst = new byte[c.Length];
             c.CopyTo(dst);
             var c2 = Container.Registry.Shared.CreateWild(dst.Length);

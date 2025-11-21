@@ -111,14 +111,15 @@ namespace Minerva.DataStorage.Serialization
         /// <param name="writer">Destination buffer writer that receives the serialized bytes.</param>
         private static void WriteBinaryTo(this StorageObject storage, IBufferWriter<byte> writer)
         {
+            storage.EnsureNotDisposed(); // ensure not disposed
             WriteBinary_Internal(storage, writer);
             for (int i = 0; i < storage.FieldCount; i++)
             {
-                ref var field = ref storage.Container.GetFieldHeader(i);
+                ref var field = ref storage._container.GetFieldHeader(i);
                 if (!field.IsRef)
                     continue;
 
-                var ids = storage.Container.GetRefSpan(in field);
+                var ids = storage._container.GetFieldData<ContainerReference>(in field);
                 for (int i1 = 0; i1 < ids.Length; i1++)
                 {
                     var cid = ids[i1];
@@ -153,10 +154,10 @@ namespace Minerva.DataStorage.Serialization
             BinaryPrimitives.WriteUInt64LittleEndian(idSpan, storage.ID);
             writer.Advance(8);
 
-            var memory = storage.Memory;
-            var dst = writer.GetSpan(memory.Length);
-            memory.Span.CopyTo(dst);
-            writer.Advance(memory.Length);
+            var span = storage._container.Span;
+            var dst = writer.GetSpan(span.Length);
+            span.CopyTo(dst);
+            writer.Advance(span.Length);
         }
 
 
@@ -302,7 +303,7 @@ namespace Minerva.DataStorage.Serialization
             Memory<byte> buffer = src.Slice(idSize, length);
             AllocatedMemory allocated = allocate ? AllocatedMemory.Create(buffer.Span) : new AllocatedMemory(buffer);
 
-            var view = new ContainerView(allocated.Span);
+            var view = new ContainerView(allocated.Buffer.Span);
             int totalConsumption = idSize + length;
             for (int i = 0; i < view.Header.FieldCount; i++)
             {
@@ -349,12 +350,12 @@ namespace Minerva.DataStorage.Serialization
         /// </returns>
         private static (Container, int) ReadContainer(ReadOnlySpan<byte> src)
         {
-            var idSize = Unsafe.SizeOf<ContainerReference>();
+            var idSize = TypeUtil<ContainerReference>.Size;
             var offset = idSize + ContainerHeader.LengthOffset;
             var length = BitConverter.ToInt32(src[offset..(offset + ContainerHeader.LengthSize)]);
 
             AllocatedMemory allocated = AllocatedMemory.Create(src.Slice(idSize, length));
-            Span<byte> span = allocated.Span;
+            Span<byte> span = allocated.Buffer.Span;
 
             ref var containerHeader = ref ContainerHeader.FromSpan(span);
             int totalConsumption = idSize + length;

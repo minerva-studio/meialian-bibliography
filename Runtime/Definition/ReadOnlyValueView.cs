@@ -137,7 +137,7 @@ namespace Minerva.DataStorage
             return false;
         }
 
-        public T Read<T>(bool isExplicit = false) where T : unmanaged
+        public T Read<T>(bool isExplicit = true) where T : unmanaged
         {
             if (!TryRead(out T t, isExplicit))
                 throw new InvalidCastException();
@@ -162,5 +162,10 @@ namespace Minerva.DataStorage
 
 
         public override string ToString() => Migration.ToString(Bytes, Type);
+
+        public static unsafe implicit operator ReadOnlyValueView(int* valueView) => new ReadOnlyValueView(new Span<byte>(valueView, sizeof(int)), ValueType.Int32);
+        public static unsafe implicit operator ReadOnlyValueView(long* valueView) => new ReadOnlyValueView(new Span<byte>(valueView, sizeof(long)), ValueType.Int64);
+        public static unsafe implicit operator ReadOnlyValueView(float* valueView) => new ReadOnlyValueView(new Span<byte>(valueView, sizeof(float)), ValueType.Float32);
+        public static unsafe implicit operator ReadOnlyValueView(double* valueView) => new ReadOnlyValueView(new Span<byte>(valueView, sizeof(double)), ValueType.Float64);
     }
 }

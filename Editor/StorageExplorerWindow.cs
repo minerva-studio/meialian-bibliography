@@ -255,7 +255,7 @@ namespace Minerva.DataStorage
                             ref var header = ref c.GetFieldHeader(i);
                             if (!header.IsRef) continue;
 
-                            var refs = c.GetRefSpan(in header);
+                            var refs = c.GetFieldData<ContainerReference>(in header);
                             for (int j = 0; j < refs.Length; j++)
                             {
                                 ulong id = refs[j];
@@ -442,7 +442,7 @@ namespace Minerva.DataStorage
                     // Single ref field
                     else if (header.IsRef)
                     {
-                        var refs = container.GetRefSpan(in header);
+                        var refs = container.GetFieldData<ContainerReference>(in header);
                         if (refs.Length == 0)
                             continue;
 
@@ -565,7 +565,7 @@ namespace Minerva.DataStorage
                                     string length;
                                     if (header.IsRef)
                                     {
-                                        var r = c.GetRefSpan(in header)[0];
+                                        var r = c.GetFieldData<ContainerReference>(in header)[0];
                                         _snapshot.TryGetValue(r, out var value);
                                         length = $"({value?.Length ?? ContainerReference.Size})";
                                     }
@@ -668,7 +668,7 @@ namespace Minerva.DataStorage
                         return;
                     }
 
-                    view = arr[item.ArrayIndex];
+                    view = arr.Raw[item.ArrayIndex];
                     valueText = view.ToString();
                     isInlineArray = false;
                 }
@@ -824,21 +824,21 @@ namespace Minerva.DataStorage
                 return true;
             }
 
-            private bool TryGetInlineOrRefArray(Container c, int index, out StorageArray storageArray)
+            private bool TryGetInlineOrRefArray(Container container, int index, out StorageArray storageArray)
             {
                 storageArray = default;
-                ref var header = ref c.GetFieldHeader(index);
+                ref var header = ref container.GetFieldHeader(index);
                 if (header.IsInlineArray)
                 {
-                    storageArray = new StorageArray(c, index);
+                    storageArray = new StorageArray(container, container.GetFieldName(in header).ToString());
                     return true;
                 }
 
                 if (!header.IsRef) return false;
-                var r = c.GetRefSpan(in header)[0];
+                var r = container.GetFieldData<ContainerReference>(in header)[0];
                 if (!_snapshot.TryGetValue(r, out var child)) return false;
                 if (!child.IsArray) return false;
-                storageArray = new StorageArray(child, 0);
+                storageArray = new StorageArray(child);
                 return true;
             }
 

@@ -46,11 +46,11 @@ namespace Minerva.DataStorage.Tests
             CollectionAssert.AreEqual(new[] { 0, 0, 0, 0, 0 }, ReadAllInt32(ia), "Initial values should be zero.");
 
             // Write values via ValueView.TryWrite
-            WriteInt32(ia[0], 1);
-            WriteInt32(ia[1], 2);
-            WriteInt32(ia[2], 3);
-            WriteInt32(ia[3], 4);
-            WriteInt32(ia[4], 5);
+            ia.Write(0, 1);
+            ia.Write(1, 2);
+            ia.Write(2, 3);
+            ia.Write(3, 4);
+            ia.Write(4, 5);
             CollectionAssert.AreEqual(new[] { 1, 2, 3, 4, 5 }, ReadAllInt32(ia));
 
             // Clear all
@@ -67,7 +67,7 @@ namespace Minerva.DataStorage.Tests
 
             var ia = root.GetArray(Field_Ints);
             for (int i = 0; i < ia.Length; i++)
-                WriteInt32(ia[i], i + 10);
+                ia.Write(i, i + 10);
 
             ia.ClearAt(2); // clear slot 2
             CollectionAssert.AreEqual(new[] { 10, 11, 0, 13, 14 }, ReadAllInt32(ia));
@@ -86,7 +86,7 @@ namespace Minerva.DataStorage.Tests
 
             var src = new[] { 1.5f, -2.25f, 0f, 99.875f };
             for (int i = 0; i < src.Length; i++)
-                WriteFloat32(fa[i], src[i]);
+                fa.Write(i, src[i]);
 
             CollectionAssert.AreEqual(src, ReadAllFloat32(fa));
         }
@@ -100,7 +100,7 @@ namespace Minerva.DataStorage.Tests
 
             var ia = root.GetArray(Field_Ints);
             for (int i = 0; i < ia.Length; i++)
-                WriteInt32(ia[i], i * i); // 0,1,4,9,16,25
+                ia.Write(i, i * i); // 0,1,4,9,16,25
 
             CollectionAssert.AreEqual(new[] { 0, 1, 4, 9, 16, 25 }, ReadAllInt32(ia));
 
@@ -139,7 +139,7 @@ namespace Minerva.DataStorage.Tests
             // Write at 3
             try
             {
-                WriteInt32(ia[3], 99);
+                ia.Write(3, 99);
                 Assert.Fail("Expected ArgumentOutOfRangeException when writing index 3.");
             }
             catch (ArgumentOutOfRangeException) { }

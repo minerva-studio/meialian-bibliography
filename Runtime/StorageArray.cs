@@ -5,39 +5,45 @@ using System.Runtime.InteropServices;
 namespace Minerva.DataStorage
 {
     /// <summary>
-    /// Abstraction of any storage array
+    /// Abstraction view of any storage array
     /// </summary>
-    public readonly struct StorageArray
+    public ref struct StorageArray
     {
-        public const int Inline = 1;
-        public const int Object = 2;
-
-        private readonly Container _container;
-        private readonly int _fieldIndex;
-        private readonly int _generation;
-
+        private FieldHandle _handle;
 
         /// <summary>
-        /// Create an array view
+        /// Create an object array view
         /// </summary>
         /// <param name="container"></param>
         /// <param name="fieldIndex"></param>
-        internal StorageArray(Container container, int fieldIndex = 0)
+        internal StorageArray(Container container)
         {
-            this._container = container;
-            this._fieldIndex = fieldIndex;
-            this._generation = container.Generation;
+            var name = container.GetFieldName(0);
+            if (name.SequenceEqual(ContainerLayout.ArrayName))
+                this._handle = new FieldHandle(container, ContainerLayout.ArrayName);
+            else
+                this._handle = new FieldHandle(container, name.ToString()); // have to create a new string then
         }
 
+        internal StorageArray(Container container, ReadOnlySpan<char> fieldName)
+        {
+            // Determine if we might lose the name when schema changed. 
+            this._handle = new FieldHandle(container, fieldName);
+        }
 
-        public bool IsNull => _container == null || _container.IsDisposed(_generation);
+        public StorageArray(FieldHandle fieldIndex) : this()
+        {
+            this._handle = fieldIndex;
+        }
 
-        public bool IsRefArray => _container.IsArray;
+        public readonly bool IsDisposed => _handle.Container == null || _handle.IsDisposed;
+
+        public readonly bool IsRefArray => _handle.Container.IsArray;
 
         /// <summary>
         /// Is a string? (a ref array of char16)
         /// </summary>
-        public bool IsString => IsRefArray && Type == ValueType.Char16;
+        public readonly bool IsString => IsRefArray && Type == ValueType.Char16;
 
         /// <summary>
         /// Array Length
@@ -47,36 +53,36 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                EnsureNotDisposed();
+                _handle.EnsureNotDisposed();
                 ref var header = ref Header;
                 return header.Length / header.ElemSize;
             }
         }
 
-        public ValueType Type
+        public readonly ValueType Type
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                EnsureNotDisposed();
+                _handle.EnsureNotDisposed();
                 return Header.Type;
             }
         }
 
-        public FieldType FieldType
+        public readonly FieldType FieldType
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                EnsureNotDisposed();
+                _handle.EnsureNotDisposed();
                 return Header.FieldType;
             }
         }
 
-        internal Container Container
+        internal readonly Container Container
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _container;
+            get => _handle.Container;
         }
 
         /// <summary>
@@ -84,28 +90,33 @@ namespace Minerva.DataStorage
         /// </summary>
         /// <param name="index"></param>
         /// <returns></returns>
-        public ValueView this[int index]
+        public ReadOnlyValueView this[int index]
         {
             readonly get
             {
-                EnsureNotDisposed();
                 ref FieldHeader header = ref Header;
                 int elementSize = header.ElemSize;
-                var span = _container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
                 return new ValueView(span, header.Type);
             }
             set
             {
-                EnsureNotDisposed();
-                this[index].Write(value.Bytes, Header.Type);
+                ref FieldHeader header = ref Header;
+                int elementSize = header.ElemSize;
+                var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                value.TryWriteTo(span, header.Type);
+
+                StorageObject.NotifyFieldWrite(_handle.Container, _handle.Index);
             }
         }
 
-        internal ref FieldHeader Header
+        private readonly ref FieldHeader Header
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => ref _container.GetFieldHeader(_fieldIndex);
+            get => ref _handle.Container.GetFieldHeader(_handle.Index);
         }
+
+        internal WriteView Raw => new(ref this);
 
         /// <summary>Direct access to the underlying ID span (use with care).</summary>
         internal Span<ContainerReference> References
@@ -114,43 +125,52 @@ namespace Minerva.DataStorage
             get
             {
                 ref FieldHeader header = ref Header;
-                return _container.GetFieldData<ContainerReference>(in header);
+                return _handle.Container.GetFieldData<ContainerReference>(in header);
             }
         }
 
+        public void Write<T>(int index, T value) where T : unmanaged
+        {
+            var src = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref value, 1));
+            Write(index, src, TypeUtil<T>.ValueType);
+        }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void EnsureNotDisposed() => _container.EnsureNotDisposed(_generation);
+        public void Write(int index, Span<byte> src, ValueType valueType)
+        {
+            int fieldIndex = _handle.EnsureNotDisposed();
+            ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
+            int elementSize = header.ElemSize;
+            var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+            Migration.TryWriteTo(src, valueType, span, header.Type, false);
 
+            StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+        }
 
+        public readonly T Read<T>(int index) where T : unmanaged => this[index].Read<T>();
 
 
 
         /// <summary> Get a child as a StorageObject </summary>
-        public StorageObject GetObject(int index)
+        public readonly StorageObject GetObject(int index)
         {
-            EnsureNotDisposed();
             return StorageObjectFactory.GetOrCreate(ref References[index], ContainerLayout.Empty);
         }
 
         /// <summary> Get a child as a StorageObject.</summary>
-        public StorageObject GetObject(int index, ContainerLayout layout)
+        public readonly StorageObject GetObject(int index, ContainerLayout layout)
         {
-            EnsureNotDisposed();
             return layout == null ? StorageObjectFactory.GetNoAllocate(References[index]) : StorageObjectFactory.GetOrCreate(ref References[index], layout);
         }
 
         /// <summary> Get a child as a StorageObject.</summary>
         public StorageObject GetObjectNoAllocate(int index)
         {
-            EnsureNotDisposed();
             return References[index].GetNoAllocate();
         }
 
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
-        public bool TryGetObject(int index, out StorageObject child)
+        public readonly bool TryGetObject(int index, out StorageObject child)
         {
-            EnsureNotDisposed();
             return StorageObjectFactory.TryGet(References[index], out child);
         }
 
@@ -159,11 +179,11 @@ namespace Minerva.DataStorage
 
         public void CopyFrom<T>(ReadOnlySpan<T> values) where T : unmanaged
         {
-            EnsureNotDisposed();
-            ref FieldHeader header = ref Header;
+            int fieldIndex = _handle.EnsureNotDisposed();
+            ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
             int length = header.Length / header.ElemSize;
 
-            Span<byte> data = _container.GetFieldData(in header);
+            Span<byte> data = _handle.Container.GetFieldData(in header);
             ValueType dstType = header.FieldType.Type;
             ValueType srcType = TypeUtil<T>.ValueType;
             for (int i = 0; i < length; i++)
@@ -180,46 +200,78 @@ namespace Minerva.DataStorage
         /// <summary>Clear the slot (set ID to 0).</summary>
         public void ClearAt(int index)
         {
-            EnsureNotDisposed();
-            ref var header = ref Header;
+            int fieldIndex = _handle.EnsureNotDisposed();
+            ref var header = ref _handle.Container.GetFieldHeader(fieldIndex);
+
             if (header.IsRef)
-                Container.Registry.Shared.Unregister(ref References[index]);
+                Container.Registry.Shared.Unregister(ref _handle.Container.GetFieldData<ContainerReference>(in header)[index]);
 
             int elementSize = header.ElemSize;
-            var span = _container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+            var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
             span.Clear();
         }
 
         /// <summary>Clear all bytes (zero-fill).</summary>
         public void Clear()
         {
-            EnsureNotDisposed();
-            ref var header = ref Header;
+            int fieldIndex = _handle.EnsureNotDisposed();
+            ref var header = ref _handle.Container.GetFieldHeader(fieldIndex);
             if (header.IsRef)
             {
-                Span<ContainerReference> ids = References;
+                Span<ContainerReference> ids = _handle.Container.GetFieldData<ContainerReference>(in header);
                 for (int i = 0; i < ids.Length; i++)
                 {
                     Container.Registry.Shared.Unregister(ref ids[i]);
                 }
             }
-            _container.GetFieldData(in header).Clear();
+            _handle.Container.GetFieldData(in header).Clear();
         }
 
         public T[] ToArray<T>() where T : unmanaged
         {
-            EnsureNotDisposed();
             // 1) Disallow ref fields for value extraction.
             ref var header = ref Header;
             if (header.IsRef)
                 throw new InvalidOperationException("Cannot call ToArray<T>() on a ref field. Use object accessors instead.");
 
+            return ToArray<T>(in header, _handle.Container);
+        }
+
+        public string AsString()
+        {
+            // 1) Disallow ref fields for value extraction.
+            ref var header = ref Header;
+            Container container = _handle.Container;
+            return AsString(header, container);
+        }
+
+        /// <summary>
+        /// Convert to string for display
+        /// </summary>
+        /// <remarks>
+        /// For a char16 array, returns the string representation.
+        /// </remarks>
+        /// <returns></returns>
+        public override string ToString()
+        {
+            if (Type == ValueType.Char16)
+            {
+                return AsString();
+            }
+            return $"{TypeUtil.ToString(Type)}[{Length}]";
+        }
+
+
+
+
+        internal static T[] ToArray<T>(in FieldHeader header, Container container) where T : unmanaged
+        {
             int length = header.Length / header.ElemSize;
             var result = new T[length];
 
             var dstType = TypeUtil<T>.ValueType;
 
-            Span<byte> data = _container.GetFieldData(in header);
+            Span<byte> data = container.GetFieldData(in header);
             ValueType type = header.FieldType.Type;
             for (int i = 0; i < length; i++)
             {
@@ -234,26 +286,48 @@ namespace Minerva.DataStorage
             return result;
         }
 
-        public string AsString()
+        internal static string AsString(in FieldHeader header, Container container)
         {
-            EnsureNotDisposed();
-            // 1) Disallow ref fields for value extraction.
-            ref var header = ref Header;
             if (header.Type == ValueType.Char16)
             {
-                var data = _container.GetFieldData<char>(in header);
+                var data = container.GetFieldData<char>(in header);
                 return data.ToString();
             }
             throw new InvalidOperationException("Cannot call AsString() on a non-char array.");
         }
 
-        public override string ToString()
+
+
+
+
+        /// <summary>
+        /// No notification on write access
+        /// </summary>
+        internal readonly ref struct WriteView
         {
-            if (Type == ValueType.Char16)
+            private readonly StorageArray _arr;
+            public ValueView this[int index]
             {
-                return AsString();
+                readonly get
+                {
+                    ref FieldHeader header = ref _arr.Header;
+                    int elementSize = header.ElemSize;
+                    var span = _arr._handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                    return new ValueView(span, header.Type);
+                }
+                set
+                {
+                    ref FieldHeader header = ref _arr.Header;
+                    int elementSize = header.ElemSize;
+                    var span = _arr._handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                    value.TryWriteTo(span, header.Type);
+                }
             }
-            return base.ToString();
+
+            public WriteView(ref StorageArray arr)
+            {
+                _arr = arr;
+            }
         }
     }
 }

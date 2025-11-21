@@ -6,15 +6,6 @@ namespace Minerva.DataStorage
 {
     internal partial class Container
     {
-
-        //private static Container _empty;
-
-        ///// <summary>
-        ///// The empty container instance
-        ///// </summary>
-        //public static Container Empty => _empty ??= CreateEmptyHeaderBytes();
-
-
         internal class Registry
         {
             private static readonly ObjectPool<Container> pool = new ObjectPool<Container>(() => new Container());
@@ -98,15 +89,6 @@ namespace Minerva.DataStorage
                 return false;
             }
 
-            //public void SetEmpty(Container container)
-            //{
-            //    if (container is null) throw new ArgumentNullException(nameof(container));
-            //    lock (_lock)
-            //    {
-            //        container._id = ID.Empty;
-            //        _table[ID.Empty] = container;
-            //    }
-            //}
 
             public void Register(Container container)
             {
@@ -385,17 +367,6 @@ namespace Minerva.DataStorage
             }
 #endif
         }
-
-
-        //private static Container CreateEmptyHeaderBytes()
-        //{
-        //    // container with only header bytes
-        //    var container = new Container(ContainerHeader.Size);
-        //    ContainerHeader.WriteEmptyHeader(container._buffer, Version);
-        //    container._id = Registry.ID.Empty;
-        //    Registry.Shared.SetEmpty(container);
-        //    return container;
-        //}
     }
 
     /// <summary>
