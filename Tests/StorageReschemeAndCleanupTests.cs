@@ -185,5 +185,89 @@ namespace Minerva.DataStorage.Tests
 
             Assert.That(Container.Registry.Shared.GetContainer(id), Is.Null);
         }
+
+        // ---- NEW: Member/Array lifetime behavior across rescheme/additions ----
+
+        [Test]
+        public void StorageMember_RemainsValid_After_AddingSiblingField()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("foo", 123);
+            var m = root.GetMember("foo");
+            Assert.IsFalse(m.IsDisposed);
+
+            // Add another field (triggers rescheme internally)
+            root.Write("bar", 456);
+
+            // Member should still be valid and readable
+            Assert.IsFalse(m.IsDisposed);
+            Assert.AreEqual(123, m.Read<int>());
+        }
+
+        [Test]
+        public void StorageMember_IsDisposed_After_FieldDeleted()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("foo", 7);
+            var m = root.GetMember("foo");
+            Assert.IsFalse(m.IsDisposed);
+
+            // Delete the target field
+            Assert.IsTrue(root.Delete("foo"));
+
+            // disposed and access throws
+            Assert.IsTrue(m.IsDisposed);
+            try
+            {
+                var _ = m.Read<int>();
+                Assert.Fail("Expected ObjectDisposedException");
+            }
+            catch (System.ObjectDisposedException)
+            {
+                // expected
+            }
+        }
+
+        [Test]
+        public void StorageArray_RemainsUsable_After_Adding_Sibling_Field()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.WriteArrayPath("arr", new[] { 1, 2, 3 });
+            var arrOld = root.GetArray("arr");
+            Assert.AreEqual(3, arrOld.Length);
+
+            // Add sibling -> rescheme
+            root.Write("x", 9);
+
+            CollectionAssert.AreEqual(new[] { 1, 2, 3 }, arrOld.ToArray<int>());
+            Assert.AreEqual(3, arrOld.Length);
+        }
+
+        [Test]
+        public void StorageArray_View_Stable()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("a", 1); // preceding
+            root.WriteArrayPath("b", new[] { 10, 11, 12 });
+            root.Write("c", 2);
+
+            var arrOld = root.GetArray("b");
+            var expected = new[] { 10, 11, 12 };
+            CollectionAssert.AreEqual(expected, arrOld.ToArray<int>());
+
+            // Remove preceding field -> indices may shift
+            Assert.IsTrue(root.Delete("a"));
+            Assert.IsFalse(root.HasField("a"), "Field 'a' should be gone.");
+
+            // Fresh view is correct
+            var arrNew = root.GetArray("b");
+            CollectionAssert.AreEqual(expected, arrNew.ToArray<int>());
+            // Old view may is correct too
+            CollectionAssert.AreEqual(expected, arrOld.ToArray<int>());
+        }
     }
 }

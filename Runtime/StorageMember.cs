@@ -1,44 +1,74 @@
 using System;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Minerva.DataStorage
 {
     /// <summary>
     /// Represent a member of a <see cref="StorageObject"/>.
     /// </summary>
-    public readonly ref struct StorageMember
+    public ref struct StorageMember
     {
         /// <summary>
         /// storage object
         /// </summary>
         private readonly StorageObject _storageObject;
         /// <summary>
-        /// field name
-        /// </summary>
-        private readonly ReadOnlySpan<char> _fieldName;
-        /// <summary>
         /// Array index, -1 if not an array element.
         /// </summary>
         private readonly int _index;
 
+        private FieldHandle _handle;
 
 
-        public readonly ValueType ValueType
+
+        public bool IsDisposed
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _storageObject.Container.GetFieldHeader(_fieldName).Type;
+            get
+            {
+                if (_handle.IsDisposed) return true;
+                int fieldIndex = EnsureFieldIndex();
+                return _index < 0
+                    ? (fieldIndex < 0 || fieldIndex > _storageObject.FieldCount)
+                    : (!_storageObject.IsArray(fieldIndex) || _index >= _storageObject.GetArray(ref _handle).Length);
+            }
         }
 
-        public readonly bool IsArray
+        public ValueType ValueType
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _index < 0 && _storageObject.IsArray(_fieldName);
+            get => _storageObject.Container.GetFieldHeader(EnsureFieldIndex()).Type;
         }
 
-        public readonly bool IsArrayMember
+        public bool IsArray
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _index >= 0 && _storageObject.IsArray(_fieldName);
+            get => _index < 0 && _storageObject.IsArray(EnsureFieldIndex());
+        }
+
+        public bool IsArrayMember
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _index >= 0 && _storageObject.IsArray(EnsureFieldIndex());
+        }
+
+        public readonly int ArrayIndex
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _index;
+        }
+
+        public int ArrayLength
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                EnsureNoDispose();
+                int index = EnsureFieldIndex();
+                if (this._index >= 0) return _storageObject.GetArray(ref _handle).Length;
+                return _storageObject.GetArray(ref _handle).Length;
+            }
         }
 
         public StorageMember this[ReadOnlySpan<char> path]
@@ -52,9 +82,12 @@ namespace Minerva.DataStorage
 
         public StorageMember(StorageObject storageObject, ReadOnlySpan<char> fieldName)
         {
+            // Determine if we might lose the name when schema changed.
+            ThrowHelper.ThrowIfOverlap(storageObject._container.Span, MemoryMarshal.AsBytes(fieldName));
+
             this._storageObject = storageObject;
-            this._fieldName = fieldName;
             this._index = -1;
+            this._handle = storageObject.GetFieldHandle(fieldName);
         }
 
         public StorageMember(StorageObject storageObject, ReadOnlySpan<char> fieldName, int index) : this(storageObject, fieldName)
@@ -63,30 +96,52 @@ namespace Minerva.DataStorage
         }
 
 
+        private int EnsureFieldIndex() => _handle.Index;
+
+        private void EnsureNoDispose()
+        {
+            if (IsDisposed)
+                throw new ObjectDisposedException("This Member has been disposed.");
+        }
+
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageObject AsObject()
         {
-            if (this._index >= 0) return _storageObject.GetObjectInArray(_fieldName, _index);
-            return _storageObject.GetObject(_fieldName);
+            EnsureNoDispose();
+            int index = EnsureFieldIndex();
+            if (this._index >= 0) return _storageObject.GetObjectInArray(index, _index);
+            return _storageObject.GetObject(index);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlyValueView AsScalar()
         {
-            if (this._index >= 0) return _storageObject.GetArray(_fieldName)[_index];
-            return _storageObject.GetValueView(_fieldName);
+            EnsureNoDispose();
+            int index = EnsureFieldIndex();
+            if (this._index >= 0) return _storageObject.GetArray(ref _handle)[_index];
+            return _storageObject.GetValueView(index);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageArray AsArray()
         {
-            if (this._index >= 0) return _storageObject.GetObjectInArray(_fieldName, _index).AsArray();
-            return _storageObject.GetArray(_fieldName);
+            EnsureNoDispose();
+            int index = EnsureFieldIndex();
+            if (this._index >= 0) return _storageObject.GetObjectInArray(index, _index).AsArray();
+            return _storageObject.GetArray(ref _handle);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryGetMember(ReadOnlySpan<char> path, out StorageMember member) => AsObject().TryGetMember(path, out member);
+        public bool TryGetMember(ReadOnlySpan<char> path, out StorageMember member)
+        {
+            if (IsDisposed)
+            {
+                member = default;
+                return false;
+            }
+            return AsObject().TryGetMember(path, out member);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T Read<T>(bool isExplicit = false) where T : unmanaged => AsScalar().Read<T>(isExplicit);
@@ -94,8 +149,10 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(T value) where T : unmanaged
         {
-            if (this._index >= 0) _storageObject.GetArray(_fieldName).Write(_index, value);
-            else _storageObject.Write(_fieldName, value);
+            EnsureNoDispose();
+            int index = EnsureFieldIndex();
+            if (this._index >= 0) _storageObject.GetArray(ref _handle).Write(_index, value);
+            else _storageObject.Write(index, value);
         }
     }
 }

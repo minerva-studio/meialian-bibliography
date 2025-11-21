@@ -115,7 +115,7 @@ namespace Minerva.DataStorage
 
             // ---- Swap schema & buffers ----
             var oldBuf = _memory;
-            _memory = dstBuf;
+            ChangeContent(dstBuf);
             oldBuf.Dispose();
         }
 
@@ -225,7 +225,7 @@ namespace Minerva.DataStorage
                     dataOffset += f.Length;
                 }
 
-                _memory = next;
+                ChangeContent(next);
                 curr.Dispose();
             }
             catch (Exception)
@@ -234,6 +234,12 @@ namespace Minerva.DataStorage
                 throw;
             }
             return targetIndex;
+        }
+
+        private void ChangeContent(AllocatedMemory next)
+        {
+            _memory = next;
+            _schemaVersion++;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -280,8 +286,8 @@ namespace Minerva.DataStorage
 
                 // switch buffer now
                 var oldBuffer = this._memory;
-                this._memory = newBuffer;
-                oldBuffer.Dispose();
+                try { ChangeContent(newBuffer); }
+                finally { oldBuffer.Dispose(); }
 
                 return IndexOf(tempName.Span);
             }

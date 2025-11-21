@@ -824,21 +824,21 @@ namespace Minerva.DataStorage
                 return true;
             }
 
-            private bool TryGetInlineOrRefArray(Container c, int index, out StorageArray storageArray)
+            private bool TryGetInlineOrRefArray(Container container, int index, out StorageArray storageArray)
             {
                 storageArray = default;
-                ref var header = ref c.GetFieldHeader(index);
+                ref var header = ref container.GetFieldHeader(index);
                 if (header.IsInlineArray)
                 {
-                    storageArray = new StorageArray(c, index);
+                    storageArray = new StorageArray(container, container.GetFieldName(in header).ToString());
                     return true;
                 }
 
                 if (!header.IsRef) return false;
-                var r = c.GetFieldData<ContainerReference>(in header)[0];
+                var r = container.GetFieldData<ContainerReference>(in header)[0];
                 if (!_snapshot.TryGetValue(r, out var child)) return false;
                 if (!child.IsArray) return false;
-                storageArray = new StorageArray(child, 0);
+                storageArray = new StorageArray(child);
                 return true;
             }
 

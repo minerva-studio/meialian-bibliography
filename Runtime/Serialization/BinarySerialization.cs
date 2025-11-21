@@ -154,10 +154,10 @@ namespace Minerva.DataStorage.Serialization
             BinaryPrimitives.WriteUInt64LittleEndian(idSpan, storage.ID);
             writer.Advance(8);
 
-            var memory = storage._container.Memory;
-            var dst = writer.GetSpan(memory.Length);
-            memory.Span.CopyTo(dst);
-            writer.Advance(memory.Length);
+            var span = storage._container.Span;
+            var dst = writer.GetSpan(span.Length);
+            span.CopyTo(dst);
+            writer.Advance(span.Length);
         }
 
 

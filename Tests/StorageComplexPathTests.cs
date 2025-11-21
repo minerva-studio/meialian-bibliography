@@ -106,5 +106,48 @@ namespace Minerva.DataStorage.Tests
             Assert.AreEqual(59.9, s.Root.ReadPath<double>("world.metrics.fps"), 0.0001);
             Assert.AreEqual(0.016f, s.Root.ReadPath<float>("world.metrics.delta"), 0.000001f);
         }
+
+        [Test]
+        public void PathWithIndex_ObjectArray_ElementField_WriteRead()
+        {
+            using var s = Create();
+            // Prepare a.b as object holding an array container
+            var a = s.Root.GetObject("a");
+            var b = a.GetObject("b");
+            // Turn b into an object array of length 3
+            b.MakeArray(ValueType.Ref, 3);
+            // Allocate element 1 container
+            var arr = b.AsArray();
+            arr.GetObject(1); // create container at index 1
+
+            // Write scalar through indexed path
+            s.Root.WritePath<int>("a.b[1].c", 314);
+            Assert.AreEqual(314, s.Root.ReadPath<int>("a.b[1].c"));
+        }
+
+        [Test]
+        public void PathWithIndex_ObjectArray_ElementString_WriteRead()
+        {
+            using var s = Create();
+            var a = s.Root.GetObject("a");
+            var b = a.GetObject("b");
+            b.MakeArray(ValueType.Ref, 2);
+            var arr = b.AsArray();
+            arr.GetObject(1);
+
+            s.Root.WritePath("a.b[1].name", "Node");
+            Assert.AreEqual("Node", s.Root.ReadStringPath("a.b[1].name"));
+        }
+
+        [Test]
+        public void PathWithIndex_MissingElement_Throws()
+        {
+            using var s = Create();
+            var a = s.Root.GetObject("a");
+            var b = a.GetObject("b");
+            b.MakeArray(ValueType.Ref, 2);
+            // Do NOT allocate element 1
+            Assert.Throws<IndexOutOfRangeException>(() => s.Root.WritePath<int>("a.b[1].value", 7));
+        }
     }
 }

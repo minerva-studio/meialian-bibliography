@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -19,12 +18,14 @@ namespace Minerva.DataStorage
         private AllocatedMemory _memory;
         private bool _disposed;
         private int _generation;
-
+        private int _schemaVersion;
 
         /// <summary> object id </summary>
         public ulong ID => _id;
         /// <summary> Generation </summary>
         public int Generation => _generation;
+        /// <summary> Version </summary>
+        public int SchemaVersion => _schemaVersion;
 
 
         /// <summary> Field Header <summary>
@@ -135,6 +136,7 @@ namespace Minerva.DataStorage
             _generation++;
             _disposed = false;
             _memory = AllocatedMemory.Create(size);
+            _schemaVersion = 0;
             ContainerHeader.WriteLength(_memory.Span, size);
         }
 
@@ -143,6 +145,7 @@ namespace Minerva.DataStorage
             _generation++;
             _disposed = false;
             _memory = m;
+            _schemaVersion = 0;
         }
 
         public void Dispose()
@@ -155,10 +158,9 @@ namespace Minerva.DataStorage
             _memory = default;
         }
 
-        public bool IsDisposed(int generation)
-        {
-            return _disposed || _generation != generation;
-        }
+        public bool IsDisposed(int generation) => _disposed || _generation != generation;
+
+        public bool IsDisposed(int generation, int schemaVersion) => _disposed || _generation != generation || _schemaVersion != schemaVersion;
 
 
 
@@ -168,6 +170,9 @@ namespace Minerva.DataStorage
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Container EnsureNotDisposed(int generation) => !_disposed && this._generation == generation ? this : ThrowHelper.ThrowDisposed<Container>();
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Container EnsureNotDisposed(int generation, int schemaVersion) => !IsDisposed(generation, schemaVersion) ? this : ThrowHelper.ThrowDisposed<Container>();
 
 
 
@@ -573,39 +578,5 @@ namespace Minerva.DataStorage
             sb.AppendLine("}");
             return sb.ToString();
         }
-    }
-
-    static class ThrowHelper
-    {
-        private const string ParamName = "value";
-
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowWriteError(int err, Type t, Container c, int index, bool allowRescheme)
-        {
-            throw err switch
-            {
-                1 => new ArgumentException($"Type {t.Name} cannot cast to {c.GetFieldHeader(index).Type}.", ParamName),
-                2 => new ArgumentException($"Type {t.Name} exceeds field length and cannot write into {c.GetFieldName(index).ToString()} without rescheme.", ParamName),
-                _ => new ArgumentException($"Type {t.Name} cannot write to {c.GetFieldHeader(index).Type}.", ParamName),
-            };
-        }
-
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static T ThrowDisposed<T>() => throw new ObjectDisposedException(nameof(Container));
-
-
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowIndexOutOfRange() => throw new ArgumentOutOfRangeException("index");
-
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowInvalidOperation() => throw new InvalidOperationException();
-
-        [DoesNotReturn]
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowArugmentException(string v) => throw new ArgumentException(v);
     }
 }
