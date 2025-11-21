@@ -623,30 +623,30 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void NotifyFieldWrite(Container container, string fieldName)
+        private static void NotifyFieldWrite(Container container, string fieldName, bool bubble = true)
         {
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
             var type = container.GetFieldHeader(fieldName).Type;
-            StorageWriteEventRegistry.NotifyField(container, fieldName, type);
+            StorageWriteEventRegistry.NotifyField(container, fieldName, type, bubble);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void NotifyFieldWrite(Container container, int fieldIndex)
+        private static void NotifyFieldWrite(Container container, int fieldIndex, bool bubble = true)
         {
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
             ref var header = ref container.GetFieldHeader(fieldIndex);
             var fieldName = container.GetFieldName(in header).ToString();
-            StorageWriteEventRegistry.NotifyField(container, fieldName, header.Type);
+            StorageWriteEventRegistry.NotifyField(container, fieldName, header.Type, bubble);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName)
+        private static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName, bool bubble = true)
         {
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
-            NotifyFieldWrite(container, fieldName.ToString());
+            NotifyFieldWrite(container, fieldName.ToString(), bubble);
         }
 
         /// <summary>
@@ -723,7 +723,26 @@ namespace Minerva.DataStorage
 
             if (removed)
             {
-                NotifyFieldChange(container, fieldName, fieldType, deleted: true);
+                // Only notify if we are NOT going to trigger Unregister notification.
+                // We trigger Unregister if field is Ref AND we have non-zero IDs.
+                bool willTriggerUnregister = false;
+                if (idsToFree != null)
+                {
+                    for (int i = 0; i < idsToFree.Length; i++)
+                    {
+                        if (idsToFree[i] != 0)
+                        {
+                            willTriggerUnregister = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!willTriggerUnregister)
+                {
+                    NotifyFieldChange(container, fieldName, fieldType, deleted: true);
+                }
+
                 StorageWriteEventRegistry.RemoveFieldSubscriptions(container, fieldName);
 
                 // Prevent leaks: Unregister the detached children
@@ -759,7 +778,7 @@ namespace Minerva.DataStorage
         public void WriteString(int index, ReadOnlySpan<char> value)
         {
             var container = _container.EnsureNotDisposed(_generation);
-            GetObject(index).WriteArray(value);
+            GetObject(index).WriteArray(value, bubble: false);
             NotifyFieldWrite(container, index);
         }
 
@@ -767,7 +786,7 @@ namespace Minerva.DataStorage
         public void WriteString(string fieldName, ReadOnlySpan<char> value)
         {
             var container = _container.EnsureNotDisposed(_generation);
-            GetObject(fieldName).WriteArray(value);
+            GetObject(fieldName).WriteArray(value, bubble: false);
             NotifyFieldWrite(container, fieldName);
         }
 
@@ -807,12 +826,12 @@ namespace Minerva.DataStorage
         public void WriteArray<T>(ReadOnlySpan<char> fieldName, ReadOnlySpan<T> value) where T : unmanaged
         {
             var container = _container.EnsureNotDisposed(_generation);
-            GetObject(fieldName).WriteArray(value);
+            GetObject(fieldName).WriteArray(value, bubble: false);
             NotifyFieldWrite(container, fieldName);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteArray<T>(ReadOnlySpan<T> value) where T : unmanaged
+        public void WriteArray<T>(ReadOnlySpan<T> value, bool notify = true, bool bubble = true) where T : unmanaged
         {
             if (!IsArray())
             {
@@ -823,7 +842,8 @@ namespace Minerva.DataStorage
             MakeArray<T>(value.Length);
             ref FieldHeader header = ref _container.GetFieldHeader(0);
             MemoryMarshal.AsBytes(value).CopyTo(_container.GetFieldData(in header));
-            NotifyFieldWrite(_container, _container.GetFieldName(in header));
+            if (notify)
+                NotifyFieldWrite(_container, _container.GetFieldName(in header), bubble);
         }
 
         /// <summary>

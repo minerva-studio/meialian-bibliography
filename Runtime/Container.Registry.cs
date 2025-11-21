@@ -140,14 +140,25 @@ namespace Minerva.DataStorage
 
                 var descendants = new List<Container>();
                 CollectDescendants(container, descendants);
-                var parentLinksToRemove = new List<ulong>(descendants.Count);
+                
+                // Capture parent links for notification before they are removed
+                var parentNotifications = new List<(Container Parent, string Segment)>(descendants.Count);
+                foreach (var child in descendants)
+                {
+                    if (TryGetParentLink(child, out var parent, out var segment) && parent != null && !string.IsNullOrEmpty(segment))
+                    {
+                        parentNotifications.Add((parent, segment));
+                    }
+                }
 
                 lock (_lock)
                 {
                     foreach (var c in descendants)
                     {
                         ulong id = c._id;
-                        parentLinksToRemove.Add(id);
+                        // Removing parent link immediately prevents stale state if unregister crashes later
+                        _parents.Remove(id);
+
                         if (_table.Remove(id))
                         {
                             _freed.Enqueue(id);
@@ -160,7 +171,6 @@ namespace Minerva.DataStorage
                 foreach (var c in descendants)
                 {
                     c.Dispose();
-                    pool.Return(c);
                 }
 
                 // Notify all descendants
@@ -171,18 +181,33 @@ namespace Minerva.DataStorage
                     StorageWriteEventRegistry.Notify(c, null, ValueType.Unknown, isDeleted: true);
                 }
 
-                if (parentLinksToRemove.Count > 0)
+                // Notify parents about deleted child fields
+                foreach (var (parent, segment) in parentNotifications)
                 {
-                    lock (_lock)
-                    {
-                        foreach (var id in parentLinksToRemove)
-                            _parents.Remove(id);
-                    }
+                    // If parent is also being deleted (part of descendants), its ID is now 0.
+                    // We skip notifying it about child deletion to avoid double notifications (it already got self-deletion).
+                    if (parent.ID == 0) continue;
+
+                    StorageWriteEventRegistry.Notify(parent, segment, ValueType.Unknown, isDeleted: true);
+                }
+                
+                // Finally return to pool
+                foreach (var c in descendants)
+                {
+                    pool.Return(c);
                 }
             }
 
             private void CollectDescendants(Container root, List<Container> list)
             {
+                CollectDescendants(root, list, new HashSet<ulong>());
+            }
+
+            private void CollectDescendants(Container root, List<Container> list, HashSet<ulong> visited)
+            {
+                if (root == null || root.ID == ID.Wild || root.ID == 0UL) return;
+                if (!visited.Add(root.ID)) return;
+
                 // Depth-first post-order traversal
                 // 1. Children
                 for (int i = 0; i < root.FieldCount; i++)
@@ -201,7 +226,7 @@ namespace Minerva.DataStorage
                         var child = GetContainer(cid);
                         if (child != null)
                         {
-                            CollectDescendants(child, list);
+                            CollectDescendants(child, list, visited);
                         }
                     }
                 }

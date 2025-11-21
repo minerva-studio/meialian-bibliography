@@ -1597,61 +1597,81 @@ namespace Minerva.DataStorage.Tests
             bool childFieldDeleted = false;
             bool grandFieldDeleted = false;
 
+            int grandParentSubCount = 0;
+            int parentSubCount = 0;
+            int childSubCount = 0;
+            int grandChildSubCount = 0;
+            int childFieldSubCount = 0;
+            int grandFieldSubCount = 0;
+
             using var grandParentSub = grandParent.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
+                grandParentSubCount++;
                 if (args.Target.IsNull)
                 {
-                    Assert.That(args.FieldName, Is.EqualTo("parent"));
+                    Assert.That(args.FieldName, Is.EqualTo("parent"), "grandParentSub should be parent");
                     grandParentKnowsChildDeleted = true;
                 }
             });
 
             using var parentSub = parent.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
+                parentSubCount++;
                 if (args.Target.IsNull)
                 {
-                    Assert.That(args.FieldName, Is.EqualTo(string.Empty));
-                    parentDeleted = true;
+                    if (args.FieldName == string.Empty)
+                        parentDeleted = true;
                 }
             });
 
             using var childSub = child.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
+                childSubCount++;
                 if (args.Target.IsNull)
                 {
-                    Assert.That(args.FieldName, Is.EqualTo(string.Empty));
-                    childDeleted = true;
+                    if (args.FieldName == string.Empty)
+                        childDeleted = true;
                 }
             });
 
             using var grandChildSub = grandChild.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
+                grandChildSubCount++;
                 if (args.Target.IsNull)
                 {
-                    Assert.That(args.FieldName, Is.EqualTo(string.Empty));
+                    Assert.That(args.FieldName, Is.EqualTo(string.Empty), "grandChildSub should be empty");
                     grandChildDeleted = true;
                 }
             });
 
             using var childFieldSub = child.Subscribe("stat", (in StorageFieldWriteEventArgs args) =>
             {
+                childFieldSubCount++;
                 if (args.Target.IsNull)
                 {
-                    Assert.That(args.FieldName, Is.EqualTo("stat"));
+                    Assert.That(args.FieldName, Is.EqualTo("stat"), "childFieldSub should be stat");
                     childFieldDeleted = true;
                 }
             });
 
             using var grandFieldSub = grandChild.Subscribe("hp", (in StorageFieldWriteEventArgs args) =>
             {
+                grandFieldSubCount++;
                 if (args.Target.IsNull)
                 {
-                    Assert.That(args.FieldName, Is.EqualTo("hp"));
+                    Assert.That(args.FieldName, Is.EqualTo("hp"), "grandFieldSub should be hp");
                     grandFieldDeleted = true;
                 }
             });
 
             Assert.That(grandParent.Delete("parent"), Is.True, "Expected parent container to be removed.");
+
+            Assert.That(grandParentSubCount, Is.EqualTo(1), "Grand parent should be notified of parent deletion.");
+            Assert.That(parentSubCount, Is.EqualTo(1), "Parent should be notified of child deletion.");
+            Assert.That(childSubCount, Is.EqualTo(1), "Child should be notified of grand child deletion.");
+            Assert.That(grandChildSubCount, Is.EqualTo(1), "Grand child should be notified of grand field deletion.");
+            Assert.That(childFieldSubCount, Is.EqualTo(1), "Child field should be notified of child field deletion.");
+            Assert.That(grandFieldSubCount, Is.EqualTo(1), "Grand field should be notified of grand field deletion.");
 
             Assert.That(grandParentKnowsChildDeleted, Is.True, "Grand parent should know parent is deleted.");
             Assert.That(parentDeleted, Is.True, "Parent container should receive deletion callback.");
@@ -1723,6 +1743,338 @@ namespace Minerva.DataStorage.Tests
             Assert.That(level2ContainerCount, Is.EqualTo(2), "Container subscribers on the child should fire for each write.");
             Assert.That(level1Count, Is.EqualTo(2), "Parent containers should observe their child writes.");
             Assert.That(rootCount, Is.EqualTo(2), "Root container should observe descendant writes.");
+        }
+
+        [Test]
+        public void Write_ScalarField_TriggersEvent()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            bool notified = false;
+            root.Write("hp", 0);
+
+            using var sub = root.Subscribe("hp", (in StorageFieldWriteEventArgs args) =>
+            {
+                notified = true;
+                Assert.That(args.FieldName, Is.EqualTo("hp"));
+                Assert.That(args.Target.Read<int>("hp"), Is.EqualTo(100));
+            });
+
+            root.Write("hp", 100);
+            Assert.That(notified, Is.True);
+        }
+
+        [Test]
+        public void Write_DeeplyNestedField_BubblesEventsToAllAncestors()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Setup A.B.C
+            var a = root.GetObject("A");
+            var b = a.GetObject("B");
+            var c = b.GetObject("C");
+
+            int rootCount = 0;
+            int aCount = 0;
+            int bCount = 0;
+            int cCount = 0;
+
+            using var subRoot = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                if (!args.Target.IsNull) { rootCount++; Assert.That(args.FieldName, Is.EqualTo("A.B.C.val")); }
+            });
+            using var subA = a.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                if (!args.Target.IsNull) { aCount++; Assert.That(args.FieldName, Is.EqualTo("B.C.val")); }
+            });
+            using var subB = b.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                if (!args.Target.IsNull) { bCount++; Assert.That(args.FieldName, Is.EqualTo("C.val")); }
+            });
+            using var subC = c.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                if (!args.Target.IsNull) { cCount++; Assert.That(args.FieldName, Is.EqualTo("val")); }
+            });
+
+            c.Write("val", 42);
+
+            Assert.That(cCount, Is.EqualTo(1));
+            Assert.That(bCount, Is.EqualTo(1));
+            Assert.That(aCount, Is.EqualTo(1));
+            Assert.That(rootCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void Delete_LeafNode_NotifiesParent()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            var child = root.GetObject("child");
+
+            bool parentNotified = false;
+            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                // Root should see "child" deleted
+                if (args.Target.IsNull && args.FieldName == "child")
+                    parentNotified = true;
+            });
+
+            root.Delete("child");
+            Assert.That(parentNotified, Is.True);
+        }
+
+        [Test]
+        public void Delete_MiddleNode_NotifiesParent_And_Descendants()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            var parent = root.GetObject("parent");
+            var child = parent.GetObject("child");
+
+            bool rootNotified = false;
+            bool parentSelfNotified = false;
+            bool childSelfNotified = false;
+
+            using var subRoot = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.Target.IsNull && args.FieldName == "parent") rootNotified = true;
+            });
+
+            using var subParent = parent.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.Target.IsNull && args.FieldName == string.Empty) parentSelfNotified = true;
+            });
+
+            using var subChild = child.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.Target.IsNull && args.FieldName == string.Empty) childSelfNotified = true;
+            });
+
+            root.Delete("parent");
+
+            Assert.That(rootNotified, Is.True, "Root missed notification");
+            Assert.That(parentSelfNotified, Is.True, "Parent missed self-destruct notification");
+            Assert.That(childSelfNotified, Is.True, "Child missed self-destruct notification");
+        }
+
+        [Test]
+        public void Write_OnDeletedObject_ThrowsObjectDisposed()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            var child = root.GetObject("child");
+            var childId = child.ID;
+
+            root.Delete("child");
+
+            // Attempt to write to the stale view
+            Assert.Throws<ObjectDisposedException>(() => child.Write("val", 1));
+        }
+
+        [Test]
+        public void Write_Path_TriggersIntermediateEvents()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            int eventCount = 0;
+            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                if (!args.Target.IsNull) eventCount++;
+            });
+
+            root.WritePath("A.B.C", 1);
+
+            Assert.That(eventCount, Is.GreaterThan(0));
+        }
+
+        [Test]
+        public void Delete_Root_NotifiesDescendants()
+        {
+            var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            var child = root.GetObject("child");
+
+            bool childNotified = false;
+            using var sub = child.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.Target.IsNull && args.FieldName == string.Empty) childNotified = true;
+            });
+
+            storage.Dispose(); // Deletes root
+
+            Assert.That(childNotified, Is.True);
+        }
+
+        [Test]
+        public void Write_Array_TriggersEvent()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            bool notified = false;
+            root.WriteArray("arr", new[] { 0, 0, 0 });
+            int eventCount = 0;
+
+            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                // print the field name
+                // Assert.That(args.FieldName, Is.EqualTo("arr"), "Field name should be 'arr'");
+
+                // if (!args.Target.IsNull && args.FieldName == "arr")
+                // {
+                // }
+                eventCount++;
+                notified = true;
+                Assert.That(args.Target.ReadArray<int>("arr").Length, Is.EqualTo(3));
+            });
+
+            root.WriteArray("arr", new[] { 1, 2, 3 });
+            Assert.That(eventCount, Is.EqualTo(1));
+            Assert.That(notified, Is.True);
+        }
+
+        [Test]
+        public void Write_String_TriggersEvent()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            bool notified = false;
+            root.Write("str", "hi");
+
+            int eventCount = 0;
+
+            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                eventCount++;
+                notified = true;
+                Assert.That(args.Target.ReadString("str"), Is.EqualTo("hello"));
+            });
+
+            root.Write("str", "hello");
+            Assert.That(eventCount, Is.EqualTo(1));
+            Assert.That(notified, Is.True);
+        }
+
+        [Test]
+        public void Sibling_Writes_DoNotCrossTalk()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            var sib1 = root.GetObject("sib1");
+            var sib2 = root.GetObject("sib2");
+
+            bool sib1Heard = false;
+            using var sub1 = sib1.Subscribe((in StorageFieldWriteEventArgs args) => sib1Heard = true);
+
+            sib2.Write("val", 1);
+
+            Assert.That(sib1Heard, Is.False);
+        }
+
+        [Test]
+        public void Rescheme_Field_TriggersEvent()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write<int>("val", 1);
+
+            bool notified = false;
+            using var sub = root.Subscribe("val", (in StorageFieldWriteEventArgs args) =>
+            {
+                notified = true;
+                Assert.That(args.FieldType, Is.EqualTo(ValueType.Float32));
+            });
+
+            // Change type int -> float
+            root.Write<float>("val", 1.0f);
+            Assert.That(notified, Is.True);
+        }
+
+        [Test]
+        public void Delete_MultipleFields_TriggersMultipleEvents()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("a", 1);
+            root.Write("b", 2);
+
+            int events = 0;
+            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                events++;
+                Assert.That(args.Target, Is.EqualTo(root));
+                Assert.That(args.FieldName, Is.EqualTo("a").Or.EqualTo("b"));
+            });
+
+            root.Delete("a", "b");
+            Assert.That(events, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Bubbling_Stops_At_Detached_Subtree()
+        {
+            // Root -> A -> B
+            // Delete A.
+            // Root should get notification for A.
+            // Root should NOT get notification for B (child of A).
+
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            var a = root.GetObject("A");
+            var b = a.GetObject("B");
+
+            var rootEvents = new System.Collections.Generic.List<string>();
+            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                if (args.Target.IsNull) rootEvents.Add(args.FieldName);
+            });
+
+            root.Delete("A");
+
+            // Root should see "A" deletion.
+            // Should NOT see "A.B" deletion because bubbling stops at A (which is deleted).
+            Assert.That(rootEvents, Contains.Item("A"));
+            Assert.That(rootEvents, Does.Not.Contain("A.B"));
+        }
+
+        [Test]
+        public void Subscription_Filter_Respects_FieldNames()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            bool aNotified = false;
+            bool bNotified = false;
+            root.Write("a", 0);
+            root.Write("b", 0);
+
+            using var subA = root.Subscribe("a", (in StorageFieldWriteEventArgs _) => aNotified = true);
+            using var subB = root.Subscribe("b", (in StorageFieldWriteEventArgs _) => bNotified = true);
+
+            root.Write("a", 1);
+            Assert.That(aNotified, Is.True);
+            Assert.That(bNotified, Is.False);
+
+            aNotified = false;
+            root.Write("b", 1);
+            Assert.That(aNotified, Is.False);
+            Assert.That(bNotified, Is.True);
+        }
+
+        [Test]
+        public void Subscription_On_New_Object_Works_Immediately()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            var child = root.GetObject("child");
+            child.Write("val", 0);
+
+            bool notified = false;
+            using var sub = child.Subscribe("val", (in StorageFieldWriteEventArgs _) => notified = true);
+
+            child.Write("val", 1);
+            Assert.That(notified, Is.True);
         }
     }
 

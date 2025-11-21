@@ -83,10 +83,10 @@ namespace Minerva.DataStorage
             return slot.AddContainerSubscriber(handler);
         }
 
-        public static void NotifyField(Container container, string fieldName, ValueType fieldType)
-            => Notify(container, fieldName, fieldType);
+        public static void NotifyField(Container container, string fieldName, ValueType fieldType, bool bubble = true)
+            => Notify(container, fieldName, fieldType, isDeleted: false, bubble: bubble);
 
-        public static void Notify(Container container, string fieldName, ValueType fieldType, bool isDeleted = false)
+        public static void Notify(Container container, string fieldName, ValueType fieldType, bool isDeleted = false, bool bubble = true)
         {
             if (container == null)
                 return;
@@ -123,6 +123,9 @@ namespace Minerva.DataStorage
 
                 current = parent;
                 isOrigin = false;
+
+                if (!bubble)
+                    break;
             }
         }
 
