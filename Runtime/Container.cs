@@ -260,7 +260,7 @@ namespace Minerva.DataStorage
         public ref FieldHeader GetFieldHeader(ReadOnlySpan<char> fieldName)
         {
             if (!TryGetFieldHeader(fieldName, out var headerSpan))
-                ThrowHelper.ThrowArugmentException(nameof(fieldName));
+                ThrowHelper.ArgumentException(nameof(fieldName));
             return ref headerSpan[0];
         }
 
@@ -274,7 +274,7 @@ namespace Minerva.DataStorage
                     int index = ReschemeFor<T>(fieldName);
                     return ref GetFieldHeader(index);
                 }
-                else ThrowHelper.ThrowArugmentException(nameof(fieldName));
+                else ThrowHelper.ArgumentException(nameof(fieldName));
             }
             return ref headerSpan[0];
         }

@@ -258,7 +258,7 @@ namespace Minerva.DataStorage
         public void Override(ReadOnlySpan<char> fieldName, ReadOnlySpan<byte> value, ValueType valueType, int? inlineArrayLength = null)
         {
             if (valueType == ValueType.Ref)
-                ThrowHelper.ThrowArugmentException(nameof(value));
+                ThrowHelper.ArgumentException(nameof(value));
 
             var container = _container.EnsureNotDisposed(_generation);
             _container.Override(fieldName, value, valueType, inlineArrayLength);
@@ -446,7 +446,7 @@ namespace Minerva.DataStorage
         {
             var obj = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment, out var index);
             if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+                ThrowHelper.ArgumentException("Path must contain at least one segment.", nameof(path));
 
             if (index >= 0) obj.GetArray(fieldSegment).Write(index, value);
             else obj.Write(fieldSegment, value);
@@ -1042,7 +1042,7 @@ namespace Minerva.DataStorage
             ref FieldHeader header = ref _container.GetFieldHeader(0);
             MemoryMarshal.AsBytes(value).CopyTo(_container.GetFieldData(in header));
             if (notify)
-                NotifyFieldWrite(_container, _container.GetFieldName(in header), bubble);
+                NotifyFieldWrite(_container, _container.GetFieldName(in header));
         }
 
         /// <summary>
@@ -1548,7 +1548,7 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void NotifyFieldWrite(Container container, int fieldIndex, bool bubble = true)
+        internal static void NotifyFieldWrite(Container container, int fieldIndex)
         {
             if (!StorageEventRegistry.HasSubscribers(container))
                 return;
@@ -1558,7 +1558,7 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName, bool bubble = true)
+        internal static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName)
         {
             if (!StorageEventRegistry.HasSubscribers(container))
                 return;
@@ -1567,7 +1567,7 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void NotifyFieldWrite(Container container, string fieldName, bool bubble = true)
+        internal static void NotifyFieldWrite(Container container, string fieldName)
         {
             if (!StorageEventRegistry.HasSubscribers(container))
                 return;

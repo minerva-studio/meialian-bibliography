@@ -35,7 +35,11 @@ namespace Minerva.DataStorage
 
         [DoesNotReturn]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ThrowArugmentException(string v) => throw new ArgumentException(v);
+        public static void ArgumentException(string v) => throw new ArgumentException(v);
+
+        [DoesNotReturn]
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void ArgumentException(string message, string paramName) => throw new ArgumentException(message, paramName);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ThrowIfNull(object obj, string name)

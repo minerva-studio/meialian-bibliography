@@ -101,12 +101,13 @@ namespace Minerva.DataStorage
             }
             set
             {
-                ref FieldHeader header = ref Header;
+                int fieldIndex = _handle.EnsureNotDisposed();
+                ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
                 int elementSize = header.ElemSize;
                 var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
                 value.TryWriteTo(span, header.Type);
 
-                StorageObject.NotifyFieldWrite(_handle.Container, _handle.Index);
+                StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
             }
         }
 
@@ -171,7 +172,7 @@ namespace Minerva.DataStorage
             tempString.Append('[');
             Span<char> span = stackalloc char[11];
             if (!index.TryFormat(span, out var len))
-                ThrowHelper.ThrowArugmentException(nameof(index));
+                ThrowHelper.ArgumentException(nameof(index));
             tempString.Append(span[..len]);
             tempString.Append(']');
             return StorageObjectFactory.GetOrCreate(ref reference, _handle.Container, layout, tempString);

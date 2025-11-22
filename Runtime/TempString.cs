@@ -28,6 +28,11 @@ namespace Minerva.DataStorage
         public readonly bool IsDisposed => chars == null;
         public readonly Span<char> Span => chars.AsSpan(0, Length);
         public int Length { get; set; }
+        public readonly ref char this[int index] => ref chars[index];
+
+
+
+
 
         public void Append(string str)
         {
@@ -73,6 +78,13 @@ namespace Minerva.DataStorage
             chars[0] = v;
             Length += 1;
         }
+
+        public readonly int IndexOf(char v) => Array.IndexOf(chars, v);
+        public readonly int LastIndexOf(char v) => Array.LastIndexOf(chars, v);
+
+
+
+
 
 
         private void EnsureFreeSize(int size)

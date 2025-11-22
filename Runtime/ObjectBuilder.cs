@@ -207,7 +207,7 @@ namespace Minerva.DataStorage
         {
             // cannot create blobs because size is unknown
             if (type == ValueType.Blob)
-                ThrowHelper.ThrowArugmentException(nameof(type));
+                ThrowHelper.ArgumentException(nameof(type));
 
             var fieldType = new FieldType(type, true);
             int elem = fieldType.Size;

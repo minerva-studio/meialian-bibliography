@@ -80,19 +80,21 @@ namespace Minerva.DataStorage
 
         public static StorageSubscription Subscribe(Container container, string fieldName, StorageMemberHandler handler)
         {
-            if (container == null) throw new ArgumentNullException(nameof(container));
-            if (string.IsNullOrEmpty(fieldName)) throw new ArgumentException("Field name cannot be null or empty.", nameof(fieldName));
-            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            ThrowHelper.ThrowIfNull(container, nameof(container));
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            ThrowHelper.ThrowIfNull(handler, nameof(handler));
 
             var slot = _table.GetValue(container, static c => new ContainerSubscriptions(c.Generation));
             slot.EnsureGeneration(container.Generation);
+            // Subscribe to container if no field specified or container is an array
+            if (fieldName == "" || container.IsArray) return slot.AddContainerSubscriber(handler);
             return slot.AddFieldSubscriber(fieldName, handler);
         }
 
         public static StorageSubscription SubscribeToContainer(Container container, StorageMemberHandler handler)
         {
-            if (container == null) throw new ArgumentNullException(nameof(container));
-            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            ThrowHelper.ThrowIfNull(container, nameof(container));
+            ThrowHelper.ThrowIfNull(handler, nameof(handler));
 
             var slot = _table.GetValue(container, static c => new ContainerSubscriptions(c.Generation));
             slot.EnsureGeneration(container.Generation);
@@ -152,7 +154,7 @@ namespace Minerva.DataStorage
             if (source == null)
                 return;
 
-            // local
+            // local 
             {
                 if (_table.TryGetValue(source, out var slot) && slot.TryPrepareGeneration(source.Generation))
                 {
@@ -165,11 +167,14 @@ namespace Minerva.DataStorage
 
             // upward
             Container current = source;
-            using TempString str = new(fieldName ?? "");
+            using TempString str = new(!source.IsArray ? fieldName ?? "" : "");
             while (Container.Registry.Shared.TryGetParent(current, out var parent))
             {
-                str.Prepend('.');
-                str.Prepend(current.Name);
+                Span<char> name = current.Name;
+                if (str.Length > 0 && str[0] != '[') str.Prepend('.');
+                if (parent.IsArray) str.Prepend(name[name.LastIndexOf('[')..]);
+                else str.Prepend(name);
+
                 if (_table.TryGetValue(parent, out var slot) && slot.TryPrepareGeneration(parent.Generation))
                 {
                     // If we are deleting the container itself (origin) we broadcast to all fields. 
