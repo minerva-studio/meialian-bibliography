@@ -376,12 +376,6 @@ namespace Minerva.DataStorage
                     this.FieldType = fieldType;
                     this.IsDeleted = isFieldDeleted;
                 }
-
-                public Entry(string name, FieldType fieldType) : this()
-                {
-                    this.FieldType = fieldType;
-                    this.IsDeleted = true;
-                }
             }
 
             readonly Container parent;
@@ -444,10 +438,9 @@ namespace Minerva.DataStorage
                     if (item.IsDeleted)
                         fieldName = container.Name.ToString();
                     Registry.Shared.Unregister(container);
+
                     if (!quiet && fieldName != null)
-                    {
                         StorageObject.NotifyFieldDelete(parent, fieldName!, item.FieldType);
-                    }
                 }
                 buffer.Clear();
             }
@@ -458,7 +451,7 @@ namespace Minerva.DataStorage
             }
         }
 
-        public struct ScalarDeleteBuffer : IDisposable
+        public struct FieldDeleteEventBuffer : IDisposable
         {
             private static readonly ObjectPool<List<Entry>> pool = new ObjectPool<List<Entry>>(() => new List<Entry>());
 
@@ -479,7 +472,7 @@ namespace Minerva.DataStorage
 
             public readonly bool IsDisposed => buffer != null;
 
-            private ScalarDeleteBuffer(Container parent, List<Entry> entries)
+            private FieldDeleteEventBuffer(Container parent, List<Entry> entries)
             {
                 this.parent = parent;
                 this.buffer = entries;
@@ -514,9 +507,9 @@ namespace Minerva.DataStorage
                 buffer!.Clear();
             }
 
-            public static ScalarDeleteBuffer New(Container parent)
+            public static FieldDeleteEventBuffer New(Container parent)
             {
-                return new ScalarDeleteBuffer(parent, pool.Rent());
+                return new FieldDeleteEventBuffer(parent, pool.Rent());
             }
         }
 

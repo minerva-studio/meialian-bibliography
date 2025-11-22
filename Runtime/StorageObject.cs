@@ -1479,8 +1479,6 @@ namespace Minerva.DataStorage
         /// <param name="target"></param> 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Rescheme(ContainerLayout target) => _container.EnsureNotDisposed(_generation).Rescheme(target);
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal void Rescheme(ContainerLayout target, bool quiet) => _container.EnsureNotDisposed(_generation).Rescheme(target, quiet);
 
 
 

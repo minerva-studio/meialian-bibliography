@@ -75,7 +75,7 @@ namespace Minerva.DataStorage
             // Prepare destination buffer
             //byte[] dstBuf = DefaultPool.Rent(newSchema.TotalLength);
             using UnregisterBuffer unregister = UnregisterBuffer.New(this);
-            using ScalarDeleteBuffer scalarDelete = ScalarDeleteBuffer.New(this);
+            using FieldDeleteEventBuffer delete = FieldDeleteEventBuffer.New(this);
             ref ContainerHeader header = ref Header;
             int newLength = newLayout.TotalLength + header.ContainerNameLength;
             AllocatedMemory dstBuf = AllocatedMemory.Create(newLength);
@@ -101,11 +101,11 @@ namespace Minerva.DataStorage
                     if (oldField.IsRef)
                     {
                         var oldIds = GetFieldData<ContainerReference>(in oldField);
-                        unregister.Add(oldIds, oldField.IsInlineArray, true);
+                        unregister.Add(oldIds, oldField.IsInlineArray, !quiet);
                     }
                     else
                     {
-                        scalarDelete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
+                        delete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
                     }
                     continue;
                 }
@@ -121,11 +121,11 @@ namespace Minerva.DataStorage
                     if (oldField.IsRef)
                     {
                         var oldIds = GetFieldData<ContainerReference>(in oldField);
-                        unregister.Add(oldIds, oldField.IsInlineArray, true);
+                        unregister.Add(oldIds, oldField.IsInlineArray, !quiet);
                     }
                     else
                     {
-                        scalarDelete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
+                        delete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
                     }
                     dstBytes.Clear();
                     continue;
@@ -166,8 +166,8 @@ namespace Minerva.DataStorage
             var oldBuf = _memory;
             ChangeContent(dstBuf);
             oldBuf.Dispose();
-            unregister.Send(quiet);
-            scalarDelete.Send(quiet);
+            unregister.Send();
+            delete.Send();
         }
 
 
