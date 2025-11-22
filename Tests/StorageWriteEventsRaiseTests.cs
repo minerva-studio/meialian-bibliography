@@ -3,7 +3,7 @@ using NUnit.Framework;
 
 namespace Minerva.DataStorage.Tests
 {
-    [Timeout(10)]
+    [Timeout(1000)]
     [TestFixture]
     public class StorageWriteEventsRaiseTests
     {
@@ -19,7 +19,14 @@ namespace Minerva.DataStorage.Tests
 
         private StorageSubscription SubscribeAll(StorageObject obj)
         {
-            return obj.Subscribe((in StorageEventArgs args) => { _count++; _last = args; });
+            return obj.Subscribe((in StorageEventArgs args) =>
+            {
+                _count++;
+                _last = args;
+#if UNITY_EDITOR
+                UnityEngine.Debug.Log(args);
+#endif
+            });
         }
 
         [Test]

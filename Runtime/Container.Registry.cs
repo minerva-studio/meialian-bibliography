@@ -19,19 +19,6 @@ namespace Minerva.DataStorage
             }
 
 
-            struct Link
-            {
-                public Container parent;
-                public string fieldName;
-
-                public Link(Container parent, Container child)
-                {
-                    this.parent = parent;
-                    this.fieldName = child.Name.ToString();
-                }
-            }
-
-
             public static Registry Shared { get; } = new Registry();
             public static int PoolCount => pool.Count;
 
@@ -105,50 +92,39 @@ namespace Minerva.DataStorage
                 if (container is null) return;
                 if (container._id == ID.Wild || container._id == 0UL) return;
 
-                var descendants = new List<Container>();
-                using TempString str = new TempString(container.Name);
                 try
                 {
-                    CollectDescendants(container, descendants);
+                    Traverse(container, c =>
+                    {
+                        c.MarkDispose();
+                    });
                 }
                 catch (StackOverflowException)
                 {
                     throw new InvalidOperationException("Cyclic container reference detected during unregister.");
                 }
+
+                using TempString str = new TempString(container.Name);
                 TryGetParent(container, out var parent);
-
-                lock (_lock)
-                {
-                    foreach (var c in descendants)
-                    {
-                        ulong id = c._id;
-                        // Removing parent link immediately prevents stale state if unregister crashes later
-                        _parentMap.Remove(id);
-
-                        if (_table.Remove(id))
-                        {
-                            _freed.Enqueue(id);
-                        }
-                        c._id = 0UL; // mark as unregistered
-                    }
-                }
-
-                // Dispose first
-                foreach (var c in descendants)
-                {
-                    c.MarkDispose();
-                }
-
-                // Notify all descendants
-                foreach (var c in descendants)
+                Traverse(container, c =>
                 {
                     // NOTE: c is Disposed. Accessing c.Memory will throw.
                     // Subscribers must only check c.ID (which is 0) or reference equality.
                     StorageEventRegistry.NotifyDispose(c, c.Generation);
+                    lock (_lock)
+                    {
+                        var id = c._id;
+                        // Removing parent link immediately prevents stale state if unregister crashes later
+                        _parentMap.Remove(id);
+                        if (_table.Remove(id))
+                            _freed.Enqueue(id);
+                        c._id = ID.Empty; // mark as unregistered 
+                    }
                     c.Dispose();
                     // return to pool
                     pool.Return(c);
-                }
+                });
+
 
                 // Notify parents about deleted child fields 
                 if (parent != null && parent.ID != ID.Empty)
@@ -180,7 +156,7 @@ namespace Minerva.DataStorage
                     ref var field = ref root.GetFieldHeader(i);
                     if (!field.IsRef) continue;
 
-                    var ids = root.GetRefSpan(in field);
+                    var ids = root.GetFieldData<ContainerReference>(in field);
                     for (int k = 0; k < ids.Length; k++)
                     {
                         ulong cid = ids[k];
@@ -199,13 +175,39 @@ namespace Minerva.DataStorage
                 list.Add(root);
             }
 
+            private void Traverse(Container root, Action<Container> action)
+            {
+                if (root == null || root.ID == ID.Wild || root.ID == 0UL) return;
+
+                // Depth-first post-order traversal
+                // 1. Children
+                for (int i = 0; i < root.FieldCount; i++)
+                {
+                    ref var field = ref root.GetFieldHeader(i);
+                    if (!field.IsRef) continue;
+
+                    var ids = root.GetFieldData<ContainerReference>(in field);
+                    for (int k = 0; k < ids.Length; k++)
+                    {
+                        var cid = ids[k];
+                        if (cid == ID.Empty) continue;
+                        var child = _table.GetValueOrDefault(cid);
+                        if (child != null)
+                        {
+                            Traverse(child, action);
+                        }
+                    }
+                }
+                // 2. Self
+                action(root);
+            }
+
 
             public Container? GetContainer(ContainerReference id)
             {
                 if (id == 0UL) return null;
                 lock (_lock) return _table.GetValueOrDefault(id);
             }
-
 
             public ContainerReference AssignNewID(Container container)
             {
