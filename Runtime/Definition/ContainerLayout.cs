@@ -64,6 +64,29 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ContainerLayoutFieldView GetField(int index) => new(headerBlob, index);
 
+        public void WriteTo(Span<byte> dst, Span<byte> nameByte)
+        {
+            Write(this.Span, nameByte, dst);
+        }
+
+        public bool MatchesHeader(Span<byte> headersSegment)
+        {
+            if (headersSegment.Length < ContainerHeader.Size) return false;
+            var selfHeader = Header;
+            ref ContainerHeader containerHeader = ref Unsafe.As<byte, ContainerHeader>(ref headersSegment[0]);
+            if (containerHeader.FieldCount != selfHeader.FieldCount) return false;
+            for (int i = 0; i < selfHeader.FieldCount; i++)
+            {
+                var selfFieldHeader = Fields[i];
+                ref var fieldHeader = ref Unsafe.As<byte, FieldHeader>(ref headersSegment[ContainerHeader.Size + i * FieldHeader.Size]);
+                if (fieldHeader.FieldType != selfFieldHeader.FieldType) return false;
+                var fieldName = headerBlob.AsSpan(fieldHeader.NameOffset, fieldHeader.NameLength * sizeof(char));
+                var selfFieldName = headerBlob.AsSpan(selfFieldHeader.NameOffset, selfFieldHeader.NameLength * sizeof(char));
+                if (!fieldName.SequenceEqual(selfFieldName)) return false;
+            }
+            return true;
+        }
+
 
 
 
@@ -137,11 +160,6 @@ namespace Minerva.DataStorage
                 sb.Append(f.Length);
             }
             return sb.ToString();
-        }
-
-        public void WriteTo(Span<byte> dst, Span<byte> nameByte)
-        {
-            Write(this.Span, nameByte, dst);
         }
 
         public static void Write(ReadOnlySpan<byte> layout, Span<byte> nameByte, Span<byte> dst)

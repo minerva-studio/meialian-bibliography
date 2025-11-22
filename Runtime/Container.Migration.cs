@@ -69,7 +69,7 @@ namespace Minerva.DataStorage
             EnsureNotDisposed();
 
             // same header
-            if (HeadersSegment.SequenceEqual(newLayout.Span))
+            if (newLayout.MatchesHeader(HeadersSegment))
                 return;
 
             // Prepare destination buffer

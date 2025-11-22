@@ -852,7 +852,16 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Delete(string fieldName) => DeleteInternal(fieldName);
+        public bool Delete(string fieldName)
+        {
+            _container.EnsureNotDisposed(_generation);
+            if (!_container.TryGetFieldHeader(fieldName, out var headerSpan))
+                return false;
+
+            bool removed = false;
+            _container.Rescheme(b => removed = b.Remove(fieldName));
+            return removed;
+        }
 
         /// <summary>
         /// Delete multiple fields from this object. Returns the number of fields deleted.
@@ -862,42 +871,16 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Delete(params string[] names)
         {
-            int result = 0;
-            for (int i = 0; i < names.Length; i++)
-                result += DeleteInternal(names[i]) ? 1 : 0;
-            return result;
-        }
-
-        private bool DeleteInternal(string fieldName)
-        {
             _container.EnsureNotDisposed(_generation);
-            if (!_container.TryGetFieldHeader(fieldName, out var headerSpan))
-                return false;
-
-            //ref var header = ref headerSpan[0];
-            //var fieldType = header.Type;
-
-            //// If this is a Ref field, capture IDs to unregister them later
-            //using Container.UnregisterBuffer unregister = Container.UnregisterBuffer.New(_container);
-            //if (header.IsRef)
-            //{
-            //    var refs = _container.GetRefSpan(in header);
-            //    unregister.Add(refs, header.IsInlineArray);
-            //}
-
-            bool removed = false;
-            _container.Rescheme(b => removed = b.Remove(fieldName));
-
-            //if (removed)
-            //{
-            //    // Prevent leaks: Unregister the detached children
-            //    unregister.Flush();
-
-            //    NotifyFieldDelete(_container, fieldName, fieldType);
-            //    StorageEventRegistry.RemoveFieldSubscriptions(_container, fieldName);
-            //}
-
-            return removed;
+            int count = 0;
+            _container.Rescheme(b =>
+            {
+                foreach (var name in names)
+                {
+                    if (b.Remove(name)) count++;
+                }
+            });
+            return count;
         }
 
 

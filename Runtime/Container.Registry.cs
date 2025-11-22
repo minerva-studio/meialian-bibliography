@@ -79,7 +79,7 @@ namespace Minerva.DataStorage
             public void Unregister(Container container)
             {
                 if (container is null) return;
-                if (container._id == ID.Wild || container._id == 0UL) return;
+                if (container._id == ID.Wild || container._id == ID.Empty || container._disposed) return;
 
                 try
                 {

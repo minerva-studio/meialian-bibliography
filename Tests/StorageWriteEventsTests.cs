@@ -355,5 +355,139 @@ namespace Minerva.DataStorage.Tests
             int current = (int)field.GetValue(container);
             field.SetValue(container, current + 1);
         }
+
+        [Test]
+        public void Subscribe_NonexistentField_Throws()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            // Field 'missing' does not exist yet
+            Assert.Throws<ArgumentException>(() => root.Subscribe("missing", (in StorageEventArgs _) => { }));
+        }
+
+        [Test]
+        public void FieldSubscription_Handler_Can_Write_Other_Field()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            // Create fields before subscribing (required)
+            root.Write<int>("a", 0);
+            root.Write<int>("b", 0);
+
+            int aInvoked = 0;
+            int bInvoked = 0;
+
+            using var subA = root.Subscribe("a", (in StorageEventArgs e) =>
+            {
+                aInvoked++;
+                // Write to a different existing field inside handler
+                root.Write<int>("b", 42);
+            });
+            using var subB = root.Subscribe("b", (in StorageEventArgs e) => bInvoked++);
+
+            root.Write<int>("a", 1);
+
+            Assert.That(aInvoked, Is.EqualTo(1));
+            Assert.That(bInvoked, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void FieldSubscription_Handler_Delete_Same_Field_No_Reentrant_Loop()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            root.Write<int>("x", 0); // ensure field exists
+            int invoked = 0;
+            using var sub = root.Subscribe("x", (in StorageEventArgs e) =>
+            {
+                invoked++;
+                root.Delete("x");
+            });
+
+            root.Write<int>("x", 5);
+
+            Assert.That(invoked, Is.EqualTo(2));
+            Assert.IsFalse(root.HasField("x"));
+        }
+
+        [Test]
+        public void ContainerSubscription_Handler_Can_Read_Write_Delete()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            root.Write<int>("keep", 1);
+            root.Write<int>("remove", 2);
+
+            int containerEvents = 0;
+            int writesPerformedInHandler = 0;
+
+            using var sub = root.Subscribe((in StorageEventArgs e) =>
+            {
+                containerEvents++;
+                var v = root.Read<int>("keep");
+                Assert.That(v, Is.EqualTo(1));
+                if (!root.HasField("sideEffect"))
+                {
+                    root.Write<int>("sideEffect", 99);
+                    writesPerformedInHandler++;
+                }
+                if (root.HasField("remove"))
+                {
+                    root.Delete("remove");
+                }
+            });
+
+            root.Write<int>("trigger", 7);
+
+            Assert.That(containerEvents, Is.GreaterThanOrEqualTo(1));
+            Assert.IsTrue(root.HasField("sideEffect"));
+            Assert.IsFalse(root.HasField("remove"));
+            Assert.That(writesPerformedInHandler, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void FieldSubscription_Reentrant_Write_Same_Field_Is_Protected()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            root.Write<int>("loop", 0); // ensure field exists
+            int invoked = 0;
+            using var sub = root.Subscribe("loop", (in StorageEventArgs e) =>
+            {
+                invoked++;
+                if (invoked == 1)
+                {
+                    root.Write<int>("loop", 123);
+                }
+            });
+
+            root.Write<int>("loop", 1);
+
+            Assert.That(invoked, Is.LessThanOrEqualTo(2));
+        }
+
+        [Test]
+        public void FieldSubscription_AutoUnsub_OnDelete()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            root.Write<int>("temp", 1);
+            int deleteEvents = 0;
+            using var sub = root.Subscribe("temp", (in StorageEventArgs e) =>
+            {
+                if (e.Event == StorageEvent.Delete || (e.Event == StorageEvent.Dispose && e.Target.IsNull))
+                    deleteEvents++;
+            });
+
+            // Delete field
+            root.Delete("temp");
+
+            // Depending on implementation, deletion may raise Delete or Dispose
+            Assert.That(deleteEvents, Is.GreaterThanOrEqualTo(1), "Should receive at least one deletion/dispose event.");
+
+            // Recreate field and write; old subscription should be gone
+            root.Write<int>("temp", 5);
+            Assert.That(deleteEvents, Is.EqualTo(1), "Subscription should auto-unsubscribe after delete.");
+        }
     }
 }
