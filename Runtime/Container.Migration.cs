@@ -350,11 +350,8 @@ namespace Minerva.DataStorage
 
 
 
-        public void ReschemeForScalarArray(int length, ValueType valueType, int? elemSize = null)
+        public void ReschemeForArray(int length, ValueType valueType, int? elemSize = null)
         {
-            if (valueType == ValueType.Ref)
-                throw new ArgumentException("Use ReschemeForObject for object arrays.");
-
             ref ContainerHeader oldHeader = ref Header;
             int elementSize = elemSize ?? (valueType == ValueType.Blob ? throw new ArgumentException() : TypeUtil.SizeOf(valueType));
             int dataOffset = ContainerHeader.Size
@@ -365,13 +362,13 @@ namespace Minerva.DataStorage
             int size = dataOffset + dataLength;
 
             AllocatedMemory allocatedMemory = AllocatedMemory.Create(size);
+            // copy header
             ref ContainerHeader newHeader = ref Unsafe.As<byte, ContainerHeader>(ref allocatedMemory.Buffer.Span[0]);
             newHeader = oldHeader;
             newHeader.Length = size;
             newHeader.FieldCount = 1;
             newHeader.DataOffset = dataOffset;
             newHeader.ContainerNameLength = oldHeader.ContainerNameLength;
-
             // copy container name
             _memory.AsSpan(oldHeader.ContainerNameOffset, oldHeader.ContainerNameLength).CopyTo(allocatedMemory.AsSpan(newHeader.ContainerNameOffset, newHeader.ContainerNameLength));
             // write array field header
@@ -385,16 +382,21 @@ namespace Minerva.DataStorage
             // write array field name
             var nameBytes = MemoryMarshal.AsBytes(ContainerLayout.ArrayName.AsSpan());
             nameBytes.CopyTo(allocatedMemory.AsSpan(fieldHeader.NameOffset, nameBytes.Length));
+
             // zero init data area
             Span<byte> dstBytes = allocatedMemory.AsSpan(dataOffset, dataLength);   // NEW buffer slice
             dstBytes.Clear();
+
+            // record references to dispose
+            Span<ContainerReference> oldIds = default;
+
             // try copy old data
             if (FieldCount == 1)
             {
                 ref var oldField = ref GetFieldHeader(0);
                 // truely same type
                 // value type the same, but is array/non array, only diff in length (arr or non arr)
-                if (oldField.Type == fieldHeader.Type)
+                if (oldField.Type == valueType)
                 {
                     var srcBytes = GetFieldData(in oldField);           // OLD buffer read-only
                                                                         // copy as much as possible
@@ -402,17 +404,39 @@ namespace Minerva.DataStorage
                     srcBytes[..min].CopyTo(dstBytes[..min]);
                 }
                 // implicit conversion needed
-                else if (oldField.Type != ValueType.Blob && fieldHeader.Type != ValueType.Blob && fieldHeader.Type != ValueType.Ref)
+                else if (oldField.Type != ValueType.Blob && valueType != ValueType.Blob && valueType != ValueType.Ref)
                 {
                     var srcBytes = GetFieldData(in oldField);           // OLD buffer read-only
-                    Migration.MigrateValueFieldBytes(srcBytes, dstBytes, oldField.Type, fieldHeader.Type, true);
+                    Migration.MigrateValueFieldBytes(srcBytes, dstBytes, oldField.Type, valueType, true);
+                }
+                // any of them are refs
+                if (oldField.Type == ValueType.Ref)
+                {
+                    // Ref-to-Ref migration unchanged (copy ids, unregister tails)
+                    oldIds = GetFieldData<ContainerReference>(in oldField);
+                    if (valueType == ValueType.Ref)
+                    {
+                        var newIds = MemoryMarshal.Cast<byte, ContainerReference>(dstBytes);
+                        int min = Math.Min(oldIds.Length, newIds.Length);
+                        for (int i = 0; i < min; i++) newIds[i] = oldIds[i];
+                        // to dispose
+                        oldIds = oldIds[min..];
+                    }
                 }
             }
 
 
-            var oldMemory = _memory;
+
+            using var oldMemory = _memory;
             ChangeContent(allocatedMemory);
-            oldMemory.Dispose();
+
+            // dispose references
+            for (int i = 0; i < oldIds.Length; i++)
+            {
+                if (oldIds[i] == Registry.ID.Empty) continue;
+                var container = Registry.Shared.GetContainer(oldIds[i]);
+                Registry.Shared.Unregister(container);
+            }
         }
 
 

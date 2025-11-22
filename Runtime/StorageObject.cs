@@ -1052,11 +1052,7 @@ namespace Minerva.DataStorage
         internal void MakeArray<T>(int length) where T : unmanaged
         {
             // scalar array fast path
-            if (TypeUtil<T>.ValueType != ValueType.Ref)
-            {
-                _container.ReschemeForScalarArray(length, TypeUtil<T>.ValueType, TypeUtil<T>.Size);
-            }
-            Rescheme(ContainerLayout.BuildArray<T>(length), true);
+            _container.ReschemeForArray(length, TypeUtil<T>.ValueType, TypeUtil<T>.Size);
         }
 
         /// <summary>
@@ -1067,15 +1063,7 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void MakeArray(ValueType valueType, int length, int? elemSize = null)
         {
-            if (valueType != ValueType.Ref)
-            {
-                _container.ReschemeForScalarArray(length, valueType, elemSize ?? TypeUtil.SizeOf(valueType));
-            }
-            else
-            {
-                Rescheme(ContainerLayout.BuildFixedArray(valueType, length), true);
-                _container.GetFieldData(in _container.GetFieldHeader(0)).Clear();
-            }
+            _container.ReschemeForArray(length, valueType, elemSize ?? TypeUtil.SizeOf(valueType));
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
