@@ -1182,11 +1182,6 @@ namespace Minerva.DataStorage
                     : StorageObjectFactory.GetOrCreate(ref idRef, _container, layout, _container.GetFieldName(index))
                 );
 
-            if (!obj.IsNull)
-            {
-                var name = _container.GetFieldName(index).ToString();
-                Container.Registry.Shared.RegisterParent(obj.Container, _container, name);
-            }
             return obj;
         }
 
@@ -1232,11 +1227,6 @@ namespace Minerva.DataStorage
                     ? existingObj
                     : StorageObjectFactory.GetOrCreate(ref idRef, _container, layout, fieldName)
                 );
-            if (!obj.IsNull)
-            {
-                var name = fieldName.ToString();
-                Container.Registry.Shared.RegisterParent(obj.Container, _container, name);
-            }
             return obj;
         }
 
@@ -1256,11 +1246,6 @@ namespace Minerva.DataStorage
                     ? existingObj
                     : StorageObjectFactory.GetOrCreate(ref idRef, _container, layout, _container.GetFieldName(in header))
                 );
-            if (!obj.IsNull)
-            {
-                var name = _container.GetFieldName(in header).ToString();
-                Container.Registry.Shared.RegisterParent(obj.Container, _container, name);
-            }
             return obj;
         }
 
@@ -1563,22 +1548,13 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void NotifyFieldWrite(Container container, string fieldName, bool bubble = true)
-        {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
-                return;
-            var type = container.GetFieldHeader(fieldName).Type;
-            StorageWriteEventRegistry.NotifyField(container, fieldName, type, bubble);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static void NotifyFieldWrite(Container container, int fieldIndex, bool bubble = true)
         {
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
             ref var header = ref container.GetFieldHeader(fieldIndex);
             var fieldName = container.GetFieldName(in header).ToString();
-            StorageWriteEventRegistry.NotifyField(container, fieldName, header.Type, bubble);
+            StorageWriteEventRegistry.NotifyField(container, fieldName, header.Type);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1588,6 +1564,16 @@ namespace Minerva.DataStorage
                 return;
             NotifyFieldWrite(container, fieldName.ToString(), bubble);
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void NotifyFieldWrite(Container container, string fieldName, bool bubble = true)
+        {
+            if (!StorageWriteEventRegistry.HasSubscribers(container))
+                return;
+            var type = container.GetFieldHeader(fieldName).Type;
+            StorageWriteEventRegistry.NotifyField(container, fieldName, type);
+        }
+
     }
 }
 

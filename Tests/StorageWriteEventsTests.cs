@@ -119,13 +119,15 @@ namespace Minerva.DataStorage.Tests
                 Assert.That(StorageWriteEventRegistry.HasSubscribers(container), Is.False, "Generation change should clear subscriptions.");
 
                 StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Int32);
-                Assert.That(invoked, Is.EqualTo(1), "Handlers from previous generation must not fire.");
+                Assert.That(invoked, Is.EqualTo(2), "Handlers from previous generation should recieved dispose message.");
+                StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Int32);
+                Assert.That(invoked, Is.EqualTo(2), "Handlers from previous generation must not fire.");
 
                 subscription.Dispose(); // should be a no-op after reset
 
                 using var newSubscription = StorageWriteEventRegistry.Subscribe(container, "score", (in StorageFieldWriteEventArgs _) => invoked++);
                 StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Int32);
-                Assert.That(invoked, Is.EqualTo(2), "New subscription should work after generation reset.");
+                Assert.That(invoked, Is.EqualTo(3), "New subscription should work after generation reset.");
             }
             finally
             {
@@ -148,12 +150,14 @@ namespace Minerva.DataStorage.Tests
                 {
                     using var subscription = StorageWriteEventRegistry.Subscribe(container, "field", (in StorageFieldWriteEventArgs _) => totalInvocations++);
                     StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
-                    Assert.That(totalInvocations, Is.EqualTo(i + 1), $"Generation {i}: handler did not fire exactly once.");
+                    Assert.That(totalInvocations, Is.EqualTo(i * 2 + 1), $"Generation {i}: handler did not fire exactly once.");
 
                     ForceNewGeneration(container);
 
                     StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
-                    Assert.That(totalInvocations, Is.EqualTo(i + 1), $"Generation {i}: handler leaked into next generation.");
+                    Assert.That(totalInvocations, Is.EqualTo(i * 2 + 2), $"Generation {i}: handler not receive dispose message.");
+                    StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
+                    Assert.That(totalInvocations, Is.EqualTo(i * 2 + 2), $"Generation {i}: handler leaked into next generation.");
                 }
             }
             finally
@@ -208,7 +212,9 @@ namespace Minerva.DataStorage.Tests
                 Assert.That(StorageWriteEventRegistry.HasSubscribers(container), Is.False);
 
                 StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
-                Assert.That(count, Is.EqualTo(1));
+                Assert.That(count, Is.EqualTo(2)); // dispose message
+                StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
+                Assert.That(count, Is.EqualTo(2)); // should not invoke now
             }
             finally
             {
@@ -292,6 +298,51 @@ namespace Minerva.DataStorage.Tests
             {
                 container.Dispose();
             }
+        }
+
+        [Test]
+        public void Field_Deletion_Event_Invoke_Time()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            var child = root.GetObject("child");
+            for (int i = 0; i < 20; i++)
+            {
+                child.GetObject($"grandChild{i}"); // create multiple children
+            }
+            int count = 0;
+            child.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                count++;
+            });
+            root.Delete("child");
+            Assert.That(count, Is.EqualTo(1), "Deleting object should only invoke once.");
+        }
+
+        [Test]
+        public void Field_Deletion_Event_Invoke_Chain()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            var child = root.GetObject("child");
+            var grandChild = child.GetObject("grandChild");
+            var greatGrandChild = grandChild.GetObject("greatGrandChild");
+
+            int count = 0;
+            int grandChildInvoked = 0;
+            greatGrandChild.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                count++;
+            });
+            grandChild.Subscribe((in StorageFieldWriteEventArgs args) =>
+            {
+                grandChildInvoked++;
+                Assert.That(args.Target.IsNull);
+            });
+
+            root.Delete("child");
+            Assert.That(grandChildInvoked, Is.EqualTo(1), "Deleting object should only invoke once.");
+            Assert.That(count, Is.EqualTo(1), "Deleting object should only invoke once.");
         }
 
 

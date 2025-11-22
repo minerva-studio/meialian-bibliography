@@ -45,6 +45,33 @@ namespace Minerva.DataStorage
             chars[Length++] = v;
         }
 
+        public void Prepend(string str)
+        {
+            ThrowHelper.ThrowIfNull(chars, nameof(str));
+            Prepend(str.AsSpan());
+        }
+
+        public void Prepend(ReadOnlySpan<char> str)
+        {
+            EnsureFreeSize(str.Length);
+            // shift existing
+            chars.AsSpan(0, Length).CopyTo(chars.AsSpan(str.Length, Length));
+            // copy new
+            str.CopyTo(chars.AsSpan(0, str.Length));
+            Length += str.Length;
+        }
+
+        public void Prepend(char v)
+        {
+            EnsureFreeSize(1);
+            // shift existing
+            chars.AsSpan(0, Length).CopyTo(chars.AsSpan(1, Length));
+            // copy new
+            chars[0] = v;
+            Length += 1;
+        }
+
+
         private void EnsureFreeSize(int size)
         {
             int remain = chars.Length - Length;

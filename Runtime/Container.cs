@@ -157,10 +157,16 @@ namespace Minerva.DataStorage
             _schemaVersion = 0;
         }
 
+        /// <summary>
+        /// Mark as dispose but not actually dispose the internal memory
+        /// </summary>
+        public void MarkDispose()
+        {
+            _disposed = true;
+        }
+
         public void Dispose()
         {
-            if (_disposed) return;
-
             // set disposed
             _disposed = true;
             _memory.Dispose();
@@ -519,12 +525,17 @@ namespace Minerva.DataStorage
             return true;
         }
 
+        /// <summary>
+        /// INTERNAL DEBUG USE ONLY: Write object reference without validation.
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <param name="container"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void WriteObject(ReadOnlySpan<char> fieldName, Container container)
         {
             GetRefNoRescheme(fieldName) = container.ID;
             if (container != null)
-                Registry.Shared.RegisterParent(container, this, fieldName);
+                Registry.Shared.RegisterParent(container, this);
         }
 
         #endregion

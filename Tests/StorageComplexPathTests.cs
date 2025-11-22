@@ -140,14 +140,14 @@ namespace Minerva.DataStorage.Tests
         }
 
         [Test]
-        public void PathWithIndex_MissingElement_Throws()
+        public void PathWithIndex_MissingElement_WillNotThrow()
         {
             using var s = Create();
             var a = s.Root.GetObject("a");
             var b = a.GetObject("b");
             b.MakeArray(ValueType.Ref, 2);
-            // Do NOT allocate element 1
-            Assert.Throws<IndexOutOfRangeException>(() => s.Root.WritePath<int>("a.b[1].value", 7));
+            // auto allocate element 1
+            Assert.DoesNotThrow(() => s.Root.WritePath<int>("a.b[1].value", 7));
         }
     }
 }

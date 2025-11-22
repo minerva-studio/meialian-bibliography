@@ -18,6 +18,20 @@ namespace Minerva.DataStorage
                 public const ulong Wild = ulong.MaxValue;
             }
 
+
+            struct Link
+            {
+                public Container parent;
+                public string fieldName;
+
+                public Link(Container parent, Container child)
+                {
+                    this.parent = parent;
+                    this.fieldName = child.Name.ToString();
+                }
+            }
+
+
             public static Registry Shared { get; } = new Registry();
             public static int PoolCount => pool.Count;
 
@@ -26,43 +40,8 @@ namespace Minerva.DataStorage
             private readonly object _lock = new();
             private readonly Dictionary<ulong, Container> _table = new();
             private readonly Dictionary<ulong, ulong> _parentMap = new();
-
-            public void RegisterParent(Container child, Container parent, ReadOnlySpan<char> segment, int? index = null)
-            {
-                if (child == null || parent == null)
-                    return;
-
-                var seg = BuildSegment(segment, index);
-                lock (_lock)
-                {
-                    _parentMap[child.ID] = parent.ID;
-                }
-            }
-
-            private static string BuildSegment(ReadOnlySpan<char> segment, int? index)
-            {
-                var name = segment.ToString();
-                if (index.HasValue)
-                    return $"{name}[{index.Value}]";
-                return name;
-            }
-
-            public Container? GetParent(Container child)
-            {
-                if (child == null) return null;
-                lock (_lock)
-                {
-                    if (_parentMap.TryGetValue(child.ID, out var parent))
-                    {
-                        return _table.GetValueOrDefault(parent);
-                    }
-                    //if (_parents.TryGetValue(child.ID, out var link))
-                    //{
-                    //    return _table.GetValueOrDefault(link.ParentId);
-                    //}
-                }
-                return null;
-            }
+            //[ThreadStatic]
+            //private static Sta;
 
             internal bool TryGetParent(Container child, out Container? parent)
             {
@@ -81,17 +60,17 @@ namespace Minerva.DataStorage
             }
 
 
-            public void Register(Container container, Container parent)
+            public void Register(Container child, Container parent)
             {
-                ThrowHelper.ThrowIfNull(container, nameof(container));
+                ThrowHelper.ThrowIfNull(child, nameof(child));
                 ThrowHelper.ThrowIfNull(parent, nameof(parent));
                 lock (_lock)
                 {
-                    if (container.ID != ID.Wild)
+                    if (child.ID != ID.Wild)
                         throw new InvalidOperationException("Container already registered.");
 
-                    Assign_NoLock(container);
-                    _parentMap[container.ID] = parent.ID;
+                    Assign_NoLock(child);
+                    _parentMap[child.ID] = parent.ID;
                 }
             }
 
@@ -127,21 +106,16 @@ namespace Minerva.DataStorage
                 if (container._id == ID.Wild || container._id == 0UL) return;
 
                 var descendants = new List<Container>();
-                CollectDescendants(container, descendants);
-
-                // Capture parent links for notification before they are removed
-                var parentNotifications = new List<(Container Parent, string Segment)>(descendants.Count);
-                foreach (var child in descendants)
+                using TempString str = new TempString(container.Name);
+                try
                 {
-                    if (TryGetParent(child, out var parent) && parent != null)
-                    {
-                        parentNotifications.Add((parent, child.Name.ToString()));
-                    }
-                    //if (TryGetParentLink(child, out var parent, out var segment) && parent != null && !string.IsNullOrEmpty(segment))
-                    //{
-                    //    parentNotifications.Add((parent, segment));
-                    //}
+                    CollectDescendants(container, descendants);
                 }
+                catch (StackOverflowException)
+                {
+                    throw new InvalidOperationException("Cyclic container reference detected during unregister.");
+                }
+                TryGetParent(container, out var parent);
 
                 lock (_lock)
                 {
@@ -162,7 +136,7 @@ namespace Minerva.DataStorage
                 // Dispose first
                 foreach (var c in descendants)
                 {
-                    c.Dispose();
+                    c.MarkDispose();
                 }
 
                 // Notify all descendants
@@ -170,37 +144,34 @@ namespace Minerva.DataStorage
                 {
                     // NOTE: c is Disposed. Accessing c.Memory will throw.
                     // Subscribers must only check c.ID (which is 0) or reference equality.
-                    StorageWriteEventRegistry.Notify(c, null, ValueType.Unknown, isDeleted: true);
-                }
-
-                // Notify parents about deleted child fields
-                foreach (var (parent, segment) in parentNotifications)
-                {
-                    // If parent is also being deleted (part of descendants), its ID is now 0.
-                    // We skip notifying it about child deletion to avoid double notifications (it already got self-deletion).
-                    if (parent.ID == 0) continue;
-
-                    StorageWriteEventRegistry.Notify(parent, segment, ValueType.Unknown, isDeleted: true);
-                }
-
-                // Finally return to pool
-                foreach (var c in descendants)
-                {
+                    StorageWriteEventRegistry.NotifyDispose(c, c.Generation);
+                    c.Dispose();
+                    // return to pool
                     pool.Return(c);
                 }
+
+                // Notify parents about deleted child fields 
+                if (parent != null && parent.ID != ID.Empty)
+                    StorageWriteEventRegistry.Notify(parent, str.ToString(), ValueType.Unknown, isDeleted: true);
             }
+
+            public void RegisterParent(Container child, Container parent)
+            {
+                if (child == null || parent == null)
+                    return;
+
+                lock (_lock)
+                {
+                    _parentMap[child.ID] = parent.ID;
+                }
+            }
+
 
 
 
             private void CollectDescendants(Container root, List<Container> list)
             {
-                CollectDescendants(root, list, new HashSet<ulong>());
-            }
-
-            private void CollectDescendants(Container root, List<Container> list, HashSet<ulong> visited)
-            {
                 if (root == null || root.ID == ID.Wild || root.ID == 0UL) return;
-                if (!visited.Add(root.ID)) return;
 
                 // Depth-first post-order traversal
                 // 1. Children
@@ -220,7 +191,7 @@ namespace Minerva.DataStorage
                         var child = GetContainer(cid);
                         if (child != null)
                         {
-                            CollectDescendants(child, list, visited);
+                            CollectDescendants(child, list);
                         }
                     }
                 }
