@@ -644,7 +644,7 @@ namespace Minerva.DataStorage.Tests
             using var subscription = root.Subscribe("score", (in StorageFieldWriteEventArgs args) =>
             {
                 invoked++;
-                Assert.That(args.FieldName, Is.EqualTo("score"));
+                Assert.That(args.Path, Is.EqualTo("score"));
                 Assert.That(args.FieldType, Is.EqualTo(ValueType.Int32));
                 Assert.That(args.Target.Read<int>("score"), Is.EqualTo(123));
             });
@@ -908,7 +908,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = root.Subscribe("player.stats.hp", (in StorageFieldWriteEventArgs args) =>
             {
                 invoked++;
-                Assert.That(args.FieldName, Is.EqualTo("hp"));
+                Assert.That(args.Path, Is.EqualTo("hp"));
                 Assert.That(args.Target.Read<int>("hp"), Is.EqualTo(42));
             });
 
@@ -1306,7 +1306,7 @@ namespace Minerva.DataStorage.Tests
             int deleteCount = 0;
             using var sub = root.Subscribe("score", (in StorageFieldWriteEventArgs args) =>
             {
-                if (args.FieldType == ValueType.Unknown)
+                if (args.Event == StorageEvent.Delete)
                     deleteCount++;
             });
 
@@ -1345,8 +1345,11 @@ namespace Minerva.DataStorage.Tests
             int deleteNotified = 0;
             using var sub = root.Subscribe("value", (in StorageFieldWriteEventArgs args) =>
             {
-                if (args.FieldType == ValueType.Unknown)
+                if (args.Event == StorageEvent.Delete)
                     deleteNotified++;
+#if UNITY_EDITOR
+                UnityEngine.Debug.Log(args);
+#endif
             });
 
             root.Delete("value");
@@ -1387,7 +1390,7 @@ namespace Minerva.DataStorage.Tests
             int deleteCount = 0;
             using var sub = root.Subscribe("flag", (in StorageFieldWriteEventArgs args) =>
             {
-                if (args.FieldType == ValueType.Unknown)
+                if (args.Event == StorageEvent.Delete)
                     deleteCount++;
             });
 
@@ -1607,59 +1610,64 @@ namespace Minerva.DataStorage.Tests
             using var grandParentSub = grandParent.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
                 grandParentSubCount++;
-                if (args.Target.IsNull)
-                {
-                    Assert.That(args.FieldName, Is.EqualTo("parent"), "grandParentSub should be parent");
-                    grandParentKnowsChildDeleted = true;
-                }
+                Assert.That(args.Event == StorageEvent.Delete, "parent should receive delete event");
+                Assert.That(args.Target == grandParent, "grand parent should not be destroyed");
+                Assert.That(!args.Target.IsNull, "grand parent should not be destroyed");
+                Assert.That(args.Path, Is.EqualTo("parent"), "grandParentSub should be parent");
+                grandParentKnowsChildDeleted = true;
             });
 
             using var parentSub = parent.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
                 parentSubCount++;
-                if (args.Target.IsNull)
-                {
-                    if (args.FieldName == string.Empty)
-                        parentDeleted = true;
-                }
+                Assert.That(args.Event == StorageEvent.Dispose, "parent should receive dispose event");
+                Assert.That(args.Target == parent, "parent should receive right target");
+                Assert.That(args.Target.IsNull, "parent should be destroyed");
+                Assert.That(string.IsNullOrEmpty(args.Path), "parent should recieve empty string");
+                parentDeleted = true;
+
             });
 
             using var childSub = child.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
+                Assert.That(args.Event == StorageEvent.Dispose, "childSub should recieve dispose event");
                 childSubCount++;
                 if (args.Target.IsNull)
                 {
-                    if (args.FieldName == string.Empty)
+                    if (args.Path == string.Empty)
                         childDeleted = true;
                 }
             });
 
             using var grandChildSub = grandChild.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
+                Assert.That(args.Event == StorageEvent.Dispose, "grandChildSub should recieve dispose event");
                 grandChildSubCount++;
                 if (args.Target.IsNull)
                 {
-                    Assert.That(args.FieldName, Is.EqualTo(string.Empty), "grandChildSub should be empty");
+                    Assert.That(string.IsNullOrEmpty(args.Path), "grandChildSub should be empty");
                     grandChildDeleted = true;
                 }
             });
 
             using var childFieldSub = child.Subscribe("stat", (in StorageFieldWriteEventArgs args) =>
             {
+                Assert.That(args.Event == StorageEvent.Dispose, "childFieldSub should recieve dispose event");
                 childFieldSubCount++;
                 if (args.Target.IsNull)
                 {
-                    Assert.That(args.FieldName, Is.EqualTo("stat"), "childFieldSub should be stat");
+                    Assert.That(string.IsNullOrEmpty(args.Path), "childFieldSub should be stat");
                     childFieldDeleted = true;
                 }
             });
 
             using var grandFieldSub = grandChild.Subscribe("hp", (in StorageFieldWriteEventArgs args) =>
             {
+                Assert.That(args.Event == StorageEvent.Dispose, "grandFieldSub should recieve dispose event");
                 grandFieldSubCount++;
                 if (args.Target.IsNull)
                 {
-                    Assert.That(args.FieldName, Is.EqualTo("hp"), "grandFieldSub should be hp");
+                    Assert.That(string.IsNullOrEmpty(args.Path), "grandFieldSub should be hp");
                     grandFieldDeleted = true;
                 }
             });
@@ -1702,7 +1710,7 @@ namespace Minerva.DataStorage.Tests
                 {
                     rootCount++;
                     Assert.That(args.Target.ID, Is.EqualTo(root.ID));
-                    Assert.That(args.FieldName, Is.EqualTo("level1.level2.stat"));
+                    Assert.That(args.Path, Is.EqualTo("level1.level2.stat"));
                 }
             });
 
@@ -1712,7 +1720,7 @@ namespace Minerva.DataStorage.Tests
                 {
                     level1Count++;
                     Assert.That(args.Target.ID, Is.EqualTo(level1.ID));
-                    Assert.That(args.FieldName, Is.EqualTo("level2.stat"));
+                    Assert.That(args.Path, Is.EqualTo("level2.stat"));
                 }
             });
 
@@ -1722,7 +1730,7 @@ namespace Minerva.DataStorage.Tests
                 {
                     level2ContainerCount++;
                     Assert.That(args.Target.ID, Is.EqualTo(level2.ID));
-                    Assert.That(args.FieldName, Is.EqualTo("stat"));
+                    Assert.That(args.Path, Is.EqualTo("stat"));
                 }
             });
 
@@ -1732,7 +1740,7 @@ namespace Minerva.DataStorage.Tests
                 {
                     level2FieldCount++;
                     Assert.That(args.Target.ID, Is.EqualTo(level2.ID));
-                    Assert.That(args.FieldName, Is.EqualTo("stat"));
+                    Assert.That(args.Path, Is.EqualTo("stat"));
                 }
             });
 
@@ -1756,7 +1764,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = root.Subscribe("hp", (in StorageFieldWriteEventArgs args) =>
             {
                 notified = true;
-                Assert.That(args.FieldName, Is.EqualTo("hp"));
+                Assert.That(args.Path, Is.EqualTo("hp"));
                 Assert.That(args.Target.Read<int>("hp"), Is.EqualTo(100));
             });
 
@@ -1782,19 +1790,19 @@ namespace Minerva.DataStorage.Tests
 
             using var subRoot = root.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
-                if (!args.Target.IsNull) { rootCount++; Assert.That(args.FieldName, Is.EqualTo("A.B.C.val")); }
+                if (!args.Target.IsNull) { rootCount++; Assert.That(args.Path, Is.EqualTo("A.B.C.val")); }
             });
             using var subA = a.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
-                if (!args.Target.IsNull) { aCount++; Assert.That(args.FieldName, Is.EqualTo("B.C.val")); }
+                if (!args.Target.IsNull) { aCount++; Assert.That(args.Path, Is.EqualTo("B.C.val")); }
             });
             using var subB = b.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
-                if (!args.Target.IsNull) { bCount++; Assert.That(args.FieldName, Is.EqualTo("C.val")); }
+                if (!args.Target.IsNull) { bCount++; Assert.That(args.Path, Is.EqualTo("C.val")); }
             });
             using var subC = c.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
-                if (!args.Target.IsNull) { cCount++; Assert.That(args.FieldName, Is.EqualTo("val")); }
+                if (!args.Target.IsNull) { cCount++; Assert.That(args.Path, Is.EqualTo("val")); }
             });
 
             c.Write("val", 42);
@@ -1816,8 +1824,11 @@ namespace Minerva.DataStorage.Tests
             using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
                 // Root should see "child" deleted
-                if (args.Target.IsNull && args.FieldName == "child")
+                if (args.Target == root && args.Event == StorageEvent.Delete && args.Path == "child")
                     parentNotified = true;
+#if UNITY_EDITOR
+                UnityEngine.Debug.Log(args);
+#endif
             });
 
             root.Delete("child");
@@ -1838,17 +1849,17 @@ namespace Minerva.DataStorage.Tests
 
             using var subRoot = root.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
-                if (args.Target.IsNull && args.FieldName == "parent") rootNotified = true;
+                if (args.Target == root && args.Path == "parent") rootNotified = true;
             });
 
             using var subParent = parent.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
-                if (args.Target.IsNull && args.FieldName == string.Empty) parentSelfNotified = true;
+                if (args.Target == parent && args.Path == string.Empty) parentSelfNotified = true;
             });
 
             using var subChild = child.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
-                if (args.Target.IsNull && args.FieldName == string.Empty) childSelfNotified = true;
+                if (args.Target == child && args.Path == string.Empty) childSelfNotified = true;
             });
 
             root.Delete("parent");
@@ -1899,7 +1910,7 @@ namespace Minerva.DataStorage.Tests
             bool childNotified = false;
             using var sub = child.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
-                if (args.Target.IsNull && args.FieldName == string.Empty) childNotified = true;
+                if (args.Target.IsNull && args.Path == string.Empty) childNotified = true;
             });
 
             storage.Dispose(); // Deletes root
@@ -2004,7 +2015,7 @@ namespace Minerva.DataStorage.Tests
             {
                 events++;
                 Assert.That(args.Target, Is.EqualTo(root));
-                Assert.That(args.FieldName, Is.EqualTo("a").Or.EqualTo("b"));
+                Assert.That(args.Path, Is.EqualTo("a").Or.EqualTo("b"));
             });
 
             root.Delete("a", "b");
@@ -2027,7 +2038,7 @@ namespace Minerva.DataStorage.Tests
             var rootEvents = new System.Collections.Generic.List<string>();
             using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
             {
-                if (args.Target.IsNull) rootEvents.Add(args.FieldName);
+                rootEvents.Add(args.Path);
             });
 
             root.Delete("A");

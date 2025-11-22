@@ -85,7 +85,7 @@ namespace Minerva.DataStorage.Tests
             ob.SetBytes("tiny".AsMemory(), (byte)ft, new byte[2]);
 
             var c = ob.BuildContainer();
-            Assert.That(() => c.Write<int>("tiny", 42, allowRescheme: false), Throws.TypeOf<IndexOutOfRangeException>());
+            Assert.That(() => c.Write<int>("tiny", 42, allowRescheme: false), Throws.TypeOf<ArgumentException>());
         }
 
         [Test]

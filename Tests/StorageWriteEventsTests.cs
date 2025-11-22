@@ -111,22 +111,22 @@ namespace Minerva.DataStorage.Tests
                 int invoked = 0;
                 var subscription = StorageWriteEventRegistry.Subscribe(container, "score", (in StorageFieldWriteEventArgs _) => invoked++);
 
-                StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "score", ValueType.Int32);
                 Assert.That(invoked, Is.EqualTo(1), "Baseline notification failed.");
 
                 ForceNewGeneration(container);
 
                 Assert.That(StorageWriteEventRegistry.HasSubscribers(container), Is.False, "Generation change should clear subscriptions.");
 
-                StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "score", ValueType.Int32);
                 Assert.That(invoked, Is.EqualTo(2), "Handlers from previous generation should recieved dispose message.");
-                StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "score", ValueType.Int32);
                 Assert.That(invoked, Is.EqualTo(2), "Handlers from previous generation must not fire.");
 
                 subscription.Dispose(); // should be a no-op after reset
 
                 using var newSubscription = StorageWriteEventRegistry.Subscribe(container, "score", (in StorageFieldWriteEventArgs _) => invoked++);
-                StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "score", ValueType.Int32);
                 Assert.That(invoked, Is.EqualTo(3), "New subscription should work after generation reset.");
             }
             finally
@@ -149,14 +149,14 @@ namespace Minerva.DataStorage.Tests
                 for (int i = 0; i < 25; i++)
                 {
                     using var subscription = StorageWriteEventRegistry.Subscribe(container, "field", (in StorageFieldWriteEventArgs _) => totalInvocations++);
-                    StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
+                    StorageWriteEventRegistry.NotifyFieldWrite(container, "field", ValueType.Int32);
                     Assert.That(totalInvocations, Is.EqualTo(i * 2 + 1), $"Generation {i}: handler did not fire exactly once.");
 
                     ForceNewGeneration(container);
 
-                    StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
+                    StorageWriteEventRegistry.NotifyFieldWrite(container, "field", ValueType.Int32);
                     Assert.That(totalInvocations, Is.EqualTo(i * 2 + 2), $"Generation {i}: handler not receive dispose message.");
-                    StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
+                    StorageWriteEventRegistry.NotifyFieldWrite(container, "field", ValueType.Int32);
                     Assert.That(totalInvocations, Is.EqualTo(i * 2 + 2), $"Generation {i}: handler leaked into next generation.");
                 }
             }
@@ -182,8 +182,8 @@ namespace Minerva.DataStorage.Tests
                     count++;
                 });
 
-                StorageWriteEventRegistry.NotifyField(container, "a", ValueType.Int32);
-                StorageWriteEventRegistry.NotifyField(container, "b", ValueType.Float32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "a", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "b", ValueType.Float32);
 
                 Assert.That(count, Is.EqualTo(2));
             }
@@ -205,15 +205,15 @@ namespace Minerva.DataStorage.Tests
                 int count = 0;
                 StorageWriteEventRegistry.SubscribeToContainer(container, (in StorageFieldWriteEventArgs _) => count++);
 
-                StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "field", ValueType.Int32);
                 Assert.That(count, Is.EqualTo(1));
 
                 ForceNewGeneration(container);
                 Assert.That(StorageWriteEventRegistry.HasSubscribers(container), Is.False);
 
-                StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "field", ValueType.Int32);
                 Assert.That(count, Is.EqualTo(2)); // dispose message
-                StorageWriteEventRegistry.NotifyField(container, "field", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "field", ValueType.Int32);
                 Assert.That(count, Is.EqualTo(2)); // should not invoke now
             }
             finally
@@ -237,9 +237,9 @@ namespace Minerva.DataStorage.Tests
                 using var scoreSub = StorageWriteEventRegistry.Subscribe(container, "score", (in StorageFieldWriteEventArgs _) => scoreCount++);
                 using var hpSub = StorageWriteEventRegistry.Subscribe(container, "hp", (in StorageFieldWriteEventArgs _) => hpCount++);
 
-                StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Int32);
-                StorageWriteEventRegistry.NotifyField(container, "hp", ValueType.Int32);
-                StorageWriteEventRegistry.NotifyField(container, "score", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "score", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "hp", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "score", ValueType.Int32);
 
                 Assert.That(scoreCount, Is.EqualTo(2));
                 Assert.That(hpCount, Is.EqualTo(1));
@@ -262,11 +262,11 @@ namespace Minerva.DataStorage.Tests
                 int count = 0;
                 var subscription = StorageWriteEventRegistry.SubscribeToContainer(container, (in StorageFieldWriteEventArgs _) => count++);
 
-                StorageWriteEventRegistry.NotifyField(container, "a", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "a", ValueType.Int32);
                 Assert.That(count, Is.EqualTo(1));
 
                 subscription.Dispose();
-                StorageWriteEventRegistry.NotifyField(container, "a", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "a", ValueType.Int32);
                 Assert.That(count, Is.EqualTo(1));
             }
             finally
@@ -289,7 +289,7 @@ namespace Minerva.DataStorage.Tests
                 using var subA = StorageWriteEventRegistry.Subscribe(container, "value", (in StorageFieldWriteEventArgs _) => a++);
                 using var subB = StorageWriteEventRegistry.Subscribe(container, "value", (in StorageFieldWriteEventArgs _) => b++);
 
-                StorageWriteEventRegistry.NotifyField(container, "value", ValueType.Int32);
+                StorageWriteEventRegistry.NotifyFieldWrite(container, "value", ValueType.Int32);
 
                 Assert.That(a, Is.EqualTo(1));
                 Assert.That(b, Is.EqualTo(1));

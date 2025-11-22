@@ -5,25 +5,41 @@ using System.Threading;
 
 namespace Minerva.DataStorage
 {
+    public enum StorageEvent
+    {
+        None = 0,
+        Write = 1,
+        Rename = 2, // placeholder
+        Delete = 3,
+        Dispose = 4,
+    }
+
     /// <summary>
     /// Describes a write event raised for a specific field within a container.
     /// </summary>
     public readonly struct StorageFieldWriteEventArgs
     {
+        public StorageEvent Event { get; }
         /// <summary>The container receiving this invocation (default if deleted).</summary>
         public StorageObject Target { get; }
 
         /// <summary>Path of the written or deleted field relative to <see cref="Target"/>.</summary>
-        public string FieldName { get; }
+        public string Path { get; }
 
         /// <summary>Value type recorded for the field after the write.</summary>
         public ValueType FieldType { get; }
 
-        internal StorageFieldWriteEventArgs(StorageObject target, string fieldName, ValueType fieldType)
+        internal StorageFieldWriteEventArgs(StorageEvent e, StorageObject target, string path, ValueType fieldType)
         {
+            Event = e;
             Target = target;
-            FieldName = fieldName;
+            Path = path;
             FieldType = fieldType;
+        }
+
+        public override string ToString()
+        {
+            return $"Type: {Event}, Path: {Path}, FieldType: {FieldType}";
         }
     }
 
@@ -83,57 +99,6 @@ namespace Minerva.DataStorage
             return slot.AddContainerSubscriber(handler);
         }
 
-        public static void NotifyField(Container container, string fieldName, ValueType fieldType)
-            => Notify(container, fieldName, fieldType, isDeleted: false);
-
-        public static void Notify(Container origin, string fieldName, ValueType fieldType, bool isDeleted = false)
-        {
-            if (origin == null)
-                return;
-
-            using TempString str = new(fieldName ?? "");
-
-            var current = origin;
-            bool isOrigin = true;
-            do
-            {
-                if (_table.TryGetValue(current, out var slot) && slot.TryPrepareGeneration(current.Generation))
-                {
-                    string fieldKey = isOrigin ? fieldName : string.Empty;
-
-                    // If we are deleting the container itself (origin) we broadcast to all fields.
-                    var target = isDeleted ? default : new StorageObject(current);
-                    string path = str.ToString();
-                    bool broadcastToFields = isDeleted && isOrigin;
-
-                    var args = new StorageFieldWriteEventArgs(target, path, fieldType);
-                    slot.Notify(in args, fieldKey, broadcastToFields);
-                }
-
-                // travrse up to root now
-                if (!Container.Registry.Shared.TryGetParent(current, out var parent))
-                    break;
-
-                str.Prepend('.');
-                str.Prepend(current.Name);
-
-                current = parent;
-                isOrigin = false;
-            }
-            while (current != null);
-        }
-
-        public static void NotifyDispose(Container container, int generation)
-        {
-            if (container == null)
-                return;
-
-            if (_table.TryGetValue(container, out var slot))
-            {
-                slot.NotifyDispose(generation);
-            }
-        }
-
         public static bool HasSubscribers(Container container)
         {
             var current = container;
@@ -156,6 +121,70 @@ namespace Minerva.DataStorage
                 slot.RemoveField(fieldName);
         }
 
+
+
+
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void NotifyFieldWrite(Container container, string fieldName, ValueType fieldType)
+            => NotifyField(container, fieldName, fieldType, StorageEvent.Write);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void NotifyFieldDelete(Container container, string fieldName, ValueType fieldType)
+            => NotifyField(container, fieldName, fieldType, StorageEvent.Delete);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void NotifyDispose(Container container, int generation)
+        {
+            if (container == null)
+                return;
+
+            if (_table.TryGetValue(container, out var slot))
+            {
+                slot.NotifyDispose(generation);
+            }
+        }
+
+        public static void NotifyField(Container source, string fieldName, ValueType fieldType, StorageEvent type)
+        {
+            if (source == null)
+                return;
+
+            // local
+            if (_table.TryGetValue(source, out var slot) && slot.TryPrepareGeneration(source.Generation))
+            {
+                // If we are deleting the container itself (origin) we broadcast to all fields. 
+                var target = new StorageObject(source);
+                var args = new StorageFieldWriteEventArgs(type, target, fieldName, fieldType);
+                slot.Notify(in args, fieldName);
+            }
+
+            NotifyUpward(source, fieldName, fieldType, type);
+        }
+
+        private static void NotifyUpward(Container source, string fieldName, ValueType fieldType, StorageEvent type)
+        {
+            if (source == null)
+                return;
+
+            Container current = source;
+            using TempString str = new(fieldName ?? "");
+            while (Container.Registry.Shared.TryGetParent(current, out var parent))
+            {
+                str.Prepend('.');
+                str.Prepend(current.Name);
+                if (_table.TryGetValue(parent, out var slot) && slot.TryPrepareGeneration(parent.Generation))
+                {
+                    // If we are deleting the container itself (origin) we broadcast to all fields. 
+                    string path = str.ToString();
+                    var target = new StorageObject(parent);
+                    var args = new StorageFieldWriteEventArgs(type, target, path, fieldType);
+                    slot.Notify(in args, path);
+                }
+                current = parent;
+            }
+        }
     }
 
     /// <summary>
@@ -209,7 +238,7 @@ namespace Minerva.DataStorage
                 if (_generation == generation)
                     return;
 
-                CollectEvents_NoLock(string.Empty, broadcast: true, out fieldSnapshot, out containerSnapshot, out broadcastSnapshot);
+                CollectEvents_NoLock(string.Empty, out fieldSnapshot, out containerSnapshot, out broadcastSnapshot);
 
                 _byField.Clear();
                 _containerSubscribers.Clear();
@@ -218,7 +247,7 @@ namespace Minerva.DataStorage
                 _generation = generation;
             }
 
-            StorageFieldWriteEventArgs baseArgs = new(default, string.Empty, ValueType.Unknown);
+            StorageFieldWriteEventArgs baseArgs = new(StorageEvent.Dispose, default, string.Empty, ValueType.Unknown);
             Notify(in baseArgs, fieldSnapshot, containerSnapshot, broadcastSnapshot);
         }
 
@@ -325,7 +354,20 @@ namespace Minerva.DataStorage
 
             lock (_gate)
             {
-                CollectEvents_NoLock(path, broadcast, out fieldSnapshot, out containerSnapshot, out broadcastSnapshot);
+                CollectEvents_NoLock(path, out fieldSnapshot, out containerSnapshot, out broadcastSnapshot);
+            }
+            Notify(in baseArgs, fieldSnapshot, containerSnapshot, broadcastSnapshot);
+        }
+
+        public void Notify(in StorageFieldWriteEventArgs baseArgs, string path)
+        {
+            Subscriber[] fieldSnapshot;
+            Subscriber[] containerSnapshot;
+            List<(string Key, Subscriber[] Subs)> broadcastSnapshot;
+
+            lock (_gate)
+            {
+                CollectEvents_NoLock(path, out fieldSnapshot, out containerSnapshot, out broadcastSnapshot);
             }
             Notify(in baseArgs, fieldSnapshot, containerSnapshot, broadcastSnapshot);
         }
@@ -350,7 +392,7 @@ namespace Minerva.DataStorage
                 {
                     // If broadcasting, we update the FieldName in the args to match the field 
                     // so subscribers know which field is being deleted.
-                    var fieldArgs = new StorageFieldWriteEventArgs(baseArgs.Target, key, baseArgs.FieldType);
+                    var fieldArgs = new StorageFieldWriteEventArgs(baseArgs.Event, baseArgs.Target, key, baseArgs.FieldType);
                     for (int i = 0; i < subs.Length; i++)
                     {
                         subs[i].Handler(in fieldArgs);
@@ -366,7 +408,7 @@ namespace Minerva.DataStorage
             }
         }
 
-        private void CollectEvents_NoLock(string path, bool broadcast, out Subscriber[] fieldSnapshot, out Subscriber[] containerSnapshot, out List<(string Key, Subscriber[] Subs)> broadcastSnapshot)
+        private void CollectEvents_NoLock(string fieldName, out Subscriber[] fieldSnapshot, out Subscriber[] containerSnapshot, out List<(string Key, Subscriber[] Subs)> broadcastSnapshot)
         {
             fieldSnapshot = Array.Empty<Subscriber>();
             containerSnapshot = Array.Empty<Subscriber>();
@@ -375,9 +417,29 @@ namespace Minerva.DataStorage
             broadcastSnapshot = null;
 
             // 1. Specific field subscribers
-            if (!string.IsNullOrEmpty(path) && _byField.TryGetValue(path, out var list) && list.Count > 0)
+            if (!string.IsNullOrEmpty(fieldName))
             {
-                fieldSnapshot = list.ToArray();
+                if (_byField.TryGetValue(fieldName, out var list) && list.Count > 0)
+                    fieldSnapshot = list.ToArray();
+            }
+            // broadcast if no field name specified
+            else if (_byField.Count > 0)
+            {
+                int size = 0;
+                foreach (var kvp in _byField)
+                {
+                    size += kvp.Value.Count;
+                }
+                int index = 0;
+                fieldSnapshot = new Subscriber[size];
+                foreach (var item in _byField)
+                {
+                    List<Subscriber> value = item.Value;
+                    for (int i = 0; i < value.Count; i++)
+                    {
+                        fieldSnapshot[index++] = value[i];
+                    }
+                }
             }
 
             // 2. Container subscribers
@@ -387,20 +449,7 @@ namespace Minerva.DataStorage
             }
 
             // 3. Broadcast to all fields
-            if (broadcast && _byField.Count > 0)
-            {
-                broadcastSnapshot = new List<(string, Subscriber[])>(_byField.Count);
-                foreach (var kvp in _byField)
-                {
-                    if (kvp.Value.Count > 0)
-                    {
-                        broadcastSnapshot.Add((kvp.Key, kvp.Value.ToArray()));
-                    }
-                }
-            }
         }
-
-
 
         private readonly struct Subscriber
         {

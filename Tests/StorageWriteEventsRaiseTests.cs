@@ -3,6 +3,7 @@ using NUnit.Framework;
 
 namespace Minerva.DataStorage.Tests
 {
+    [Timeout(10)]
     [TestFixture]
     public class StorageWriteEventsRaiseTests
     {
@@ -28,7 +29,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             storage.Root.Write("hp", 5);
             Assert.AreEqual(1, _count);
-            Assert.AreEqual("hp", _last.FieldName);
+            Assert.AreEqual("hp", _last.Path);
         }
 
         [Test]
@@ -38,7 +39,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             Assert.IsTrue(storage.Root.TryWrite<int>("energy", 88));
             Assert.AreEqual(1, _count);
-            Assert.AreEqual("energy", _last.FieldName);
+            Assert.AreEqual("energy", _last.Path);
         }
 
         [Test]
@@ -48,7 +49,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             storage.Root.Override("mana", BitConverter.GetBytes(42), ValueType.Int32);
             Assert.AreEqual(1, _count);
-            Assert.AreEqual("mana", _last.FieldName);
+            Assert.AreEqual("mana", _last.Path);
         }
 
         [Test]
@@ -59,7 +60,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             storage.Root.Write("name", "hero");
             Assert.AreEqual(1, _count);
-            Assert.AreEqual("name", _last.FieldName);
+            Assert.AreEqual("name", _last.Path);
         }
 
         [Test]
@@ -69,7 +70,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             storage.Root.WriteArray<int>(new int[] { 1, 2, 3 });
             Assert.AreEqual(1, _count);
-            Assert.AreEqual(ContainerLayout.ArrayName, _last.FieldName);
+            Assert.AreEqual(ContainerLayout.ArrayName, _last.Path);
         }
 
         [Test]
@@ -79,7 +80,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             storage.Root.WritePath<int>("stats.hp", 33);
             Assert.GreaterOrEqual(_count, 1);
-            Assert.AreEqual("stats.hp", _last.FieldName);
+            Assert.AreEqual("stats.hp", _last.Path);
         }
 
         [Test]
@@ -89,7 +90,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             storage.Root.Write<int>("stats", 33);
             Assert.GreaterOrEqual(_count, 1);
-            Assert.AreEqual("stats", _last.FieldName);
+            Assert.AreEqual("stats", _last.Path);
         }
 
         [Test]
@@ -99,7 +100,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             storage.Root.WriteArrayPath<int>("numbers".AsSpan(), new int[] { 9, 8 });
             Assert.AreEqual(1, _count);
-            Assert.AreEqual("numbers", _last.FieldName);
+            Assert.AreEqual("numbers", _last.Path);
         }
 
         [Test]
@@ -125,7 +126,7 @@ namespace Minerva.DataStorage.Tests
             // Write to element [1]
             storage.Root.WritePath<int>("numbers[1]", 99);
             Assert.AreEqual(1, _count, "Exactly one event should fire for element write");
-            Assert.AreEqual("numbers[1]", _last.FieldName, "Event path should include index");
+            Assert.AreEqual("numbers[1]", _last.Path, "Event path should include index");
         }
 
         [Test]
@@ -138,7 +139,7 @@ namespace Minerva.DataStorage.Tests
             storage.Root.GetObject("items").MakeObjectArray(5);
             storage.Root.WritePath<int>("items[2].value", 7);
             Assert.GreaterOrEqual(_count, 1);
-            Assert.AreEqual("items[2].value", _last.FieldName, "Event path should include array index and child field name");
+            Assert.AreEqual("items[2].value", _last.Path, "Event path should include array index and child field name");
         }
     }
 }

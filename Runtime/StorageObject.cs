@@ -898,7 +898,7 @@ namespace Minerva.DataStorage
                 {
                     for (int i = 0; i < idsToFree.Length; i++)
                     {
-                        if (idsToFree[i] != 0)
+                        if (idsToFree[i] != Container.Registry.ID.Empty)
                         {
                             willTriggerUnregister = true;
                             break;
@@ -908,7 +908,7 @@ namespace Minerva.DataStorage
 
                 if (!willTriggerUnregister)
                 {
-                    NotifyFieldChange(container, fieldName, fieldType, deleted: true);
+                    NotifyFieldDelete(container, fieldName, fieldType);
                 }
 
                 StorageWriteEventRegistry.RemoveFieldSubscriptions(container, fieldName);
@@ -928,12 +928,12 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void NotifyFieldChange(Container container, string fieldName, ValueType fieldType, bool deleted = false)
+        private static void NotifyFieldDelete(Container container, string fieldName, ValueType fieldType)
         {
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
 
-            StorageWriteEventRegistry.NotifyField(container, fieldName, deleted ? ValueType.Unknown : fieldType);
+            StorageWriteEventRegistry.NotifyFieldDelete(container, fieldName, fieldType);
         }
 
 
@@ -1554,7 +1554,7 @@ namespace Minerva.DataStorage
                 return;
             ref var header = ref container.GetFieldHeader(fieldIndex);
             var fieldName = container.GetFieldName(in header).ToString();
-            StorageWriteEventRegistry.NotifyField(container, fieldName, header.Type);
+            StorageWriteEventRegistry.NotifyFieldWrite(container, fieldName, header.Type);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1562,7 +1562,8 @@ namespace Minerva.DataStorage
         {
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
-            NotifyFieldWrite(container, fieldName.ToString(), bubble);
+            var type = container.GetFieldHeader(fieldName).Type;
+            StorageWriteEventRegistry.NotifyFieldWrite(container, fieldName.ToString(), type);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1571,7 +1572,7 @@ namespace Minerva.DataStorage
             if (!StorageWriteEventRegistry.HasSubscribers(container))
                 return;
             var type = container.GetFieldHeader(fieldName).Type;
-            StorageWriteEventRegistry.NotifyField(container, fieldName, type);
+            StorageWriteEventRegistry.NotifyFieldWrite(container, fieldName, type);
         }
 
     }

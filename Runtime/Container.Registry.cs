@@ -152,7 +152,7 @@ namespace Minerva.DataStorage
 
                 // Notify parents about deleted child fields 
                 if (parent != null && parent.ID != ID.Empty)
-                    StorageWriteEventRegistry.Notify(parent, str.ToString(), ValueType.Unknown, isDeleted: true);
+                    StorageWriteEventRegistry.NotifyFieldDelete(parent, str.ToString(), ValueType.Ref);
             }
 
             public void RegisterParent(Container child, Container parent)
