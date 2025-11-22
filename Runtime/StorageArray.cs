@@ -219,12 +219,17 @@ namespace Minerva.DataStorage
             int fieldIndex = _handle.EnsureNotDisposed();
             ref var header = ref _handle.Container.GetFieldHeader(fieldIndex);
 
-            if (header.IsRef)
-                Container.Registry.Shared.Unregister(ref _handle.Container.GetFieldData<ContainerReference>(in header)[index]);
-
-            int elementSize = header.ElemSize;
-            var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
-            span.Clear();
+            if (!header.IsRef)
+            {
+                int elementSize = header.ElemSize;
+                var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                span.Clear();
+            }
+            else
+            {
+                _handle.Container.GetFieldData<ContainerReference>(in header)[index].Unregister();
+            }
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Name.ToString(), FieldType);
         }
 
         /// <summary>Clear all bytes (zero-fill).</summary>
@@ -235,12 +240,16 @@ namespace Minerva.DataStorage
             if (header.IsRef)
             {
                 Span<ContainerReference> ids = _handle.Container.GetFieldData<ContainerReference>(in header);
-                for (int i = 0; i < ids.Length; i++)
-                {
-                    Container.Registry.Shared.Unregister(ref ids[i]);
-                }
+                using Container.UnregisterBuffer buffer = Container.UnregisterBuffer.New(_handle.Container);
+                buffer.AddArray(ids);
+                ids.Clear();
+                buffer.Send();
             }
-            _handle.Container.GetFieldData(in header).Clear();
+            else
+            {
+                _handle.Container.GetFieldData(in header).Clear();
+            }
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Name.ToString(), FieldType);
         }
 
         public T[] ToArray<T>() where T : unmanaged

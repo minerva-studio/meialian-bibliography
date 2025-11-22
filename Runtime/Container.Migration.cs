@@ -63,7 +63,7 @@ namespace Minerva.DataStorage
         /// Internal overload allowing to skip zero-initialization when the caller
         /// will fully overwrite the new buffer manually.
         /// </summary>  
-        public void Rescheme(ContainerLayout newLayout)
+        public void Rescheme(ContainerLayout newLayout, bool quiet = false)
         {
             if (newLayout is null) throw new ArgumentNullException(nameof(newLayout));
             EnsureNotDisposed();
@@ -74,6 +74,8 @@ namespace Minerva.DataStorage
 
             // Prepare destination buffer
             //byte[] dstBuf = DefaultPool.Rent(newSchema.TotalLength);
+            using UnregisterBuffer unregister = UnregisterBuffer.New(this);
+            using ScalarDeleteBuffer scalarDelete = ScalarDeleteBuffer.New(this);
             ref ContainerHeader header = ref Header;
             int newLength = newLayout.TotalLength + header.ContainerNameLength;
             AllocatedMemory dstBuf = AllocatedMemory.Create(newLength);
@@ -99,8 +101,11 @@ namespace Minerva.DataStorage
                     if (oldField.IsRef)
                     {
                         var oldIds = GetFieldData<ContainerReference>(in oldField);
-                        for (int j = 0; j < oldIds.Length; j++)
-                            Registry.Shared.Unregister(ref oldIds[j]);
+                        unregister.Add(oldIds, oldField.IsInlineArray, true);
+                    }
+                    else
+                    {
+                        scalarDelete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
                     }
                     continue;
                 }
@@ -116,8 +121,11 @@ namespace Minerva.DataStorage
                     if (oldField.IsRef)
                     {
                         var oldIds = GetFieldData<ContainerReference>(in oldField);
-                        for (int j = 0; j < oldIds.Length; j++)
-                            Registry.Shared.Unregister(ref oldIds[j]);
+                        unregister.Add(oldIds, oldField.IsInlineArray, true);
+                    }
+                    else
+                    {
+                        scalarDelete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
                     }
                     dstBytes.Clear();
                     continue;
@@ -150,7 +158,7 @@ namespace Minerva.DataStorage
 
                     int min = Math.Min(oldIds.Length, newIds.Length);
                     for (int i = 0; i < min; i++) newIds[i] = oldIds[i];
-                    for (int i = min; i < oldIds.Length; i++) Registry.Shared.Unregister(ref oldIds[i]);
+                    unregister.Add(oldIds[min..], oldField.IsInlineArray);
                 }
             }
 
@@ -158,6 +166,8 @@ namespace Minerva.DataStorage
             var oldBuf = _memory;
             ChangeContent(dstBuf);
             oldBuf.Dispose();
+            unregister.Send(quiet);
+            scalarDelete.Send(quiet);
         }
 
 
@@ -335,6 +345,74 @@ namespace Minerva.DataStorage
                 ArrayPool<char>.Shared.Return(fieldNameBuffer);
                 ArrayPool<char>.Shared.Return(nameBuffer);
             }
+        }
+
+
+
+
+        public void ReschemeForScalarArray(int length, ValueType valueType, int? elemSize = null)
+        {
+            if (valueType == ValueType.Ref)
+                throw new ArgumentException("Use ReschemeForObject for object arrays.");
+
+            ref ContainerHeader oldHeader = ref Header;
+            int elementSize = elemSize ?? (valueType == ValueType.Blob ? throw new ArgumentException() : TypeUtil.SizeOf(valueType));
+            int dataOffset = ContainerHeader.Size
+                + FieldHeader.Size
+                + oldHeader.ContainerNameLength
+                + ContainerLayout.ArrayName.Length * sizeof(char);
+            int dataLength = length * elementSize;
+            int size = dataOffset + dataLength;
+
+            AllocatedMemory allocatedMemory = AllocatedMemory.Create(size);
+            ref ContainerHeader newHeader = ref Unsafe.As<byte, ContainerHeader>(ref allocatedMemory.Buffer.Span[0]);
+            newHeader = oldHeader;
+            newHeader.Length = size;
+            newHeader.FieldCount = 1;
+            newHeader.DataOffset = dataOffset;
+            newHeader.ContainerNameLength = oldHeader.ContainerNameLength;
+
+            // copy container name
+            _memory.AsSpan(oldHeader.ContainerNameOffset, oldHeader.ContainerNameLength).CopyTo(allocatedMemory.AsSpan(newHeader.ContainerNameOffset, newHeader.ContainerNameLength));
+            // write array field header
+            ref FieldHeader fieldHeader = ref FieldHeader.FromSpanAndFieldIndex(allocatedMemory.Buffer.Span, 0);
+            fieldHeader.NameLength = (short)ContainerLayout.ArrayName.Length;
+            fieldHeader.NameOffset = newHeader.ContainerNameOffset + newHeader.ContainerNameLength;
+            fieldHeader.DataOffset = dataOffset;
+            fieldHeader.Length = dataLength;
+            fieldHeader.FieldType = new FieldType(valueType, true);
+            fieldHeader.ElemSize = (short)elementSize;
+            // write array field name
+            var nameBytes = MemoryMarshal.AsBytes(ContainerLayout.ArrayName.AsSpan());
+            nameBytes.CopyTo(allocatedMemory.AsSpan(fieldHeader.NameOffset, nameBytes.Length));
+            // zero init data area
+            Span<byte> dstBytes = allocatedMemory.AsSpan(dataOffset, dataLength);   // NEW buffer slice
+            dstBytes.Clear();
+            // try copy old data
+            if (FieldCount == 1)
+            {
+                ref var oldField = ref GetFieldHeader(0);
+                // truely same type
+                // value type the same, but is array/non array, only diff in length (arr or non arr)
+                if (oldField.Type == fieldHeader.Type)
+                {
+                    var srcBytes = GetFieldData(in oldField);           // OLD buffer read-only
+                                                                        // copy as much as possible
+                    int min = Math.Min(srcBytes.Length, dstBytes.Length);
+                    srcBytes[..min].CopyTo(dstBytes[..min]);
+                }
+                // implicit conversion needed
+                else if (oldField.Type != ValueType.Blob && fieldHeader.Type != ValueType.Blob && fieldHeader.Type != ValueType.Ref)
+                {
+                    var srcBytes = GetFieldData(in oldField);           // OLD buffer read-only
+                    Migration.MigrateValueFieldBytes(srcBytes, dstBytes, oldField.Type, fieldHeader.Type, true);
+                }
+            }
+
+
+            var oldMemory = _memory;
+            ChangeContent(allocatedMemory);
+            oldMemory.Dispose();
         }
 
 

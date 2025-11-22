@@ -21,6 +21,19 @@ namespace Minerva.DataStorage
             set => id = value?.ID ?? Container.Registry.ID.Empty;
         }
 
+        public void Unregister()
+        {
+            // already unregistered or is null
+            if (id == Container.Registry.ID.Empty) return;
+
+            var container = Container.Registry.Shared.GetContainer(id);
+            if (container != null)
+                Container.Registry.Shared.Unregister(container);
+
+            id = Container.Registry.ID.Empty;  // mark as unregistered
+        }
+
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ref ContainerReference FromSpan(Span<byte> span) => ref MemoryMarshal.Cast<byte, ContainerReference>(span)[0];
 

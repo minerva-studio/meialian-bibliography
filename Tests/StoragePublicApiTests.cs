@@ -645,7 +645,7 @@ namespace Minerva.DataStorage.Tests
             {
                 invoked++;
                 Assert.That(args.Path, Is.EqualTo("score"));
-                Assert.That(args.FieldType, Is.EqualTo(ValueType.Int32));
+                Assert.That(args.FieldType, Is.EqualTo(TypeUtil<int>.ScalarFieldType));
                 Assert.That(args.Target.Read<int>("score"), Is.EqualTo(123));
             });
 
@@ -1994,7 +1994,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = root.Subscribe("val", (in StorageEventArgs args) =>
             {
                 notified = true;
-                Assert.That(args.FieldType, Is.EqualTo(ValueType.Float32));
+                Assert.That(args.FieldType, Is.EqualTo(TypeUtil<float>.ScalarFieldType));
             });
 
             // Change type int -> float

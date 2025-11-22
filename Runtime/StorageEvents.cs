@@ -27,9 +27,9 @@ namespace Minerva.DataStorage
         public string Path { get; }
 
         /// <summary>Value type recorded for the field after the write.</summary>
-        public ValueType FieldType { get; }
+        public FieldType FieldType { get; }
 
-        internal StorageEventArgs(StorageEvent e, StorageObject target, string path, ValueType fieldType)
+        internal StorageEventArgs(StorageEvent e, StorageObject target, string path, FieldType fieldType)
         {
             Event = e;
             Target = target;
@@ -141,15 +141,15 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void NotifyFieldWrite(Container container, string fieldName, ValueType fieldType)
+        public static void NotifyFieldWrite(Container container, string fieldName, FieldType fieldType)
             => NotifyField(container, fieldName, fieldType, StorageEvent.Write);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void NotifyFieldDelete(Container container, string fieldName, ValueType fieldType)
+        public static void NotifyFieldDelete(Container container, string fieldName, FieldType fieldType)
             => NotifyField(container, fieldName, fieldType, StorageEvent.Delete);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void NotifyField(Container source, string fieldName, ValueType fieldType, StorageEvent type)
+        public static void NotifyField(Container source, string fieldName, FieldType fieldType, StorageEvent type)
         {
             if (source == null)
                 return;
@@ -245,7 +245,7 @@ namespace Minerva.DataStorage
                 _generation = generation;
             }
 
-            StorageEventArgs baseArgs = new(StorageEvent.Dispose, default, string.Empty, ValueType.Unknown);
+            StorageEventArgs baseArgs = new(StorageEvent.Dispose, default, string.Empty, FieldType.ScalarUnknown);
             Notify(in baseArgs, fieldSnapshot);
         }
 
@@ -379,12 +379,11 @@ namespace Minerva.DataStorage
             // broadcast if no field name specified
             else if (_byField.Count > 0)
             {
-                // 3. Broadcast to all fields
-                int size = 0;
+                // 3. Broadcast to all fields 
                 broadcast = true;
                 foreach (var kvp in _byField)
                 {
-                    size += kvp.Value.Count;
+                    length += kvp.Value.Count;
                 }
             }
             // 2. Container subscribers 

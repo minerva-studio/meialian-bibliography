@@ -105,7 +105,7 @@ namespace Minerva.DataStorage.Tests
         {
             using var storage = new Storage(ContainerLayout.Empty);
             using var sub = SubscribeAll(storage.Root);
-            storage.Root.WriteArrayPath<int>("numbers".AsSpan(), new int[] { 9, 8 });
+            storage.Root.WriteArrayPath<int>("numbers", new int[] { 9, 8 });
             Assert.AreEqual(1, _count);
             Assert.AreEqual("numbers", _last.Path);
         }
