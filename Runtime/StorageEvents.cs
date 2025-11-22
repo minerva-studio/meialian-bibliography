@@ -231,14 +231,13 @@ namespace Minerva.DataStorage
         {
             Subscriber[] fieldSnapshot = null;
             Subscriber[] containerSnapshot = null;
-            List<(string Key, Subscriber[] Subs)> broadcastSnapshot = null;
 
             lock (_gate)
             {
                 if (_generation == generation)
                     return;
 
-                CollectEvents_NoLock(string.Empty, out fieldSnapshot, out containerSnapshot, out broadcastSnapshot);
+                CollectEvents_NoLock(string.Empty, out fieldSnapshot, out containerSnapshot);
 
                 _byField.Clear();
                 _containerSubscribers.Clear();
@@ -248,7 +247,7 @@ namespace Minerva.DataStorage
             }
 
             StorageEventArgs baseArgs = new(StorageEvent.Dispose, default, string.Empty, ValueType.Unknown);
-            Notify(in baseArgs, fieldSnapshot, containerSnapshot, broadcastSnapshot);
+            Notify(in baseArgs, fieldSnapshot, containerSnapshot);
         }
 
         public StorageSubscription AddFieldSubscriber(string fieldName, StorageMemberHandler handler)
@@ -346,36 +345,21 @@ namespace Minerva.DataStorage
             ResetForGeneration(generation + 1);
         }
 
-        public void Notify(in StorageEventArgs baseArgs, string path, bool broadcast)
-        {
-            Subscriber[] fieldSnapshot;
-            Subscriber[] containerSnapshot;
-            List<(string Key, Subscriber[] Subs)> broadcastSnapshot;
-
-            lock (_gate)
-            {
-                CollectEvents_NoLock(path, out fieldSnapshot, out containerSnapshot, out broadcastSnapshot);
-            }
-            Notify(in baseArgs, fieldSnapshot, containerSnapshot, broadcastSnapshot);
-        }
-
         public void Notify(in StorageEventArgs baseArgs, string path)
         {
             Subscriber[] fieldSnapshot;
             Subscriber[] containerSnapshot;
-            List<(string Key, Subscriber[] Subs)> broadcastSnapshot;
 
             lock (_gate)
             {
-                CollectEvents_NoLock(path, out fieldSnapshot, out containerSnapshot, out broadcastSnapshot);
+                CollectEvents_NoLock(path, out fieldSnapshot, out containerSnapshot);
             }
-            Notify(in baseArgs, fieldSnapshot, containerSnapshot, broadcastSnapshot);
+            Notify(in baseArgs, fieldSnapshot, containerSnapshot);
         }
 
         private static void Notify(in StorageEventArgs baseArgs,
             Subscriber[] fieldSnapshot,
-            Subscriber[] containerSnapshot,
-            List<(string Key, Subscriber[] Subs)> broadcastSnapshot)
+            Subscriber[] containerSnapshot)
         {
 
             // Fire specific field subscribers
@@ -383,21 +367,6 @@ namespace Minerva.DataStorage
             {
                 for (int i = 0; i < fieldSnapshot.Length; i++)
                     fieldSnapshot[i].Handler(in baseArgs);
-            }
-
-            // Fire broadcast field subscribers
-            if (broadcastSnapshot != null)
-            {
-                foreach (var (key, subs) in broadcastSnapshot)
-                {
-                    // If broadcasting, we update the FieldName in the args to match the field 
-                    // so subscribers know which field is being deleted.
-                    var fieldArgs = new StorageEventArgs(baseArgs.Event, baseArgs.Target, key, baseArgs.FieldType);
-                    for (int i = 0; i < subs.Length; i++)
-                    {
-                        subs[i].Handler(in fieldArgs);
-                    }
-                }
             }
 
             // Fire container subscribers
@@ -408,13 +377,10 @@ namespace Minerva.DataStorage
             }
         }
 
-        private void CollectEvents_NoLock(string fieldName, out Subscriber[] fieldSnapshot, out Subscriber[] containerSnapshot, out List<(string Key, Subscriber[] Subs)> broadcastSnapshot)
+        private void CollectEvents_NoLock(string fieldName, out Subscriber[] fieldSnapshot, out Subscriber[] containerSnapshot)
         {
             fieldSnapshot = Array.Empty<Subscriber>();
             containerSnapshot = Array.Empty<Subscriber>();
-
-            // We might need to snapshot all fields if broadcasting
-            broadcastSnapshot = null;
 
             // 1. Specific field subscribers
             if (!string.IsNullOrEmpty(fieldName))
@@ -425,6 +391,7 @@ namespace Minerva.DataStorage
             // broadcast if no field name specified
             else if (_byField.Count > 0)
             {
+                // 3. Broadcast to all fields
                 int size = 0;
                 foreach (var kvp in _byField)
                 {
@@ -448,7 +415,6 @@ namespace Minerva.DataStorage
                 containerSnapshot = _containerSubscribers.ToArray();
             }
 
-            // 3. Broadcast to all fields
         }
 
         private readonly struct Subscriber
