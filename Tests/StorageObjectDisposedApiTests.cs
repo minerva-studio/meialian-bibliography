@@ -90,8 +90,8 @@ namespace Minerva.DataStorage.Tests
             ExpectDisposed(() => root.HasField("x"), "HasField(name)");
             ExpectDisposed(() => root.Rescheme(ContainerLayout.Empty), "Rescheme(layout)");
             ExpectDisposed(() => root.Delete("x"), "Delete(name)");
-            ExpectDisposed(() => root.Subscribe("x", (in StorageFieldWriteEventArgs _) => { }), "Subscribe(path,handler)");
-            ExpectDisposed(() => root.Subscribe((in StorageFieldWriteEventArgs _) => { }), "Subscribe(container)");
+            ExpectDisposed(() => root.Subscribe("x", (in StorageEventArgs _) => { }), "Subscribe(path,handler)");
+            ExpectDisposed(() => root.Subscribe((in StorageEventArgs _) => { }), "Subscribe(container)");
         }
     }
 }

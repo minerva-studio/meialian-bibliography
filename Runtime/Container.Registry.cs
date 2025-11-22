@@ -144,7 +144,7 @@ namespace Minerva.DataStorage
                 {
                     // NOTE: c is Disposed. Accessing c.Memory will throw.
                     // Subscribers must only check c.ID (which is 0) or reference equality.
-                    StorageWriteEventRegistry.NotifyDispose(c, c.Generation);
+                    StorageEventRegistry.NotifyDispose(c, c.Generation);
                     c.Dispose();
                     // return to pool
                     pool.Return(c);
@@ -152,7 +152,7 @@ namespace Minerva.DataStorage
 
                 // Notify parents about deleted child fields 
                 if (parent != null && parent.ID != ID.Empty)
-                    StorageWriteEventRegistry.NotifyFieldDelete(parent, str.ToString(), ValueType.Ref);
+                    StorageEventRegistry.NotifyFieldDelete(parent, str.ToString(), ValueType.Ref);
             }
 
             public void RegisterParent(Container child, Container parent)

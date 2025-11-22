@@ -17,7 +17,7 @@ namespace Minerva.DataStorage
     /// <summary>
     /// Describes a write event raised for a specific field within a container.
     /// </summary>
-    public readonly struct StorageFieldWriteEventArgs
+    public readonly struct StorageEventArgs
     {
         public StorageEvent Event { get; }
         /// <summary>The container receiving this invocation (default if deleted).</summary>
@@ -29,7 +29,7 @@ namespace Minerva.DataStorage
         /// <summary>Value type recorded for the field after the write.</summary>
         public ValueType FieldType { get; }
 
-        internal StorageFieldWriteEventArgs(StorageEvent e, StorageObject target, string path, ValueType fieldType)
+        internal StorageEventArgs(StorageEvent e, StorageObject target, string path, ValueType fieldType)
         {
             Event = e;
             Target = target;
@@ -47,18 +47,18 @@ namespace Minerva.DataStorage
     /// Delegate invoked when a subscribed field is written.
     /// </summary>
     /// <param name="args">Context for the write.</param>
-    public delegate void StorageFieldWriteHandler(in StorageFieldWriteEventArgs args);
+    public delegate void StorageMemberHandler(in StorageEventArgs args);
 
 
     /// <summary>
     /// Represents a registered subscription that can be disposed to stop notifications.
     /// </summary>
-    public sealed class StorageWriteSubscription : IDisposable
+    public sealed class StorageSubscription : IDisposable
     {
         private readonly Action _disposeAction;
         private bool _disposed;
 
-        internal StorageWriteSubscription(Action disposeAction)
+        internal StorageSubscription(Action disposeAction)
         {
             _disposeAction = disposeAction ?? throw new ArgumentNullException(nameof(disposeAction));
         }
@@ -74,11 +74,11 @@ namespace Minerva.DataStorage
     /// <summary>
     /// Central registry that maps containers to their subscription lists.
     /// </summary>
-    internal static class StorageWriteEventRegistry
+    internal static class StorageEventRegistry
     {
         private static readonly ConditionalWeakTable<Container, ContainerSubscriptions> _table = new();
 
-        public static StorageWriteSubscription Subscribe(Container container, string fieldName, StorageFieldWriteHandler handler)
+        public static StorageSubscription Subscribe(Container container, string fieldName, StorageMemberHandler handler)
         {
             if (container == null) throw new ArgumentNullException(nameof(container));
             if (string.IsNullOrEmpty(fieldName)) throw new ArgumentException("Field name cannot be null or empty.", nameof(fieldName));
@@ -89,7 +89,7 @@ namespace Minerva.DataStorage
             return slot.AddFieldSubscriber(fieldName, handler);
         }
 
-        public static StorageWriteSubscription SubscribeToContainer(Container container, StorageFieldWriteHandler handler)
+        public static StorageSubscription SubscribeToContainer(Container container, StorageMemberHandler handler)
         {
             if (container == null) throw new ArgumentNullException(nameof(container));
             if (handler == null) throw new ArgumentNullException(nameof(handler));
@@ -156,7 +156,7 @@ namespace Minerva.DataStorage
             {
                 // If we are deleting the container itself (origin) we broadcast to all fields. 
                 var target = new StorageObject(source);
-                var args = new StorageFieldWriteEventArgs(type, target, fieldName, fieldType);
+                var args = new StorageEventArgs(type, target, fieldName, fieldType);
                 slot.Notify(in args, fieldName);
             }
 
@@ -179,7 +179,7 @@ namespace Minerva.DataStorage
                     // If we are deleting the container itself (origin) we broadcast to all fields. 
                     string path = str.ToString();
                     var target = new StorageObject(parent);
-                    var args = new StorageFieldWriteEventArgs(type, target, path, fieldType);
+                    var args = new StorageEventArgs(type, target, path, fieldType);
                     slot.Notify(in args, path);
                 }
                 current = parent;
@@ -247,11 +247,11 @@ namespace Minerva.DataStorage
                 _generation = generation;
             }
 
-            StorageFieldWriteEventArgs baseArgs = new(StorageEvent.Dispose, default, string.Empty, ValueType.Unknown);
+            StorageEventArgs baseArgs = new(StorageEvent.Dispose, default, string.Empty, ValueType.Unknown);
             Notify(in baseArgs, fieldSnapshot, containerSnapshot, broadcastSnapshot);
         }
 
-        public StorageWriteSubscription AddFieldSubscriber(string fieldName, StorageFieldWriteHandler handler)
+        public StorageSubscription AddFieldSubscriber(string fieldName, StorageMemberHandler handler)
         {
             if (handler == null) throw new ArgumentNullException(nameof(handler));
 
@@ -266,11 +266,11 @@ namespace Minerva.DataStorage
                 var subscriber = new Subscriber(_nextId++, handler);
                 list.Add(subscriber);
                 Interlocked.Increment(ref _subscriptionCount);
-                return new StorageWriteSubscription(() => RemoveFieldSubscriber(fieldName, subscriber.Id));
+                return new StorageSubscription(() => RemoveFieldSubscriber(fieldName, subscriber.Id));
             }
         }
 
-        public StorageWriteSubscription AddContainerSubscriber(StorageFieldWriteHandler handler)
+        public StorageSubscription AddContainerSubscriber(StorageMemberHandler handler)
         {
             if (handler == null) throw new ArgumentNullException(nameof(handler));
 
@@ -279,7 +279,7 @@ namespace Minerva.DataStorage
                 var subscriber = new Subscriber(_nextId++, handler);
                 _containerSubscribers.Add(subscriber);
                 Interlocked.Increment(ref _subscriptionCount);
-                return new StorageWriteSubscription(() => RemoveContainerSubscriber(subscriber.Id));
+                return new StorageSubscription(() => RemoveContainerSubscriber(subscriber.Id));
             }
         }
 
@@ -346,7 +346,7 @@ namespace Minerva.DataStorage
             ResetForGeneration(generation + 1);
         }
 
-        public void Notify(in StorageFieldWriteEventArgs baseArgs, string path, bool broadcast)
+        public void Notify(in StorageEventArgs baseArgs, string path, bool broadcast)
         {
             Subscriber[] fieldSnapshot;
             Subscriber[] containerSnapshot;
@@ -359,7 +359,7 @@ namespace Minerva.DataStorage
             Notify(in baseArgs, fieldSnapshot, containerSnapshot, broadcastSnapshot);
         }
 
-        public void Notify(in StorageFieldWriteEventArgs baseArgs, string path)
+        public void Notify(in StorageEventArgs baseArgs, string path)
         {
             Subscriber[] fieldSnapshot;
             Subscriber[] containerSnapshot;
@@ -372,7 +372,7 @@ namespace Minerva.DataStorage
             Notify(in baseArgs, fieldSnapshot, containerSnapshot, broadcastSnapshot);
         }
 
-        private static void Notify(in StorageFieldWriteEventArgs baseArgs,
+        private static void Notify(in StorageEventArgs baseArgs,
             Subscriber[] fieldSnapshot,
             Subscriber[] containerSnapshot,
             List<(string Key, Subscriber[] Subs)> broadcastSnapshot)
@@ -392,7 +392,7 @@ namespace Minerva.DataStorage
                 {
                     // If broadcasting, we update the FieldName in the args to match the field 
                     // so subscribers know which field is being deleted.
-                    var fieldArgs = new StorageFieldWriteEventArgs(baseArgs.Event, baseArgs.Target, key, baseArgs.FieldType);
+                    var fieldArgs = new StorageEventArgs(baseArgs.Event, baseArgs.Target, key, baseArgs.FieldType);
                     for (int i = 0; i < subs.Length; i++)
                     {
                         subs[i].Handler(in fieldArgs);
@@ -454,9 +454,9 @@ namespace Minerva.DataStorage
         private readonly struct Subscriber
         {
             public int Id { get; }
-            public StorageFieldWriteHandler Handler { get; }
+            public StorageMemberHandler Handler { get; }
 
-            public Subscriber(int id, StorageFieldWriteHandler handler)
+            public Subscriber(int id, StorageMemberHandler handler)
             {
                 Id = id;
                 Handler = handler ?? throw new ArgumentNullException(nameof(handler));

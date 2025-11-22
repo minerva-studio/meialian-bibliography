@@ -272,17 +272,17 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Subscribe to write notifications for this container (all fields under it).
         /// </summary>
-        public StorageWriteSubscription Subscribe(StorageFieldWriteHandler handler)
+        public StorageSubscription Subscribe(StorageMemberHandler handler)
         {
             ThrowHelper.ThrowIfNull(handler, nameof(handler));
             var container = _container.EnsureNotDisposed(_generation);
-            return StorageWriteEventRegistry.SubscribeToContainer(container, handler);
+            return StorageEventRegistry.SubscribeToContainer(container, handler);
         }
 
         /// <summary>
         /// Subscribe to a field or child container specified by path segments separated with the default separator.
         /// </summary>
-        public StorageWriteSubscription Subscribe(string path, StorageFieldWriteHandler handler, char separator = DefaultPathSeparator)
+        public StorageSubscription Subscribe(string path, StorageMemberHandler handler, char separator = DefaultPathSeparator)
         {
             ThrowHelper.ThrowIfNull(path, nameof(path));
             ThrowHelper.ThrowIfNull(handler, nameof(handler));
@@ -820,7 +820,7 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Subscribe to a local field/child without performing path navigation.
         /// </summary>
-        private StorageWriteSubscription SubscribeLocal(ReadOnlySpan<char> name, StorageFieldWriteHandler handler)
+        private StorageSubscription SubscribeLocal(ReadOnlySpan<char> name, StorageMemberHandler handler)
         {
             if (name.Length == 0)
                 return Subscribe(handler);
@@ -838,7 +838,7 @@ namespace Minerva.DataStorage
                 return child.Subscribe(handler);
             }
 
-            return StorageWriteEventRegistry.Subscribe(container, name.ToString(), handler);
+            return StorageEventRegistry.Subscribe(container, name.ToString(), handler);
         }
 
 
@@ -911,7 +911,7 @@ namespace Minerva.DataStorage
                     NotifyFieldDelete(container, fieldName, fieldType);
                 }
 
-                StorageWriteEventRegistry.RemoveFieldSubscriptions(container, fieldName);
+                StorageEventRegistry.RemoveFieldSubscriptions(container, fieldName);
 
                 // Prevent leaks: Unregister the detached children
                 if (idsToFree != null)
@@ -930,10 +930,10 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void NotifyFieldDelete(Container container, string fieldName, ValueType fieldType)
         {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
+            if (!StorageEventRegistry.HasSubscribers(container))
                 return;
 
-            StorageWriteEventRegistry.NotifyFieldDelete(container, fieldName, fieldType);
+            StorageEventRegistry.NotifyFieldDelete(container, fieldName, fieldType);
         }
 
 
@@ -1550,29 +1550,29 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static void NotifyFieldWrite(Container container, int fieldIndex, bool bubble = true)
         {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
+            if (!StorageEventRegistry.HasSubscribers(container))
                 return;
             ref var header = ref container.GetFieldHeader(fieldIndex);
             var fieldName = container.GetFieldName(in header).ToString();
-            StorageWriteEventRegistry.NotifyFieldWrite(container, fieldName, header.Type);
+            StorageEventRegistry.NotifyFieldWrite(container, fieldName, header.Type);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName, bool bubble = true)
         {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
+            if (!StorageEventRegistry.HasSubscribers(container))
                 return;
             var type = container.GetFieldHeader(fieldName).Type;
-            StorageWriteEventRegistry.NotifyFieldWrite(container, fieldName.ToString(), type);
+            StorageEventRegistry.NotifyFieldWrite(container, fieldName.ToString(), type);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static void NotifyFieldWrite(Container container, string fieldName, bool bubble = true)
         {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
+            if (!StorageEventRegistry.HasSubscribers(container))
                 return;
             var type = container.GetFieldHeader(fieldName).Type;
-            StorageWriteEventRegistry.NotifyFieldWrite(container, fieldName, type);
+            StorageEventRegistry.NotifyFieldWrite(container, fieldName, type);
         }
 
     }

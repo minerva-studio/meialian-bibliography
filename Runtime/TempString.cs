@@ -3,6 +3,9 @@ using System.Buffers;
 
 namespace Minerva.DataStorage
 {
+    /// <summary>
+    /// Simple disposable string builder
+    /// </summary>
     public struct TempString : IDisposable
     {
         static ArrayPool<char> Pool = ArrayPool<char>.Create();

@@ -641,7 +641,7 @@ namespace Minerva.DataStorage.Tests
             int invoked = 0;
 
             root.Write("score", 0);
-            using var subscription = root.Subscribe("score", (in StorageFieldWriteEventArgs args) =>
+            using var subscription = root.Subscribe("score", (in StorageEventArgs args) =>
             {
                 invoked++;
                 Assert.That(args.Path, Is.EqualTo("score"));
@@ -661,7 +661,7 @@ namespace Minerva.DataStorage.Tests
             int invoked = 0;
 
             root.Write("hp", 0);
-            var subscription = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => invoked++);
+            var subscription = root.Subscribe("hp", (in StorageEventArgs _) => invoked++);
 
             root.Write("hp", 10);
             Assert.That(invoked, Is.EqualTo(1));
@@ -677,7 +677,7 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage(ContainerLayout.Empty);
             var root = storage.Root;
 
-            Assert.Throws<ArgumentException>(() => root.Subscribe("player", (in StorageFieldWriteEventArgs _) => { }));
+            Assert.Throws<ArgumentException>(() => root.Subscribe("player", (in StorageEventArgs _) => { }));
         }
 
         [Test]
@@ -688,7 +688,7 @@ namespace Minerva.DataStorage.Tests
             root.Write<byte>("small", 1);
             int invoked = 0;
 
-            using var subscription = root.Subscribe("small", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var subscription = root.Subscribe("small", (in StorageEventArgs _) => invoked++);
 
             root.TryWrite<int>("small", 99, allowRescheme: false);
             Assert.That(invoked, Is.EqualTo(0));
@@ -703,8 +703,8 @@ namespace Minerva.DataStorage.Tests
             int b = 0;
 
             root.Write("score", 0);
-            using var subA = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => a++);
-            using var subB = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => b++);
+            using var subA = root.Subscribe("score", (in StorageEventArgs _) => a++);
+            using var subB = root.Subscribe("score", (in StorageEventArgs _) => b++);
 
             root.Write("score", 10);
 
@@ -720,7 +720,7 @@ namespace Minerva.DataStorage.Tests
 
             int stringInvoked = 0;
             root.Write("playerName", string.Empty);
-            using var stringSub = root.Subscribe("playerName", (in StorageFieldWriteEventArgs args) =>
+            using var stringSub = root.Subscribe("playerName", (in StorageEventArgs args) =>
             {
                 stringInvoked++;
                 Assert.That(args.Target.ReadString(), Is.EqualTo("Hero"));
@@ -729,7 +729,7 @@ namespace Minerva.DataStorage.Tests
             var stats = root.GetObject("stats");
             stats.WriteArray("speeds", Array.Empty<float>());
             int arrayInvoked = 0;
-            using var arraySub = stats.Subscribe("speeds", (in StorageFieldWriteEventArgs args) =>
+            using var arraySub = stats.Subscribe("speeds", (in StorageEventArgs args) =>
             {
                 arrayInvoked++;
                 CollectionAssert.AreEqual(new[] { 1.0f, 2.5f }, args.Target.ReadArray<float>());
@@ -753,8 +753,8 @@ namespace Minerva.DataStorage.Tests
             int scoreInvoked = 0;
             int hpInvoked = 0;
 
-            using var scoreSub = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => scoreInvoked++);
-            using var hpSub = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => hpInvoked++);
+            using var scoreSub = root.Subscribe("score", (in StorageEventArgs _) => scoreInvoked++);
+            using var hpSub = root.Subscribe("hp", (in StorageEventArgs _) => hpInvoked++);
 
             root.Write("score", 10);
             root.Write("hp", 5);
@@ -772,7 +772,7 @@ namespace Minerva.DataStorage.Tests
             var stats = root.GetObject("player").GetObject("stats");
             stats.Write("hp", 0);
             int invoked = 0;
-            using var sub = root.Subscribe("player/stats/hp", (in StorageFieldWriteEventArgs _) => invoked++, '/');
+            using var sub = root.Subscribe("player/stats/hp", (in StorageEventArgs _) => invoked++, '/');
 
             stats.Write("hp", 9);
             Assert.That(invoked, Is.EqualTo(1));
@@ -786,7 +786,7 @@ namespace Minerva.DataStorage.Tests
             root.GetObject("player"); // but no stats
 
             Assert.Throws<ArgumentException>(() =>
-                root.Subscribe("player.stats.hp", (in StorageFieldWriteEventArgs _) => { }));
+                root.Subscribe("player.stats.hp", (in StorageEventArgs _) => { }));
         }
 
         [Test]
@@ -797,7 +797,7 @@ namespace Minerva.DataStorage.Tests
             var child = root.GetObject("child", layout: _leafLayout);
             int invoked = 0;
 
-            using var sub = child.Subscribe("hp", (in StorageFieldWriteEventArgs args) =>
+            using var sub = child.Subscribe("hp", (in StorageEventArgs args) =>
             {
                 invoked++;
                 Assert.That(args.Target.ID, Is.EqualTo(child.ID));
@@ -816,11 +816,11 @@ namespace Minerva.DataStorage.Tests
 
             root.GetObject("entity");
             int viaRoot = 0;
-            using var rootSub = root.Subscribe("entity", (in StorageFieldWriteEventArgs _) => viaRoot++);
+            using var rootSub = root.Subscribe("entity", (in StorageEventArgs _) => viaRoot++);
 
             var entity = root.GetObject("entity");
             int viaChild = 0;
-            using var childSub = entity.Subscribe((in StorageFieldWriteEventArgs _) => viaChild++);
+            using var childSub = entity.Subscribe((in StorageEventArgs _) => viaChild++);
 
             entity.Write("hp", 10);
 
@@ -835,7 +835,7 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             int invoked = 0;
-            using var sub = root.Subscribe("", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("", (in StorageEventArgs _) => invoked++);
 
             root.Write("hp", 5);
             Assert.That(invoked, Is.EqualTo(1));
@@ -850,11 +850,11 @@ namespace Minerva.DataStorage.Tests
             var persistent = root.GetObject("persistent");
             persistent.GetObject("entity");
             int viaPath = 0;
-            using var pathSub = root.Subscribe("persistent.entity", (in StorageFieldWriteEventArgs _) => viaPath++);
+            using var pathSub = root.Subscribe("persistent.entity", (in StorageEventArgs _) => viaPath++);
 
             var nested = root.GetObject("persistent");
             int viaNested = 0;
-            using var nestedSub = nested.Subscribe("entity", (in StorageFieldWriteEventArgs _) => viaNested++);
+            using var nestedSub = nested.Subscribe("entity", (in StorageEventArgs _) => viaNested++);
 
             nested.GetObject("entity").Write("hp", 9);
 
@@ -869,11 +869,11 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             Assert.Throws<ArgumentException>(() =>
-                root.Subscribe("missing", (in StorageFieldWriteEventArgs _) => { }));
+                root.Subscribe("missing", (in StorageEventArgs _) => { }));
 
             root.Write("existing", 1);
             int invoked = 0;
-            using var sub = root.Subscribe("existing", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("existing", (in StorageEventArgs _) => invoked++);
 
             root.Write("existing", 2);
             Assert.That(invoked, Is.EqualTo(1));
@@ -887,7 +887,7 @@ namespace Minerva.DataStorage.Tests
 
             root.GetObject("entity").GetObject("child");
             int invoked = 0;
-            using var sub = root.Subscribe("entity.child", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("entity.child", (in StorageEventArgs _) => invoked++);
 
             var child = root.GetObject("entity").GetObject("child");
             child.Write("hp", 3);
@@ -905,7 +905,7 @@ namespace Minerva.DataStorage.Tests
             stats.Write("hp", 0);
 
             int invoked = 0;
-            using var sub = root.Subscribe("player.stats.hp", (in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe("player.stats.hp", (in StorageEventArgs args) =>
             {
                 invoked++;
                 Assert.That(args.Path, Is.EqualTo("hp"));
@@ -923,7 +923,7 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             int invoked = 0;
-            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe((in StorageEventArgs args) =>
             {
                 invoked++;
                 Assert.That(args.Target.ID, Is.EqualTo(root.ID));
@@ -942,7 +942,7 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             int invoked = 0;
-            var sub = root.Subscribe((in StorageFieldWriteEventArgs _) => invoked++);
+            var sub = root.Subscribe((in StorageEventArgs _) => invoked++);
 
             root.Write("hp", 10);
             Assert.That(invoked, Is.EqualTo(1));
@@ -960,7 +960,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("score", 0);
 
             int invoked = 0;
-            using var sub = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("score", (in StorageEventArgs _) => invoked++);
 
             root.WritePath("score", 42);
             Assert.That(invoked, Is.EqualTo(1));
@@ -975,7 +975,7 @@ namespace Minerva.DataStorage.Tests
             player.Write("hp", 0);
 
             int invoked = 0;
-            using var sub = player.Subscribe("hp", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = player.Subscribe("hp", (in StorageEventArgs _) => invoked++);
 
             root.WritePath("player.hp", 9);
             Assert.That(invoked, Is.EqualTo(1));
@@ -989,7 +989,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("score", 0);
 
             int invoked = 0;
-            using var sub = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("score", (in StorageEventArgs _) => invoked++);
 
             root.Write("score", 1);
             root.Write("score", 2);
@@ -1006,8 +1006,8 @@ namespace Minerva.DataStorage.Tests
 
             int first = 0;
             int second = 0;
-            var subA = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => first++);
-            using var subB = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => second++);
+            var subA = root.Subscribe("score", (in StorageEventArgs _) => first++);
+            using var subB = root.Subscribe("score", (in StorageEventArgs _) => second++);
 
             subA.Dispose();
             root.Write("score", 7);
@@ -1024,8 +1024,8 @@ namespace Minerva.DataStorage.Tests
             root.Write("score", 0);
 
             int invoked = 0;
-            StorageWriteSubscription subscription = default;
-            subscription = root.Subscribe("score", (in StorageFieldWriteEventArgs _) =>
+            StorageSubscription subscription = default;
+            subscription = root.Subscribe("score", (in StorageEventArgs _) =>
             {
                 invoked++;
                 subscription.Dispose();
@@ -1047,7 +1047,7 @@ namespace Minerva.DataStorage.Tests
             stats.WriteArray("speeds", Array.Empty<float>());
 
             int invoked = 0;
-            using var sub = root.Subscribe("stats.speeds", (in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe("stats.speeds", (in StorageEventArgs args) =>
             {
                 invoked++;
                 CollectionAssert.AreEqual(new[] { 3f, 4f }, args.Target.ReadArray<float>());
@@ -1066,7 +1066,7 @@ namespace Minerva.DataStorage.Tests
             dialog.Write("line", string.Empty);
 
             int invoked = 0;
-            using var sub = root.Subscribe("dialog.line", (in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe("dialog.line", (in StorageEventArgs args) =>
             {
                 invoked++;
                 Assert.That(args.Target.ReadString(), Is.EqualTo("Hello"));
@@ -1084,7 +1084,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("score", 0);
 
             int invoked = 0;
-            using var sub = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("score", (in StorageEventArgs _) => invoked++);
 
             root.Override("score", 123);
             Assert.That(invoked, Is.EqualTo(1));
@@ -1099,7 +1099,7 @@ namespace Minerva.DataStorage.Tests
             stats.Override("speeds", MemoryMarshal.AsBytes(new ReadOnlySpan<float>(new float[] { 3f, 3f })), ValueType.Float32, 2);
 
             int invoked = 0;
-            using var sub = stats.Subscribe("speeds", (in StorageFieldWriteEventArgs args) =>
+            using var sub = stats.Subscribe("speeds", (in StorageEventArgs args) =>
             {
                 invoked++;
                 CollectionAssert.AreEqual(new[] { 5f, 6f }, args.Target.ReadArray<float>());
@@ -1118,7 +1118,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("hp", 10);
 
             int invoked = 0;
-            using var sub = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("hp", (in StorageEventArgs _) => invoked++);
 
             Assert.That(root.Delete("hp"), Is.True);
             Assert.That(invoked, Is.EqualTo(1));
@@ -1133,7 +1133,7 @@ namespace Minerva.DataStorage.Tests
             player.Write("hp", 1);
 
             int invoked = 0;
-            using var sub = player.Subscribe((in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = player.Subscribe((in StorageEventArgs _) => invoked++);
 
             Assert.That(player.Delete("hp"), Is.True);
             Assert.That(invoked, Is.EqualTo(1));
@@ -1149,8 +1149,8 @@ namespace Minerva.DataStorage.Tests
 
             int hp = 0;
             int mp = 0;
-            using var hpSub = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => hp++);
-            using var mpSub = root.Subscribe("mp", (in StorageFieldWriteEventArgs _) => mp++);
+            using var hpSub = root.Subscribe("hp", (in StorageEventArgs _) => hp++);
+            using var mpSub = root.Subscribe("mp", (in StorageEventArgs _) => mp++);
 
             Assert.That(root.Delete("hp", "mp"), Is.EqualTo(2));
             Assert.That(hp, Is.EqualTo(1));
@@ -1164,7 +1164,7 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             int invoked = 0;
-            using var sub = root.Subscribe((in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe((in StorageEventArgs _) => invoked++);
 
             Assert.That(root.Delete("missing"), Is.False);
             Assert.That(invoked, Is.EqualTo(0));
@@ -1178,12 +1178,12 @@ namespace Minerva.DataStorage.Tests
             root.Write("score", 0);
 
             int invoked = 0;
-            using var sub = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("score", (in StorageEventArgs _) => invoked++);
             root.Delete("score");
 
             root.Write("score", 55);
             int invoked2 = 0;
-            using var sub2 = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked2++);
+            using var sub2 = root.Subscribe("score", (in StorageEventArgs _) => invoked2++);
             root.Write("score", 55);
             root.Delete("score");
 
@@ -1199,7 +1199,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("score", 0);
 
             int invoked = 0;
-            using var sub = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("score", (in StorageEventArgs _) => invoked++);
             root.Delete("score");
 
             // rewrite attempt without resubscribe should not notify old handler
@@ -1215,13 +1215,13 @@ namespace Minerva.DataStorage.Tests
             root.Write("flag", 1);
 
             int first = 0;
-            using var sub = root.Subscribe("flag", (in StorageFieldWriteEventArgs _) => first++);
+            using var sub = root.Subscribe("flag", (in StorageEventArgs _) => first++);
             root.Delete("flag");
             Assert.That(first, Is.EqualTo(1));
 
             root.Write("flag", 2);
             int second = 0;
-            using var sub2 = root.Subscribe("flag", (in StorageFieldWriteEventArgs _) => second++);
+            using var sub2 = root.Subscribe("flag", (in StorageEventArgs _) => second++);
             root.Delete("flag");
 
             Assert.That(first, Is.EqualTo(1), "Original subscription should remain at 1");
@@ -1236,12 +1236,12 @@ namespace Minerva.DataStorage.Tests
             root.Write("hp", 100);
 
             int first = 0;
-            using var sub = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => first++);
+            using var sub = root.Subscribe("hp", (in StorageEventArgs _) => first++);
             root.Delete("hp");
 
             root.Write("hp", 50);
             int second = 0;
-            using var sub2 = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => second++);
+            using var sub2 = root.Subscribe("hp", (in StorageEventArgs _) => second++);
 
             root.Write("hp", 25);
             Assert.That(first, Is.EqualTo(1));
@@ -1256,13 +1256,13 @@ namespace Minerva.DataStorage.Tests
             root.Write("mp", 5);
 
             int invoked = 0;
-            using var sub = root.Subscribe("mp", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("mp", (in StorageEventArgs _) => invoked++);
             root.Delete("mp");
 
             root.Write("mp", 20);
             Assert.That(invoked, Is.EqualTo(1));
 
-            using var sub2 = root.Subscribe("mp", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub2 = root.Subscribe("mp", (in StorageEventArgs _) => invoked++);
             root.Write("mp", 30);
             Assert.That(invoked, Is.EqualTo(2));
         }
@@ -1276,9 +1276,9 @@ namespace Minerva.DataStorage.Tests
             root.Write("b", 2);
 
             int aCount = 0;
-            using var aSub = root.Subscribe("a", (in StorageFieldWriteEventArgs _) => aCount++);
+            using var aSub = root.Subscribe("a", (in StorageEventArgs _) => aCount++);
             int bCount = 0;
-            using var bSub = root.Subscribe("b", (in StorageFieldWriteEventArgs _) => bCount++);
+            using var bSub = root.Subscribe("b", (in StorageEventArgs _) => bCount++);
 
             root.Delete("a", "b");
             Assert.That(aCount, Is.EqualTo(1));
@@ -1287,8 +1287,8 @@ namespace Minerva.DataStorage.Tests
             root.Write("a", 10);
             root.Write("b", 20);
 
-            using var aSub2 = root.Subscribe("a", (in StorageFieldWriteEventArgs _) => aCount++);
-            using var bSub2 = root.Subscribe("b", (in StorageFieldWriteEventArgs _) => bCount++);
+            using var aSub2 = root.Subscribe("a", (in StorageEventArgs _) => aCount++);
+            using var bSub2 = root.Subscribe("b", (in StorageEventArgs _) => bCount++);
             root.Write("a", 30);
             root.Write("b", 40);
 
@@ -1304,7 +1304,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("score", 0);
 
             int deleteCount = 0;
-            using var sub = root.Subscribe("score", (in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe("score", (in StorageEventArgs args) =>
             {
                 if (args.Event == StorageEvent.Delete)
                     deleteCount++;
@@ -1323,13 +1323,13 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
             root.Write("score", 0);
 
-            using (root.Subscribe("score", (in StorageFieldWriteEventArgs _) => { }))
+            using (root.Subscribe("score", (in StorageEventArgs _) => { }))
                 root.Delete("score");
 
             root.Write("score", 10);
 
             int invoked = 0;
-            using var sub2 = root.Subscribe("score", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub2 = root.Subscribe("score", (in StorageEventArgs _) => invoked++);
             root.Write("score", 20);
 
             Assert.That(invoked, Is.EqualTo(1));
@@ -1343,7 +1343,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("value", 1);
 
             int deleteNotified = 0;
-            using var sub = root.Subscribe("value", (in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe("value", (in StorageEventArgs args) =>
             {
                 if (args.Event == StorageEvent.Delete)
                     deleteNotified++;
@@ -1365,16 +1365,16 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
             root.Write("hp", 1);
 
-            using (root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => { }))
+            using (root.Subscribe("hp", (in StorageEventArgs _) => { }))
                 root.Delete("hp");
 
             root.Write("hp", 2);
-            using var sub2 = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => { });
+            using var sub2 = root.Subscribe("hp", (in StorageEventArgs _) => { });
             root.Delete("hp");
 
             int writeCount = 0;
             root.Write("hp", 3);
-            using var sub3 = root.Subscribe("hp", (in StorageFieldWriteEventArgs _) => writeCount++);
+            using var sub3 = root.Subscribe("hp", (in StorageEventArgs _) => writeCount++);
             root.Write("hp", 4);
 
             Assert.That(writeCount, Is.EqualTo(1));
@@ -1388,7 +1388,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("flag", 1);
 
             int deleteCount = 0;
-            using var sub = root.Subscribe("flag", (in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe("flag", (in StorageEventArgs args) =>
             {
                 if (args.Event == StorageEvent.Delete)
                     deleteCount++;
@@ -1410,7 +1410,7 @@ namespace Minerva.DataStorage.Tests
             root.Write<byte>("value", 1);
 
             int invoked = 0;
-            using var sub = root.Subscribe("value", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("value", (in StorageEventArgs _) => invoked++);
 
             root.Write("value", 1234567890123L);
             Assert.That(invoked, Is.EqualTo(1));
@@ -1424,7 +1424,7 @@ namespace Minerva.DataStorage.Tests
             root.Write<int>("value", 1);
 
             int invoked = 0;
-            using var sub = root.Subscribe("value", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("value", (in StorageEventArgs _) => invoked++);
 
             Assert.That(root.TryWrite("value", 5), Is.True);
             Assert.That(invoked, Is.EqualTo(1));
@@ -1438,7 +1438,7 @@ namespace Minerva.DataStorage.Tests
             root.Write<double>("value", 1d);
 
             int invoked = 0;
-            using var sub = root.Subscribe("value", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("value", (in StorageEventArgs _) => invoked++);
 
             Assert.That(root.TryWrite("value", 2f), Is.True);
             Assert.That(invoked, Is.EqualTo(1));
@@ -1453,7 +1453,7 @@ namespace Minerva.DataStorage.Tests
             stats.Write("mana", 0);
 
             int invoked = 0;
-            using var sub = root.Subscribe("player.stats.mana", (in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = root.Subscribe("player.stats.mana", (in StorageEventArgs _) => invoked++);
 
             stats.Write("mana", 5);
             Assert.That(invoked, Is.EqualTo(1));
@@ -1470,8 +1470,8 @@ namespace Minerva.DataStorage.Tests
             int viaPath = 0;
             int viaDirect = 0;
 
-            using var pathSub = root.Subscribe("player.stats.hp", (in StorageFieldWriteEventArgs _) => viaPath++);
-            using var directSub = stats.Subscribe("hp", (in StorageFieldWriteEventArgs _) => viaDirect++);
+            using var pathSub = root.Subscribe("player.stats.hp", (in StorageEventArgs _) => viaPath++);
+            using var directSub = stats.Subscribe("hp", (in StorageEventArgs _) => viaDirect++);
 
             stats.Write("hp", 20);
             Assert.That(viaPath, Is.EqualTo(1));
@@ -1488,7 +1488,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("score", 0);
 
             int invoked = 0;
-            using var sub = player.Subscribe((in StorageFieldWriteEventArgs _) => invoked++);
+            using var sub = player.Subscribe((in StorageEventArgs _) => invoked++);
 
             root.Write("score", 1);
             Assert.That(invoked, Is.EqualTo(0));
@@ -1507,8 +1507,8 @@ namespace Minerva.DataStorage.Tests
 
             int a = 0;
             int b = 0;
-            using var subA = player.Subscribe((in StorageFieldWriteEventArgs _) => a++);
-            using var subB = player.Subscribe((in StorageFieldWriteEventArgs _) => b++);
+            using var subA = player.Subscribe((in StorageEventArgs _) => a++);
+            using var subB = player.Subscribe((in StorageEventArgs _) => b++);
 
             player.Write("hp", 3);
             Assert.That(a, Is.EqualTo(1));
@@ -1525,8 +1525,8 @@ namespace Minerva.DataStorage.Tests
 
             int containerCount = 0;
             int fieldCount = 0;
-            using var containerSub = player.Subscribe((in StorageFieldWriteEventArgs _) => containerCount++);
-            using var fieldSub = player.Subscribe("hp", (in StorageFieldWriteEventArgs _) => fieldCount++);
+            using var containerSub = player.Subscribe((in StorageEventArgs _) => containerCount++);
+            using var fieldSub = player.Subscribe("hp", (in StorageEventArgs _) => fieldCount++);
 
             player.Write("hp", 4);
             Assert.That(containerCount, Is.EqualTo(1));
@@ -1542,8 +1542,8 @@ namespace Minerva.DataStorage.Tests
             player.Write("hp", 0);
 
             int invoked = 0;
-            StorageWriteSubscription subscription = default;
-            subscription = player.Subscribe((in StorageFieldWriteEventArgs _) =>
+            StorageSubscription subscription = default;
+            subscription = player.Subscribe((in StorageEventArgs _) =>
             {
                 invoked++;
                 subscription.Dispose();
@@ -1567,9 +1567,9 @@ namespace Minerva.DataStorage.Tests
             int viaPath = 0;
             int viaChild = 0;
 
-            using var pathSub = root.Subscribe("persistent.entity", (in StorageFieldWriteEventArgs _) => viaPath++);
+            using var pathSub = root.Subscribe("persistent.entity", (in StorageEventArgs _) => viaPath++);
             var entity = persistent.GetObject("entity");
-            using var childSub = entity.Subscribe((in StorageFieldWriteEventArgs _) => viaChild++);
+            using var childSub = entity.Subscribe((in StorageEventArgs _) => viaChild++);
 
             entity.Write("hp", 9);
             Assert.That(viaPath, Is.EqualTo(1));
@@ -1607,7 +1607,7 @@ namespace Minerva.DataStorage.Tests
             int childFieldSubCount = 0;
             int grandFieldSubCount = 0;
 
-            using var grandParentSub = grandParent.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var grandParentSub = grandParent.Subscribe((in StorageEventArgs args) =>
             {
                 grandParentSubCount++;
                 Assert.That(args.Event == StorageEvent.Delete, "parent should receive delete event");
@@ -1617,7 +1617,7 @@ namespace Minerva.DataStorage.Tests
                 grandParentKnowsChildDeleted = true;
             });
 
-            using var parentSub = parent.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var parentSub = parent.Subscribe((in StorageEventArgs args) =>
             {
                 parentSubCount++;
                 Assert.That(args.Event == StorageEvent.Dispose, "parent should receive dispose event");
@@ -1628,7 +1628,7 @@ namespace Minerva.DataStorage.Tests
 
             });
 
-            using var childSub = child.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var childSub = child.Subscribe((in StorageEventArgs args) =>
             {
                 Assert.That(args.Event == StorageEvent.Dispose, "childSub should recieve dispose event");
                 childSubCount++;
@@ -1639,7 +1639,7 @@ namespace Minerva.DataStorage.Tests
                 }
             });
 
-            using var grandChildSub = grandChild.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var grandChildSub = grandChild.Subscribe((in StorageEventArgs args) =>
             {
                 Assert.That(args.Event == StorageEvent.Dispose, "grandChildSub should recieve dispose event");
                 grandChildSubCount++;
@@ -1650,7 +1650,7 @@ namespace Minerva.DataStorage.Tests
                 }
             });
 
-            using var childFieldSub = child.Subscribe("stat", (in StorageFieldWriteEventArgs args) =>
+            using var childFieldSub = child.Subscribe("stat", (in StorageEventArgs args) =>
             {
                 Assert.That(args.Event == StorageEvent.Dispose, "childFieldSub should recieve dispose event");
                 childFieldSubCount++;
@@ -1661,7 +1661,7 @@ namespace Minerva.DataStorage.Tests
                 }
             });
 
-            using var grandFieldSub = grandChild.Subscribe("hp", (in StorageFieldWriteEventArgs args) =>
+            using var grandFieldSub = grandChild.Subscribe("hp", (in StorageEventArgs args) =>
             {
                 Assert.That(args.Event == StorageEvent.Dispose, "grandFieldSub should recieve dispose event");
                 grandFieldSubCount++;
@@ -1704,7 +1704,7 @@ namespace Minerva.DataStorage.Tests
             int level2ContainerCount = 0;
             int level2FieldCount = 0;
 
-            using var rootSub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var rootSub = root.Subscribe((in StorageEventArgs args) =>
             {
                 if (!args.Target.IsNull)
                 {
@@ -1714,7 +1714,7 @@ namespace Minerva.DataStorage.Tests
                 }
             });
 
-            using var level1Sub = level1.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var level1Sub = level1.Subscribe((in StorageEventArgs args) =>
             {
                 if (!args.Target.IsNull)
                 {
@@ -1724,7 +1724,7 @@ namespace Minerva.DataStorage.Tests
                 }
             });
 
-            using var level2ContainerSub = level2.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var level2ContainerSub = level2.Subscribe((in StorageEventArgs args) =>
             {
                 if (!args.Target.IsNull)
                 {
@@ -1734,7 +1734,7 @@ namespace Minerva.DataStorage.Tests
                 }
             });
 
-            using var level2FieldSub = level2.Subscribe("stat", (in StorageFieldWriteEventArgs args) =>
+            using var level2FieldSub = level2.Subscribe("stat", (in StorageEventArgs args) =>
             {
                 if (!args.Target.IsNull)
                 {
@@ -1761,7 +1761,7 @@ namespace Minerva.DataStorage.Tests
             bool notified = false;
             root.Write("hp", 0);
 
-            using var sub = root.Subscribe("hp", (in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe("hp", (in StorageEventArgs args) =>
             {
                 notified = true;
                 Assert.That(args.Path, Is.EqualTo("hp"));
@@ -1788,19 +1788,19 @@ namespace Minerva.DataStorage.Tests
             int bCount = 0;
             int cCount = 0;
 
-            using var subRoot = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var subRoot = root.Subscribe((in StorageEventArgs args) =>
             {
                 if (!args.Target.IsNull) { rootCount++; Assert.That(args.Path, Is.EqualTo("A.B.C.val")); }
             });
-            using var subA = a.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var subA = a.Subscribe((in StorageEventArgs args) =>
             {
                 if (!args.Target.IsNull) { aCount++; Assert.That(args.Path, Is.EqualTo("B.C.val")); }
             });
-            using var subB = b.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var subB = b.Subscribe((in StorageEventArgs args) =>
             {
                 if (!args.Target.IsNull) { bCount++; Assert.That(args.Path, Is.EqualTo("C.val")); }
             });
-            using var subC = c.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var subC = c.Subscribe((in StorageEventArgs args) =>
             {
                 if (!args.Target.IsNull) { cCount++; Assert.That(args.Path, Is.EqualTo("val")); }
             });
@@ -1821,7 +1821,7 @@ namespace Minerva.DataStorage.Tests
             var child = root.GetObject("child");
 
             bool parentNotified = false;
-            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe((in StorageEventArgs args) =>
             {
                 // Root should see "child" deleted
                 if (args.Target == root && args.Event == StorageEvent.Delete && args.Path == "child")
@@ -1847,17 +1847,17 @@ namespace Minerva.DataStorage.Tests
             bool parentSelfNotified = false;
             bool childSelfNotified = false;
 
-            using var subRoot = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var subRoot = root.Subscribe((in StorageEventArgs args) =>
             {
                 if (args.Target == root && args.Path == "parent") rootNotified = true;
             });
 
-            using var subParent = parent.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var subParent = parent.Subscribe((in StorageEventArgs args) =>
             {
                 if (args.Target == parent && args.Path == string.Empty) parentSelfNotified = true;
             });
 
-            using var subChild = child.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var subChild = child.Subscribe((in StorageEventArgs args) =>
             {
                 if (args.Target == child && args.Path == string.Empty) childSelfNotified = true;
             });
@@ -1890,7 +1890,7 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             int eventCount = 0;
-            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe((in StorageEventArgs args) =>
             {
                 if (!args.Target.IsNull) eventCount++;
             });
@@ -1908,7 +1908,7 @@ namespace Minerva.DataStorage.Tests
             var child = root.GetObject("child");
 
             bool childNotified = false;
-            using var sub = child.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var sub = child.Subscribe((in StorageEventArgs args) =>
             {
                 if (args.Target.IsNull && args.Path == string.Empty) childNotified = true;
             });
@@ -1927,7 +1927,7 @@ namespace Minerva.DataStorage.Tests
             root.WriteArray("arr", new[] { 0, 0, 0 });
             int eventCount = 0;
 
-            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe((in StorageEventArgs args) =>
             {
                 // print the field name
                 // Assert.That(args.FieldName, Is.EqualTo("arr"), "Field name should be 'arr'");
@@ -1955,7 +1955,7 @@ namespace Minerva.DataStorage.Tests
 
             int eventCount = 0;
 
-            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe((in StorageEventArgs args) =>
             {
                 eventCount++;
                 notified = true;
@@ -1976,7 +1976,7 @@ namespace Minerva.DataStorage.Tests
             var sib2 = root.GetObject("sib2");
 
             bool sib1Heard = false;
-            using var sub1 = sib1.Subscribe((in StorageFieldWriteEventArgs args) => sib1Heard = true);
+            using var sub1 = sib1.Subscribe((in StorageEventArgs args) => sib1Heard = true);
 
             sib2.Write("val", 1);
 
@@ -1991,7 +1991,7 @@ namespace Minerva.DataStorage.Tests
             root.Write<int>("val", 1);
 
             bool notified = false;
-            using var sub = root.Subscribe("val", (in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe("val", (in StorageEventArgs args) =>
             {
                 notified = true;
                 Assert.That(args.FieldType, Is.EqualTo(ValueType.Float32));
@@ -2011,7 +2011,7 @@ namespace Minerva.DataStorage.Tests
             root.Write("b", 2);
 
             int events = 0;
-            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe((in StorageEventArgs args) =>
             {
                 events++;
                 Assert.That(args.Target, Is.EqualTo(root));
@@ -2036,7 +2036,7 @@ namespace Minerva.DataStorage.Tests
             var b = a.GetObject("B");
 
             var rootEvents = new System.Collections.Generic.List<string>();
-            using var sub = root.Subscribe((in StorageFieldWriteEventArgs args) =>
+            using var sub = root.Subscribe((in StorageEventArgs args) =>
             {
                 rootEvents.Add(args.Path);
             });
@@ -2060,8 +2060,8 @@ namespace Minerva.DataStorage.Tests
             root.Write("a", 0);
             root.Write("b", 0);
 
-            using var subA = root.Subscribe("a", (in StorageFieldWriteEventArgs _) => aNotified = true);
-            using var subB = root.Subscribe("b", (in StorageFieldWriteEventArgs _) => bNotified = true);
+            using var subA = root.Subscribe("a", (in StorageEventArgs _) => aNotified = true);
+            using var subB = root.Subscribe("b", (in StorageEventArgs _) => bNotified = true);
 
             root.Write("a", 1);
             Assert.That(aNotified, Is.True);
@@ -2082,7 +2082,7 @@ namespace Minerva.DataStorage.Tests
             child.Write("val", 0);
 
             bool notified = false;
-            using var sub = child.Subscribe("val", (in StorageFieldWriteEventArgs _) => notified = true);
+            using var sub = child.Subscribe("val", (in StorageEventArgs _) => notified = true);
 
             child.Write("val", 1);
             Assert.That(notified, Is.True);

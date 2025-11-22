@@ -8,7 +8,7 @@ namespace Minerva.DataStorage.Tests
     public class StorageWriteEventsRaiseTests
     {
         private int _count;
-        private StorageFieldWriteEventArgs _last;
+        private StorageEventArgs _last;
 
         [SetUp]
         public void SetUp()
@@ -17,9 +17,9 @@ namespace Minerva.DataStorage.Tests
             _last = default;
         }
 
-        private StorageWriteSubscription SubscribeAll(StorageObject obj)
+        private StorageSubscription SubscribeAll(StorageObject obj)
         {
-            return obj.Subscribe((in StorageFieldWriteEventArgs args) => { _count++; _last = args; });
+            return obj.Subscribe((in StorageEventArgs args) => { _count++; _last = args; });
         }
 
         [Test]
