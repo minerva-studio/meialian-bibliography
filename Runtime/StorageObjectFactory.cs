@@ -1,3 +1,5 @@
+using System;
+
 namespace Minerva.DataStorage
 {
     /// <summary>
@@ -5,13 +7,13 @@ namespace Minerva.DataStorage
     /// </summary>
     internal static class StorageObjectFactory
     {
-        internal static StorageObject GetOrCreate(this ref ContainerReference position, ContainerLayout layout)
+        internal static StorageObject GetOrCreate(this ref ContainerReference position, Container parent, ContainerLayout layout, ReadOnlySpan<char> name)
         {
             ref var id = ref position;
             var child = Container.Registry.Shared.GetContainer(id);
             if (child is null)
             {
-                Container.Registry.Shared.CreateAt(ref position, layout ?? ContainerLayout.Empty);
+                Container.Registry.Shared.CreateAt(ref position, parent, layout ?? ContainerLayout.Empty, name);
                 child = Container.Registry.Shared.GetContainer(id);
             }
             return new StorageObject(child);

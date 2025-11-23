@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -17,6 +18,7 @@ namespace Minerva.DataStorage
                 public const ulong Wild = ulong.MaxValue;
             }
 
+
             public static Registry Shared { get; } = new Registry();
             public static int PoolCount => pool.Count;
 
@@ -24,10 +26,43 @@ namespace Minerva.DataStorage
             private readonly Queue<ulong> _freed = new();
             private readonly object _lock = new();
             private readonly Dictionary<ulong, Container> _table = new();
+            private readonly Dictionary<ulong, ulong> _parentMap = new();
 
 
-            public void Register(Container container)
+            internal bool TryGetParent(Container child, out Container? parent)
             {
+                parent = null;
+                if (child == null) return false;
+
+                lock (_lock)
+                {
+                    if (_parentMap.TryGetValue(child.ID, out var parentId))
+                    {
+                        parent = _table.GetValueOrDefault(parentId);
+                        return parent != null;
+                    }
+                }
+                return false;
+            }
+
+
+            public void Register(Container child, Container parent)
+            {
+                ThrowHelper.ThrowIfNull(child, nameof(child));
+                ThrowHelper.ThrowIfNull(parent, nameof(parent));
+                lock (_lock)
+                {
+                    if (child.ID != ID.Wild)
+                        throw new InvalidOperationException("Container already registered.");
+
+                    Assign_NoLock(child);
+                    _parentMap[child.ID] = parent.ID;
+                }
+            }
+
+            public void RegisterRoot(Container container)
+            {
+                ThrowHelper.ThrowIfNull(container, nameof(container));
                 if (container is null) throw new ArgumentNullException(nameof(container));
                 lock (_lock)
                 {
@@ -38,71 +73,136 @@ namespace Minerva.DataStorage
                 }
             }
 
-            public void Unregister(ref ContainerReference idRef)
-            {
-                // already unregistered or is null
-                if (idRef == 0UL) return;
 
-                var container = GetContainer(idRef);
-                if (container != null)
-                {
-                    Unregister(container);
-                }
-                idRef = 0UL; // mark as unregistered
-            }
+
 
             public void Unregister(Container container)
             {
-                // should not happen, but just in case
                 if (container is null) return;
-                if (container._id == ID.Wild) return;
+                if (container._id == ID.Wild || container._id == ID.Empty || container._disposed) return;
 
-                // 1) Remove self from registry and recycle its id under lock.
-                ulong id;
+                try
+                {
+                    Traverse(container, c =>
+                    {
+                        c.MarkDispose();
+                    });
+                }
+                catch (StackOverflowException)
+                {
+                    throw new InvalidOperationException("Cyclic container reference detected during unregister.");
+                }
+
+                using TempString str = new TempString(container.Name);
+                Traverse(container, c =>
+                {
+                    // NOTE: c is Disposed. Accessing c.Memory will throw.
+                    // Subscribers must only check c.ID (which is 0) or reference equality.
+                    StorageEventRegistry.NotifyDispose(c, c.Generation);
+                    lock (_lock)
+                    {
+                        var id = c._id;
+                        // Removing parent link immediately prevents stale state if unregister crashes later
+                        _parentMap.Remove(id);
+                        if (_table.Remove(id))
+                            _freed.Enqueue(id);
+                        c._id = ID.Empty; // mark as unregistered 
+                    }
+                    c.Dispose();
+                    // return to pool
+                    pool.Return(c);
+                });
+            }
+
+            //public void Unregister(Container container, Container parent, FieldType fieldType)
+            //{
+            //    if (container is null) return;
+            //    if (container._id == ID.Wild || container._id == ID.Empty) return;
+
+            //    try
+            //    {
+            //        Traverse(container, c =>
+            //        {
+            //            c.MarkDispose();
+            //        });
+            //    }
+            //    catch (StackOverflowException)
+            //    {
+            //        throw new InvalidOperationException("Cyclic container reference detected during unregister.");
+            //    }
+
+            //    using TempString str = new TempString(container.Name);
+            //    Traverse(container, c =>
+            //    {
+            //        // NOTE: c is Disposed. Accessing c.Memory will throw.
+            //        // Subscribers must only check c.ID (which is 0) or reference equality.
+            //        StorageEventRegistry.NotifyDispose(c, c.Generation);
+            //        lock (_lock)
+            //        {
+            //            var id = c._id;
+            //            // Removing parent link immediately prevents stale state if unregister crashes later
+            //            _parentMap.Remove(id);
+            //            if (_table.Remove(id))
+            //                _freed.Enqueue(id);
+            //            c._id = ID.Empty; // mark as unregistered 
+            //        }
+            //        c.Dispose();
+            //        // return to pool
+            //        pool.Return(c);
+            //    });
+
+
+            //    // Notify parents about deleted child fields 
+            //    if (parent != null && parent.ID != ID.Empty)
+            //        StorageEventRegistry.NotifyFieldDelete(parent, str.ToString(), fieldType);
+            //}
+
+            public void RegisterParent(Container child, Container parent)
+            {
+                if (child == null || parent == null)
+                    return;
+
                 lock (_lock)
                 {
-                    id = container._id;
-                    if (!_table.Remove(id)) return;   // not found -> treat as done
-                    _freed.Enqueue(id);               // recycle id now
-                    container._id = 0UL;              // mark as unregistered
+                    _parentMap[child.ID] = parent.ID;
                 }
-
-                // 2) Without holding the lock, walk each ref field and recurse immediately.
-                //    No snapshot, no allocations. Assumes callers do not modify these fields
-                for (int i1 = 0; i1 < container.FieldCount; i1++)
-                {
-                    ref var field = ref container.GetFieldHeader(i1);
-                    if (!field.IsRef) continue;
-
-                    // This Span<ContainerReference> views the parent's buffer. We only read it, not modify.
-                    var ids = container.GetFieldData<ContainerReference>(in field);
-                    for (int i = 0; i < ids.Length; i++)
-                    {
-                        ulong cid = ids[i];
-                        if (cid == 0UL) continue;
-
-                        // Lookup is short critical section inside GetContainer (locks _lock briefly).
-                        var child = GetContainer(cid);
-                        if (child != null)
-                        {
-                            // Depth-first direct recursion, still no allocations.
-                            Unregister(child);
-                        }
-                    }
-                }
-
-                // 3) Finally, dispose the container to return its pooled byte[] etc.
-                container.Dispose();
-                pool.Return(container);
             }
 
 
-            public Container GetContainer(ContainerReference id)
+
+            private void Traverse(Container root, Action<Container> action)
+            {
+                if (root == null || root.ID == ID.Wild || root.ID == 0UL) return;
+
+                // Depth-first post-order traversal
+                // 1. Children
+                for (int i = 0; i < root.FieldCount; i++)
+                {
+                    ref var field = ref root.GetFieldHeader(i);
+                    if (!field.IsRef) continue;
+
+                    var ids = root.GetFieldData<ContainerReference>(in field);
+                    for (int k = 0; k < ids.Length; k++)
+                    {
+                        var cid = ids[k];
+                        if (cid == ID.Empty) continue;
+                        var child = _table.GetValueOrDefault(cid);
+                        if (child != null)
+                        {
+                            Traverse(child, action);
+                        }
+                    }
+                }
+                // 2. Self
+                action(root);
+            }
+
+
+            public Container? GetContainer(ContainerReference id)
             {
                 if (id == 0UL) return null;
                 lock (_lock) return _table.GetValueOrDefault(id);
             }
-
 
             public ContainerReference AssignNewID(Container container)
             {
@@ -133,21 +233,39 @@ namespace Minerva.DataStorage
 
             #region Create
 
-            public Container CreateAt(ref ContainerReference position) => CreateAt(ref position, ContainerLayout.Empty);
-
-            public Container CreateAt(ref ContainerReference position, ContainerLayout layout)
+            public Container CreateRoot(ref ContainerReference position, ContainerLayout layout)
             {
-                // 1) If an old tracked container exists in the slot, unregister it first.
+                // 1) If an old tracked container exists in the slot, unregister it.
                 var old = GetContainer(position);
-                if (old != null)
-                    Unregister(old);
 
                 // 2) Create a new container and register it (assign a unique tracked ID).
-                var created = CreateWild(layout, true);
-                Register(created);
+                var created = CreateWild(layout, "", true);
+                RegisterRoot(created);
 
                 // 3) Bind atomically: write ID into the slot.
                 position = created.ID;
+
+                // 4) Unregister old, if needed
+                if (old != null)
+                    Unregister(old);
+                return created;
+            }
+
+            public Container CreateAt(ref ContainerReference position, Container parent, ContainerLayout layout, ReadOnlySpan<char> name)
+            {
+                // 1) If an old tracked container exists in the slot, unregister it.
+                var old = GetContainer(position);
+
+                // 2) Create a new container and register it (assign a unique tracked ID).
+                var created = CreateWild(layout, name, true);
+                Register(created, parent);
+
+                // 3) Bind atomically: write ID into the slot.
+                position = created.ID;
+
+                // 4) Unregister old, if needed
+                if (old != null)
+                    Unregister(old);
                 return created;
             }
 
@@ -172,16 +290,6 @@ namespace Minerva.DataStorage
                 return container;
             }
 
-
-
-
-            /// <summary>
-            /// Create a wild container, which means that container is not tracked by anything
-            /// </summary>
-            /// <param name="position"></param>
-            /// <param name="schema"></param> 
-            public Container CreateWild() => CreateWild(ContainerHeader.Size);
-
             /// <summary>
             /// Create a wild container, which means that container is not tracked by anything
             /// </summary>
@@ -194,7 +302,6 @@ namespace Minerva.DataStorage
                 container._id = ID.Wild;
                 return container;
             }
-
 
             /// <summary>
             /// Create a wild container, which means that container is not tracked by anything
@@ -209,13 +316,14 @@ namespace Minerva.DataStorage
                 return container;
             }
 
-            public Container CreateWild(ContainerLayout layout) => CreateWild(layout, true);
-            public Container CreateWild(ContainerLayout layout, bool zero)
+            public Container CreateWild(ContainerLayout layout, ReadOnlySpan<char> name) => CreateWild(layout, name, true);
+            public Container CreateWild(ContainerLayout layout, ReadOnlySpan<char> name, bool zero)
             {
                 var container = CreateWild(layout.TotalLength);
                 layout.Span.CopyTo(container.Span);
                 // clear data segment
                 if (zero) container.DataSegment.Clear();
+                container.Rename(name);
                 return container;
             }
 
@@ -247,6 +355,165 @@ namespace Minerva.DataStorage
             }
 #endif
         }
+
+
+        /// <summary>
+        /// A buffer for recording delete/write event
+        /// </summary>
+        public struct UnregisterBuffer : IDisposable
+        {
+            private static readonly ObjectPool<List<Entry>> pool = new ObjectPool<List<Entry>>(() => new List<Entry>());
+
+            struct Entry
+            {
+                public FieldType FieldType;
+                public ContainerReference Reference;
+                public bool IsDeleted;
+
+                public Entry(ContainerReference r, FieldType fieldType, bool isFieldDeleted) : this()
+                {
+                    this.Reference = r;
+                    this.FieldType = fieldType;
+                    this.IsDeleted = isFieldDeleted;
+                }
+            }
+
+            readonly Container parent;
+            List<Entry>? buffer;
+
+            public readonly bool IsDisposed => buffer != null;
+
+            private UnregisterBuffer(Container parent, List<Entry> entries)
+            {
+                this.parent = parent;
+                this.buffer = entries;
+                this.buffer.Clear();
+            }
+
+            public void Dispose()
+            {
+                if (buffer != null)
+                {
+                    pool.Return(buffer!);
+                    buffer = null;
+                }
+            }
+
+
+            public readonly void Add(ContainerReference r, FieldType fieldType, bool isFieldDlete = false)
+            {
+                buffer!.Add(new Entry(r, fieldType, isFieldDlete));
+            }
+
+            public readonly void Add(ReadOnlySpan<ContainerReference> rs, bool isArray, bool isFieldDlete = false)
+            {
+                for (int i = 0; i < rs.Length; i++)
+                {
+                    if (rs[i] == Container.Registry.ID.Empty) continue;
+                    buffer!.Add(new Entry(rs[i], isArray ? TypeUtil<ContainerReference>.ArrayFieldType : TypeUtil<ContainerReference>.ScalarFieldType, isFieldDlete));
+                }
+            }
+
+            public readonly void AddArray(ReadOnlySpan<ContainerReference> rs, bool isFieldDlete = false)
+            {
+                for (int i = 0; i < rs.Length; i++)
+                {
+                    if (rs[i] == Container.Registry.ID.Empty) continue;
+                    buffer!.Add(new Entry(rs[i], TypeUtil<ContainerReference>.ArrayFieldType, isFieldDlete));
+                }
+            }
+
+            public readonly void Send(bool quiet = false)
+            {
+                foreach (var item in buffer!)
+                {
+                    string? fieldName = null;
+                    ContainerReference reference = item.Reference;
+                    if (reference == 0)
+                        continue;
+                    Container? container = Registry.Shared.GetContainer(reference);
+                    if (container == null)
+                        continue;
+
+                    if (item.IsDeleted)
+                        fieldName = container.Name.ToString();
+                    Registry.Shared.Unregister(container);
+
+                    if (!quiet && fieldName != null)
+                        StorageObject.NotifyFieldDelete(parent, fieldName!, item.FieldType);
+                }
+                buffer.Clear();
+            }
+
+            public static UnregisterBuffer New(Container parent)
+            {
+                return new UnregisterBuffer(parent, pool.Rent());
+            }
+        }
+
+        public struct FieldDeleteEventBuffer : IDisposable
+        {
+            private static readonly ObjectPool<List<Entry>> pool = new ObjectPool<List<Entry>>(() => new List<Entry>());
+
+            struct Entry
+            {
+                public string? FieldName;
+                public FieldType FieldType;
+
+                public Entry(string name, FieldType fieldType) : this()
+                {
+                    this.FieldName = name;
+                    this.FieldType = fieldType;
+                }
+            }
+
+            readonly Container parent;
+            List<Entry>? buffer;
+
+            public readonly bool IsDisposed => buffer != null;
+
+            private FieldDeleteEventBuffer(Container parent, List<Entry> entries)
+            {
+                this.parent = parent;
+                this.buffer = entries;
+                this.buffer.Clear();
+            }
+
+            public void Dispose()
+            {
+                if (buffer != null)
+                {
+                    pool.Return(buffer!);
+                    buffer = null;
+                }
+            }
+
+
+            public readonly void Add(string fieldName, FieldType fieldType)
+            {
+                buffer!.Add(new Entry(fieldName, fieldType));
+            }
+
+            public readonly void Send(bool quiet = false)
+            {
+                if (!quiet)
+                {
+                    foreach (var item in buffer!)
+                    {
+                        string? fieldName = item.FieldName;
+                        StorageObject.NotifyFieldDelete(parent, fieldName!, item.FieldType);
+                    }
+                }
+                buffer!.Clear();
+            }
+
+            public static FieldDeleteEventBuffer New(Container parent)
+            {
+                return new FieldDeleteEventBuffer(parent, pool.Rent());
+            }
+        }
+
+
     }
 
     /// <summary>
@@ -259,7 +526,7 @@ namespace Minerva.DataStorage
     {
         private readonly ConcurrentStack<T> _stack;
         private readonly Func<T> _factory;
-        private readonly Action<T> _reset;
+        private readonly Action<T>? _reset;
         private readonly int _maxSize; // 0 or negative => unbounded
         private readonly object _lock = new object();
 
@@ -276,7 +543,7 @@ namespace Minerva.DataStorage
         /// Optional cap for the number of cached instances (0 or negative = unbounded).
         /// Returned instances beyond this cap are simply dropped.
         /// </param>
-        public ObjectPool(Func<T> factory, Action<T> reset = null, int maxSize = 0)
+        public ObjectPool(Func<T> factory, Action<T>? reset = null, int maxSize = 0)
         {
             _factory = factory ?? throw new ArgumentNullException(nameof(factory));
             _reset = reset;

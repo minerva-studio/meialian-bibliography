@@ -595,7 +595,7 @@ namespace Minerva.DataStorage.Serialization
                             else
                             {
                                 SetValueType(ValueType.Ref);
-                                var wildContainer = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+                                var wildContainer = Container.Registry.Shared.CreateWild(ContainerLayout.Empty, name);
                                 var childObject = new StorageObject(wildContainer);
                                 ReadObject(childObject, depth - 1);
                                 containers.Add(wildContainer);
@@ -604,7 +604,7 @@ namespace Minerva.DataStorage.Serialization
                         else if (c == '"')
                         {
                             SetValueType(ValueType.Ref);
-                            var wildContainer = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+                            var wildContainer = Container.Registry.Shared.CreateWild(ContainerLayout.Empty, name);
                             var childObject = new StorageObject(wildContainer);
                             var str = ReadString();
                             childObject.WriteString(str);
@@ -613,7 +613,7 @@ namespace Minerva.DataStorage.Serialization
                         else if (c == '[')
                         {
                             SetValueType(ValueType.Ref);
-                            var wildContainer = Container.Registry.Shared.CreateWild(ContainerLayout.Empty);
+                            var wildContainer = Container.Registry.Shared.CreateWild(ContainerLayout.Empty, name);
                             var childObject = new StorageObject(wildContainer);
                             ReadArrayOn(childObject, ContainerLayout.ArrayName, depth - 1);
                             containers.Add(wildContainer);
@@ -691,7 +691,7 @@ namespace Minerva.DataStorage.Serialization
                             Container container = containers[i];
                             if (container != null)
                             {
-                                Container.Registry.Shared.Register(container);
+                                Container.Registry.Shared.Register(container, arrayObject.Container);
                                 arrayView.References[i] = containers[i].ID;
                             }
                             else

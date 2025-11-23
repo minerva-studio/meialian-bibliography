@@ -258,6 +258,7 @@ namespace Minerva.DataStorage.Tests
         /// of unique byte[] buffers observed concurrently (pool reuse under contention).
         /// </summary> 
         [Test]
+        [Timeout(10000)]
         public void ArrayPool_Parallel_Reuse_PerWorkerPlateau()
         {
             var concurrent = Math.Max(2, Environment.ProcessorCount);
@@ -347,6 +348,7 @@ namespace Minerva.DataStorage.Tests
         /// Create many storages in parallel and hold them alive; all container IDs must be unique at the same time.
         /// </summary>
         [Test]
+        [Timeout(10000)]
         public void Registry_UniqueIds_WhileAlive_UnderParallel()
         {
             var reg = Container.Registry.Shared;
@@ -545,6 +547,7 @@ namespace Minerva.DataStorage.Tests
         /// After disposing a storage, concurrent registry lookups of its ids must keep returning null.
         /// </summary>
         [Test]
+        [Timeout(10000)]
         public void AfterDispose_RegistryLookup_IsStable_Null()
         {
             var reg = Container.Registry.Shared;
@@ -802,6 +805,174 @@ namespace Minerva.DataStorage.Tests
             double tol = relEps * Math.Max(1.0, Math.Abs(expected));
             Assert.That(Math.Abs(actual - expected), Is.LessThanOrEqualTo(tol),
                 message ?? $"Expected {expected} ~= {actual} within {tol}");
+        }
+
+        [Test]
+        public void Child_Delete_Unregisters_Container()
+        {
+            var reg = Container.Registry.Shared;
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+            var child = root.GetObject("child");
+            ulong childId = child.ID;
+            Assert.NotNull(reg.GetContainer(childId), "Child container should be registered after creation.");
+
+            // Delete field hosting child container
+            root.Delete("child");
+            SpinGCSoft();
+
+            Assert.IsNull(reg.GetContainer(childId), "Child container must be unregistered after Delete().");
+        }
+
+        [Test]
+        public void ParentMap_MatchesActualReferenceSlots()
+        {
+            var reg = Container.Registry.Shared;
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            // Create several direct children
+            var children = new List<StorageObject>();
+            for (int i = 0; i < 12; i++)
+            {
+                children.Add(root.GetObject("child" + i));
+            }
+            // Create nested child: outer.inner
+            var outer = root.GetObject("outer");
+            var inner = outer.GetObject("inner");
+
+            // Validate direct children parent mapping and actual presence in root ref slots
+            foreach (var child in children)
+            {
+                var c = reg.GetContainer(child.ID);
+                Assert.NotNull(c, "Child container missing from registry.");
+                Assert.IsTrue(reg.TryGetParent(c, out var parent), "TryGetParent failed for child.");
+                Assert.That(parent.ID, Is.EqualTo(root.ID), "Parent ID mismatch for direct child.");
+
+                // Ensure parent's reference fields actually contain child's ID
+                bool foundInParent = false;
+                for (int fi = 0; fi < parent.FieldCount && !foundInParent; fi++)
+                {
+                    ref var fh = ref parent.GetFieldHeader(fi);
+                    if (!fh.IsRef) continue;
+                    var refs = parent.GetFieldData<ContainerReference>(in fh);
+                    for (int k = 0; k < refs.Length; k++)
+                    {
+                        if (refs[k] == child.ID)
+                        {
+                            foundInParent = true;
+                            break;
+                        }
+                    }
+                }
+                Assert.IsTrue(foundInParent, $"Child {child.ID} not found in any parent ref field.");
+            }
+
+            // Validate nested child parent mapping (inner -> outer)
+            var innerC = reg.GetContainer(inner.ID);
+            Assert.NotNull(innerC);
+            Assert.IsTrue(reg.TryGetParent(innerC, out var innerParent));
+            Assert.That(innerParent.ID, Is.EqualTo(outer.ID), "Nested inner parent ID mismatch.");
+
+            // Ensure outer actually references inner
+            bool innerFound = false;
+            for (int fi = 0; fi < innerParent.FieldCount && !innerFound; fi++)
+            {
+                ref var fh = ref innerParent.GetFieldHeader(fi);
+                if (!fh.IsRef) continue;
+                var refs = innerParent.GetFieldData<ContainerReference>(in fh);
+                for (int k = 0; k < refs.Length; k++)
+                {
+                    if (refs[k] == inner.ID) { innerFound = true; break; }
+                }
+            }
+            Assert.IsTrue(innerFound, "Nested inner container ID not found in outer's ref fields.");
+
+            // Delete a few children and ensure registry no longer returns them
+            for (int i = 0; i < 5; i++)
+            {
+                var child = children[i];
+                ulong id = child.ID;
+                root.Delete("child" + i);
+                SpinGCSoft();
+                Assert.IsNull(reg.GetContainer(id), "Deleted child still present in registry.");
+            }
+        }
+
+        [Test]
+        [Timeout(12000)]
+        public void No_Cross_Contamination_Between_Storages_ParallelOps()
+        {
+            var reg = Container.Registry.Shared;
+            using var a = new Storage(ContainerLayout.Empty);
+            using var b = new Storage(ContainerLayout.Empty);
+            var aRoot = a.Root; var bRoot = b.Root;
+            ulong aRootId = aRoot.ID; ulong bRootId = bRoot.ID;
+
+            var aChildIds = new ConcurrentBag<ulong>();
+            var bChildIds = new ConcurrentBag<ulong>();
+            int iterations = 3000;
+            int errors = 0;
+
+            void Worker(StorageObject root, ConcurrentBag<ulong> ids, StorageObject otherRoot)
+            {
+                for (int i = 0; i < iterations; i++)
+                {
+                    string name = "c" + (i % 7);
+                    var child = root.GetObject(name);
+                    child.Write("v", i);
+                    ids.Add(child.ID);
+
+                    if ((i & 15) == 0)
+                    {
+                        root.Delete(name);
+                    }
+
+                    if (reg.GetContainer(otherRoot.ID) == null)
+                        Interlocked.Increment(ref errors);
+                }
+            }
+
+            Parallel.Invoke(
+                () => Worker(aRoot, aChildIds, bRoot),
+                () => Worker(bRoot, bChildIds, aRoot)
+            );
+
+            SpinGCSoft();
+
+            Assert.That(errors, Is.EqualTo(0));
+            var aRootContainer = reg.GetContainer(aRootId);
+            var bRootContainer = reg.GetContainer(bRootId);
+            Assert.NotNull(aRootContainer);
+            Assert.NotNull(bRootContainer);
+            Assert.False(ReferenceEquals(aRootContainer, bRootContainer));
+
+            // Validate live children: correct parent AND presence in parent's ref slots
+            void ValidateLiveChildren(IEnumerable<ulong> ids)
+            {
+                foreach (var id in ids.Distinct())
+                {
+                    var c = reg.GetContainer(id);
+                    if (c == null) continue; // deleted
+                    Assert.IsTrue(reg.TryGetParent(c, out var parent), $"Child {id} has no parent.");
+                    Assert.IsTrue(parent.ID == aRootId || parent.ID == bRootId, $"Child {id} parent {parent.ID} not a root.");
+                    bool found = false;
+                    for (int fi = 0; fi < parent.FieldCount && !found; fi++)
+                    {
+                        ref var fh = ref parent.GetFieldHeader(fi);
+                        if (!fh.IsRef) continue;
+                        var refs = parent.GetFieldData<ContainerReference>(in fh);
+                        for (int k = 0; k < refs.Length; k++)
+                        {
+                            if (refs[k] == id) { found = true; break; }
+                        }
+                    }
+                    Assert.IsTrue(found, $"Live child {id} not found in parent ref slots.");
+                }
+            }
+
+            ValidateLiveChildren(aChildIds);
+            ValidateLiveChildren(bChildIds);
         }
     }
 }

@@ -85,7 +85,7 @@ namespace Minerva.DataStorage.Tests
             ob.SetBytes("tiny".AsMemory(), (byte)ft, new byte[2]);
 
             var c = ob.BuildContainer();
-            Assert.That(() => c.Write<int>("tiny", 42, allowRescheme: false), Throws.TypeOf<IndexOutOfRangeException>());
+            Assert.That(() => c.Write<int>("tiny", 42, allowRescheme: false), Throws.TypeOf<ArgumentException>());
         }
 
         [Test]
@@ -354,6 +354,55 @@ namespace Minerva.DataStorage.Tests
             c3.CopyFrom(c);
             Assert.AreEqual(c.Length, c3.Length);
             Assert.AreEqual(BitConverter.ToInt32(c.View.GetFieldBytes(0)), BitConverter.ToInt32(c3.View.GetFieldBytes(0)));
+        }
+
+        [Test]
+        public void Rename_DoesNotBreakFieldAccess_AndPreservesData()
+        {
+            // Arrange: create a container with multiple fields and fill data
+            var ob = new ObjectBuilder();
+            ob.SetScalar<int>("hp");
+            ob.SetScalar<float>("spd");
+            ob.SetArray<int>("arr", 3);
+
+            var c = ob.BuildContainer();
+
+            c.Write("hp", 123, allowRescheme: false);
+            c.Write("spd", 4.5f, allowRescheme: false);
+
+            var arrSpan = c.GetFieldData<int>(c.GetFieldHeader("arr"));
+            arrSpan[0] = 10;
+            arrSpan[1] = 20;
+            arrSpan[2] = 30;
+
+            // Sanity before rename
+            Assert.AreEqual(123, c.Read<int>("hp"));
+            Assert.That(c.Read<float>("spd"), Is.EqualTo(4.5f).Within(1e-6));
+            CollectionAssert.AreEqual(new[] { 10, 20, 30 }, c.GetFieldData<int>(c.GetFieldHeader("arr")).ToArray());
+
+            // Act: rename to a different-length name to force offset changes
+            c.Rename("renamed-container-with-longer-name");
+
+            // Assert: field lookup by name still works and values are preserved
+            Assert.AreEqual(123, c.Read<int>("hp"));
+            Assert.That(c.Read<float>("spd"), Is.EqualTo(4.5f).Within(1e-6));
+
+            var arrAfter = c.GetFieldData<int>(c.GetFieldHeader("arr"));
+            CollectionAssert.AreEqual(new[] { 10, 20, 30 }, arrAfter.ToArray());
+
+            // Also verify writes still succeed after rename
+            c.Write("hp", 777, allowRescheme: false);
+            arrAfter[1] = 222;
+            Assert.AreEqual(777, c.Read<int>("hp"));
+            CollectionAssert.AreEqual(new[] { 10, 222, 30 }, c.GetFieldData<int>(c.GetFieldHeader("arr")).ToArray());
+
+            // IndexOf must still locate the fields
+            int ihp = c.IndexOf("hp".AsSpan());
+            int ispd = c.IndexOf("spd".AsSpan());
+            int iarr = c.IndexOf("arr".AsSpan());
+            Assert.GreaterOrEqual(ihp, 0);
+            Assert.GreaterOrEqual(ispd, 0);
+            Assert.GreaterOrEqual(iarr, 0);
         }
     }
 

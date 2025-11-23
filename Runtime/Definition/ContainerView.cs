@@ -140,6 +140,14 @@ namespace Minerva.DataStorage
             return MemoryMarshal.Cast<byte, char>(bytes);
         }
 
+        /// <summary>Get UTF-16 field name by index without allocations.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ReadOnlySpan<char> GetFieldName(in FieldHeader fieldHeader)
+        {
+            var bytes = Span.Slice(fieldHeader.NameOffset, fieldHeader.NameLength * sizeof(char));
+            return MemoryMarshal.Cast<byte, char>(bytes);
+        }
+
         /// <summary>
         /// Get the raw byte slice of a field's value.
         /// Effective ABSOLUTE start = Header.DataOffset + Field.DataOffset.
@@ -155,7 +163,12 @@ namespace Minerva.DataStorage
         /// Get the raw byte slice of a field's value.
         /// Effective ABSOLUTE start = Header.DataOffset + Field.DataOffset.
         /// </summary>
-        public Span<T> GetFieldBytes<T>(int index) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetFieldBytes(index));
+        public Span<T> GetFieldData<T>(int index) where T : unmanaged => MemoryMarshal.Cast<byte, T>(GetFieldBytes(index));
+
+        internal object GetFieldData<T>(in FieldHeader oldField)
+        {
+            throw new NotImplementedException();
+        }
 
 
 

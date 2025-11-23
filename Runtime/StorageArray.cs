@@ -101,12 +101,13 @@ namespace Minerva.DataStorage
             }
             set
             {
-                ref FieldHeader header = ref Header;
+                int fieldIndex = _handle.EnsureNotDisposed();
+                ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
                 int elementSize = header.ElemSize;
                 var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
                 value.TryWriteTo(span, header.Type);
 
-                StorageObject.NotifyFieldWrite(_handle.Container, _handle.Index);
+                StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
             }
         }
 
@@ -119,7 +120,7 @@ namespace Minerva.DataStorage
         internal WriteView Raw => new(ref this);
 
         /// <summary>Direct access to the underlying ID span (use with care).</summary>
-        internal readonly Span<ContainerReference> References
+        internal Span<ContainerReference> References
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
@@ -151,27 +152,42 @@ namespace Minerva.DataStorage
 
 
         /// <summary> Get a child as a StorageObject </summary>
-        public readonly StorageObject GetObject(int index)
+        public StorageObject GetObject(int index)
         {
-            return StorageObjectFactory.GetOrCreate(ref References[index], ContainerLayout.Empty);
+            ref ContainerReference reference = ref References[index];
+            return reference.TryGet(out var obj) ? obj : CreateObject(ref reference, index, ContainerLayout.Empty);
         }
 
         /// <summary> Get a child as a StorageObject.</summary>
-        public readonly StorageObject GetObject(int index, ContainerLayout layout)
+        public StorageObject GetObject(int index, ContainerLayout layout)
         {
-            return layout == null ? StorageObjectFactory.GetNoAllocate(References[index]) : StorageObjectFactory.GetOrCreate(ref References[index], layout);
+            ref ContainerReference reference = ref References[index];
+            if (layout == null) return StorageObjectFactory.GetNoAllocate(reference);
+            return reference.TryGet(out var obj) ? obj : CreateObject(ref reference, index, layout);
+        }
+
+        private readonly StorageObject CreateObject(ref ContainerReference reference, int index, ContainerLayout layout)
+        {
+            using var tempString = new TempString(_handle.Name);
+            tempString.Append('[');
+            Span<char> span = stackalloc char[11];
+            if (!index.TryFormat(span, out var len))
+                ThrowHelper.ArgumentException(nameof(index));
+            tempString.Append(span[..len]);
+            tempString.Append(']');
+            return StorageObjectFactory.GetOrCreate(ref reference, _handle.Container, layout, tempString);
         }
 
         /// <summary> Get a child as a StorageObject.</summary>
-        public readonly StorageObject GetObjectNoAllocate(int index)
+        public StorageObject GetObjectNoAllocate(int index)
         {
             return References[index].GetNoAllocate();
         }
 
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
-        public readonly bool TryGetObject(int index, out StorageObject child)
+        public bool TryGetObject(int index, out StorageObject child)
         {
-            return StorageObjectFactory.TryGet(References[index], out child);
+            return References[index].TryGet(out child);
         }
 
 
@@ -203,12 +219,17 @@ namespace Minerva.DataStorage
             int fieldIndex = _handle.EnsureNotDisposed();
             ref var header = ref _handle.Container.GetFieldHeader(fieldIndex);
 
-            if (header.IsRef)
-                Container.Registry.Shared.Unregister(ref _handle.Container.GetFieldData<ContainerReference>(in header)[index]);
-
-            int elementSize = header.ElemSize;
-            var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
-            span.Clear();
+            if (!header.IsRef)
+            {
+                int elementSize = header.ElemSize;
+                var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                span.Clear();
+            }
+            else
+            {
+                _handle.Container.GetFieldData<ContainerReference>(in header)[index].Unregister();
+            }
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Name.ToString(), FieldType);
         }
 
         /// <summary>Clear all bytes (zero-fill).</summary>
@@ -219,12 +240,16 @@ namespace Minerva.DataStorage
             if (header.IsRef)
             {
                 Span<ContainerReference> ids = _handle.Container.GetFieldData<ContainerReference>(in header);
-                for (int i = 0; i < ids.Length; i++)
-                {
-                    Container.Registry.Shared.Unregister(ref ids[i]);
-                }
+                using Container.UnregisterBuffer buffer = Container.UnregisterBuffer.New(_handle.Container);
+                buffer.AddArray(ids);
+                ids.Clear();
+                buffer.Send();
             }
-            _handle.Container.GetFieldData(in header).Clear();
+            else
+            {
+                _handle.Container.GetFieldData(in header).Clear();
+            }
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Name.ToString(), FieldType);
         }
 
         public T[] ToArray<T>() where T : unmanaged

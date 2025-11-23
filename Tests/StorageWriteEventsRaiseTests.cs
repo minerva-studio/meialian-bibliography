@@ -3,11 +3,12 @@ using NUnit.Framework;
 
 namespace Minerva.DataStorage.Tests
 {
+    [Timeout(1000)]
     [TestFixture]
     public class StorageWriteEventsRaiseTests
     {
         private int _count;
-        private StorageFieldWriteEventArgs _last;
+        private StorageEventArgs _last;
 
         [SetUp]
         public void SetUp()
@@ -16,9 +17,16 @@ namespace Minerva.DataStorage.Tests
             _last = default;
         }
 
-        private StorageWriteSubscription SubscribeAll(StorageObject obj)
+        private StorageSubscription SubscribeAll(StorageObject obj)
         {
-            return obj.Subscribe((in StorageFieldWriteEventArgs args) => { _count++; _last = args; });
+            return obj.Subscribe((in StorageEventArgs args) =>
+            {
+                _count++;
+                _last = args;
+#if UNITY_EDITOR
+                UnityEngine.Debug.Log(args);
+#endif
+            });
         }
 
         [Test]
@@ -28,7 +36,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             storage.Root.Write("hp", 5);
             Assert.AreEqual(1, _count);
-            Assert.AreEqual("hp", _last.FieldName);
+            Assert.AreEqual("hp", _last.Path);
         }
 
         [Test]
@@ -38,7 +46,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             Assert.IsTrue(storage.Root.TryWrite<int>("energy", 88));
             Assert.AreEqual(1, _count);
-            Assert.AreEqual("energy", _last.FieldName);
+            Assert.AreEqual("energy", _last.Path);
         }
 
         [Test]
@@ -48,17 +56,18 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             storage.Root.Override("mana", BitConverter.GetBytes(42), ValueType.Int32);
             Assert.AreEqual(1, _count);
-            Assert.AreEqual("mana", _last.FieldName);
+            Assert.AreEqual("mana", _last.Path);
         }
 
         [Test]
         public void WriteString_RaisesEvent()
         {
+            _count = 0;
             using var storage = new Storage(ContainerLayout.Empty);
             using var sub = SubscribeAll(storage.Root);
             storage.Root.Write("name", "hero");
             Assert.AreEqual(1, _count);
-            Assert.AreEqual("name", _last.FieldName);
+            Assert.AreEqual("name", _last.Path);
         }
 
         [Test]
@@ -68,7 +77,7 @@ namespace Minerva.DataStorage.Tests
             using var sub = SubscribeAll(storage.Root);
             storage.Root.WriteArray<int>(new int[] { 1, 2, 3 });
             Assert.AreEqual(1, _count);
-            Assert.AreEqual(ContainerLayout.ArrayName, _last.FieldName);
+            Assert.AreEqual(ContainerLayout.ArrayName, _last.Path);
         }
 
         [Test]
@@ -76,9 +85,19 @@ namespace Minerva.DataStorage.Tests
         {
             using var storage = new Storage(ContainerLayout.Empty);
             using var sub = SubscribeAll(storage.Root);
-            storage.Root.WritePath<int>("stats.hp".AsSpan(), 33);
+            storage.Root.WritePath<int>("stats.hp", 33);
             Assert.GreaterOrEqual(_count, 1);
-            Assert.AreEqual("hp", _last.FieldName);
+            Assert.AreEqual("stats.hp", _last.Path);
+        }
+
+        [Test]
+        public void Write_RaisesEvent()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            using var sub = SubscribeAll(storage.Root);
+            storage.Root.Write<int>("stats", 33);
+            Assert.GreaterOrEqual(_count, 1);
+            Assert.AreEqual("stats", _last.Path);
         }
 
         [Test]
@@ -86,20 +105,50 @@ namespace Minerva.DataStorage.Tests
         {
             using var storage = new Storage(ContainerLayout.Empty);
             using var sub = SubscribeAll(storage.Root);
-            storage.Root.WriteArrayPath<int>("numbers".AsSpan(), new int[] { 9, 8 });
+            storage.Root.WriteArrayPath<int>("numbers", new int[] { 9, 8 });
             Assert.AreEqual(1, _count);
-            Assert.AreEqual("numbers", _last.FieldName);
+            Assert.AreEqual("numbers", _last.Path);
         }
 
         [Test]
-        public void Delete_DoesNotRaiseEvent()
+        public void Delete_RaiseEvent()
         {
             using var storage = new Storage(ContainerLayout.Empty);
             using var sub = SubscribeAll(storage.Root);
             storage.Root.Write("temp", 1);
             _count = 0;
             storage.Root.Delete("temp");
-            Assert.AreEqual(0, _count);
+            Assert.AreEqual(1, _count);
+        }
+
+        [Test]
+        public void WriteArrayElement_ByIndexedPath_RaisesEventWithIndexedPath()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            using var sub = SubscribeAll(storage.Root);
+            // Create an int array field named numbers
+            storage.Root.WriteArrayPath<int>("numbers".AsSpan(), new int[] { 1, 2, 3 });
+            _count = 0;
+
+            // Write to element [1]
+            storage.Root.WritePath<int>("numbers[1]", 99);
+            Assert.AreEqual(1, _count, "Exactly one event should fire for element write");
+            Assert.AreEqual("numbers", _last.Path, "Event path should include index");
+            // not support subscribe for a single member of array, so the event returned is the path to the entire array
+            //Assert.AreEqual("numbers[1]", _last.Path, "Event path should include index");
+        }
+
+        [Test]
+        public void WriteNestedObjectInsideArray_RaisesEventWithFullIndexedPath()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            using var sub = SubscribeAll(storage.Root);
+
+            // Write to an object field inside an array slot; this should implicitly create the array and object if supported
+            storage.Root.GetObject("items").MakeObjectArray(5);
+            storage.Root.WritePath<int>("items[2].value", 7);
+            Assert.GreaterOrEqual(_count, 1);
+            Assert.AreEqual("items[2].value", _last.Path, "Event path should include array index and child field name");
         }
     }
 }

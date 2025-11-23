@@ -27,13 +27,13 @@ namespace Minerva.DataStorage
 
         public Storage(ContainerLayout rootSchema)
         {
-            _root = Container.Registry.Shared.CreateAt(ref _id, rootSchema);
+            _root = Container.Registry.Shared.CreateRoot(ref _id, rootSchema);
         }
 
         internal Storage(Container container)
         {
             if (container.ID == Container.Registry.ID.Wild)
-                Container.Registry.Shared.Register(container);
+                Container.Registry.Shared.RegisterRoot(container);
 
             _root = container;
             _id = container.ID;

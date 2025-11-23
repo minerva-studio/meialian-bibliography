@@ -258,7 +258,7 @@ namespace Minerva.DataStorage
         public void Override(ReadOnlySpan<char> fieldName, ReadOnlySpan<byte> value, ValueType valueType, int? inlineArrayLength = null)
         {
             if (valueType == ValueType.Ref)
-                ThrowHelper.ThrowArugmentException(nameof(value));
+                ThrowHelper.ArgumentException(nameof(value));
 
             var container = _container.EnsureNotDisposed(_generation);
             _container.Override(fieldName, value, valueType, inlineArrayLength);
@@ -272,17 +272,17 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Subscribe to write notifications for this container (all fields under it).
         /// </summary>
-        public StorageWriteSubscription Subscribe(StorageFieldWriteHandler handler)
+        public StorageSubscription Subscribe(StorageMemberHandler handler)
         {
             ThrowHelper.ThrowIfNull(handler, nameof(handler));
             var container = _container.EnsureNotDisposed(_generation);
-            return StorageWriteEventRegistry.SubscribeToContainer(container, handler);
+            return StorageEventRegistry.SubscribeToContainer(container, handler);
         }
 
         /// <summary>
         /// Subscribe to a field or child container specified by path segments separated with the default separator.
         /// </summary>
-        public StorageWriteSubscription Subscribe(string path, StorageFieldWriteHandler handler, char separator = DefaultPathSeparator)
+        public StorageSubscription Subscribe(string path, StorageMemberHandler handler, char separator = DefaultPathSeparator)
         {
             ThrowHelper.ThrowIfNull(path, nameof(path));
             ThrowHelper.ThrowIfNull(handler, nameof(handler));
@@ -446,7 +446,7 @@ namespace Minerva.DataStorage
         {
             var obj = NavigateToObject(path, separator, createIfMissing: true, out var fieldSegment, out var index);
             if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+                ThrowHelper.ArgumentException("Path must contain at least one segment.", nameof(path));
 
             if (index >= 0) obj.GetArray(fieldSegment).Write(index, value);
             else obj.Write(fieldSegment, value);
@@ -506,7 +506,7 @@ namespace Minerva.DataStorage
             {
                 container.GetObjectInArray(fieldSegment, index).WriteArray(value);
             }
-            container.WriteArray(fieldSegment, value);
+            else container.WriteArray(fieldSegment, value);
         }
 
         /// <summary>
@@ -690,8 +690,13 @@ namespace Minerva.DataStorage
                     if (arrayView.IsDisposed)
                         throw new InvalidOperationException($"Segment '{segName.ToString()}' is not an array.");
 
-                    if (!arrayView.TryGetObject(segIndex, out next))
+                    if (createIfMissing)
+                        next = arrayView.GetObject(segIndex);
+                    else if (!arrayView.TryGetObject(segIndex, out next))
                         throw new IndexOutOfRangeException($"Index {segIndex} out of range for segment '{segName.ToString()}'.");
+
+                    if (next.IsNull)
+                        throw new InvalidOperationException($"Path segment '{segName.ToString()}[{index}]' refers to a null child object.");
                 }
                 else
                 {
@@ -815,7 +820,7 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Subscribe to a local field/child without performing path navigation.
         /// </summary>
-        private StorageWriteSubscription SubscribeLocal(ReadOnlySpan<char> name, StorageFieldWriteHandler handler)
+        private StorageSubscription SubscribeLocal(ReadOnlySpan<char> name, StorageMemberHandler handler)
         {
             if (name.Length == 0)
                 return Subscribe(handler);
@@ -833,7 +838,7 @@ namespace Minerva.DataStorage
                 return child.Subscribe(handler);
             }
 
-            return StorageWriteEventRegistry.Subscribe(container, name.ToString(), handler);
+            return StorageEventRegistry.Subscribe(container, name.ToString(), handler);
         }
 
 
@@ -849,11 +854,13 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool Delete(string fieldName)
         {
-            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            _container.EnsureNotDisposed(_generation);
+            if (!_container.TryGetFieldHeader(fieldName, out var headerSpan))
+                return false;
 
-            bool result = false;
-            _container.EnsureNotDisposed(_generation).Rescheme(b => result = b.Remove(fieldName));
-            return result;
+            bool removed = false;
+            _container.Rescheme(b => removed = b.Remove(fieldName));
+            return removed;
         }
 
         /// <summary>
@@ -865,14 +872,15 @@ namespace Minerva.DataStorage
         public int Delete(params string[] names)
         {
             _container.EnsureNotDisposed(_generation);
-            int result = 0;
-            for (int i = 0; i < names.Length; i++)
+            int count = 0;
+            _container.Rescheme(b =>
             {
-                string item = names[i];
-                if (item == null) continue;
-                _container.Rescheme(b => result += b.Remove(item) ? 1 : 0);
-            }
-            return result;
+                foreach (var name in names)
+                {
+                    if (b.Remove(name)) count++;
+                }
+            });
+            return count;
         }
 
 
@@ -899,7 +907,8 @@ namespace Minerva.DataStorage
         public void WriteString(ReadOnlySpan<char> fieldName, ReadOnlySpan<char> value)
         {
             GetObject(fieldName).WriteArray(value);
-            NotifyFieldWrite(_container, fieldName);
+            // since write array already notifies, no need to notify again
+            //NotifyFieldWrite(_container, fieldName);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -965,7 +974,6 @@ namespace Minerva.DataStorage
         {
             var container = _container.EnsureNotDisposed(_generation);
             GetObject(fieldName).WriteArray(value);
-            NotifyFieldWrite(container, fieldName);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1024,7 +1032,11 @@ namespace Minerva.DataStorage
         /// <typeparam name="T"></typeparam>
         /// <param name="length"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void MakeArray<T>(int length) where T : unmanaged => Rescheme(ContainerLayout.BuildArray<T>(length));
+        internal void MakeArray<T>(int length) where T : unmanaged
+        {
+            // scalar array fast path
+            _container.ReschemeForArray(length, TypeUtil<T>.ValueType, TypeUtil<T>.Size);
+        }
 
         /// <summary>
         /// Make this field an array
@@ -1032,13 +1044,16 @@ namespace Minerva.DataStorage
         /// <typeparam name="T"></typeparam>
         /// <param name="length"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void MakeArray(ValueType valueType, int length, int? elemSize = null)
+        internal void MakeArray(ValueType valueType, int length, int? elemSize = null)
         {
-            if (valueType == ValueType.Blob)
-                Rescheme(ContainerLayout.BuildBlobArray(elemSize.Value, length));
-            else
-                Rescheme(ContainerLayout.BuildFixedArray(valueType, length));
-            _container.GetFieldData(in _container.GetFieldHeader(0)).Clear();
+            _container.ReschemeForArray(length, valueType, elemSize ?? TypeUtil.SizeOf(valueType));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void ValidateArrayObject()
+        {
+            if (_container.FieldCount > 1)
+                throw new InvalidOperationException("This StorageObject cannot be converted to an array because it contains multiple fields.");
         }
 
 
@@ -1113,7 +1128,14 @@ namespace Minerva.DataStorage
         {
             _container.EnsureNotDisposed(_generation);
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(index) : ref _container.GetRefNoRescheme(index);
-            return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+            var obj = layout == null
+                ? StorageObjectFactory.GetNoAllocate(idRef)
+                : (idRef.TryGet(out var existingObj)
+                    ? existingObj
+                    : StorageObjectFactory.GetOrCreate(ref idRef, _container, layout, _container.GetFieldName(index))
+                );
+
+            return obj;
         }
 
         /// <summary>
@@ -1151,7 +1173,14 @@ namespace Minerva.DataStorage
         {
             _container.EnsureNotDisposed(_generation);
             ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
-            return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+
+            var obj = layout == null
+                ? StorageObjectFactory.GetNoAllocate(idRef)
+                : (idRef.TryGet(out var existingObj)
+                    ? existingObj
+                    : StorageObjectFactory.GetOrCreate(ref idRef, _container, layout, fieldName)
+                );
+            return obj;
         }
 
         /// <summary>
@@ -1164,7 +1193,13 @@ namespace Minerva.DataStorage
         private StorageObject GetObject(in FieldHeader header, ContainerLayout layout)
         {
             ref ContainerReference idRef = ref _container.GetRefSpan(header)[0];
-            return layout != null ? StorageObjectFactory.GetOrCreate(ref idRef, layout) : StorageObjectFactory.GetNoAllocate(idRef);
+            var obj = layout == null
+                ? StorageObjectFactory.GetNoAllocate(idRef)
+                : (idRef.TryGet(out var existingObj)
+                    ? existingObj
+                    : StorageObjectFactory.GetOrCreate(ref idRef, _container, layout, _container.GetFieldName(in header))
+                );
+            return obj;
         }
 
 
@@ -1465,33 +1500,44 @@ namespace Minerva.DataStorage
 
 
 
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void NotifyFieldWrite(Container container, string fieldName)
-        {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
-                return;
-            var type = container.GetFieldHeader(fieldName).Type;
-            StorageWriteEventRegistry.Notify(container, fieldName, type);
-        }
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static void NotifyFieldWrite(Container container, int fieldIndex)
         {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
+            if (!StorageEventRegistry.HasSubscribers(container))
                 return;
             ref var header = ref container.GetFieldHeader(fieldIndex);
             var fieldName = container.GetFieldName(in header).ToString();
-            StorageWriteEventRegistry.Notify(container, fieldName, header.Type);
+            StorageEventRegistry.NotifyFieldWrite(container, fieldName, header.FieldType);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName)
         {
-            if (!StorageWriteEventRegistry.HasSubscribers(container))
+            if (!StorageEventRegistry.HasSubscribers(container))
                 return;
-            NotifyFieldWrite(container, fieldName.ToString());
+            var type = container.GetFieldHeader(fieldName).FieldType;
+            StorageEventRegistry.NotifyFieldWrite(container, fieldName.ToString(), type);
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void NotifyFieldWrite(Container container, string fieldName)
+        {
+            if (!StorageEventRegistry.HasSubscribers(container))
+                return;
+            var type = container.GetFieldHeader(fieldName).FieldType;
+            StorageEventRegistry.NotifyFieldWrite(container, fieldName, type);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void NotifyFieldDelete(Container container, string fieldName, FieldType fieldType)
+        {
+            if (!StorageEventRegistry.HasSubscribers(container))
+                return;
+
+            StorageEventRegistry.NotifyFieldDelete(container, fieldName, fieldType);
+            StorageEventRegistry.RemoveFieldSubscriptions(container, fieldName);
+        }
+
     }
 }
 

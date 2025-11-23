@@ -207,7 +207,7 @@ namespace Minerva.DataStorage.Tests
             Assert.Greater(layout.TotalLength, 0);
 
             // Create a zero-initialized container from layout
-            var c = Container.Registry.Shared.CreateWild(layout);
+            var c = CreateWildContainer(layout);
             var v = c.View;
 
             // Field count
@@ -290,7 +290,7 @@ namespace Minerva.DataStorage.Tests
             ob.SetArray<byte>("blob", new byte[] { 1, 2, 3, 4 });
 
             var layout = ob.BuildLayout();
-            var c = Container.Registry.Shared.CreateWild(layout);
+            var c = CreateWildContainer(layout);
             var v = c.View;
 
             // names exist and sorted
@@ -316,6 +316,11 @@ namespace Minerva.DataStorage.Tests
             Assert.IsTrue(v.Fields[iChildren].IsRef);
             Assert.IsTrue(v.Fields[iChildren].FieldType.IsInlineArray);
             Assert.AreEqual(2 * 8, v.Fields[iChildren].Length);
+        }
+
+        private static Container CreateWildContainer(ContainerLayout layout)
+        {
+            return Container.Registry.Shared.CreateWild(layout, "");
         }
     }
 }

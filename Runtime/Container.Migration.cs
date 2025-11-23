@@ -7,6 +7,44 @@ namespace Minerva.DataStorage
 {
     internal sealed partial class Container
     {
+        public void Rename(ReadOnlySpan<char> newContainerName)
+        {
+            var nameBytes = MemoryMarshal.AsBytes(newContainerName);
+            ThrowHelper.ThrowIfOverlap(_memory.Buffer.Span, nameBytes);
+            ref var containerHeader = ref this.Header;
+            int newNameByteLength = nameBytes.Length;
+            int offsetDelta = newNameByteLength - containerHeader.ContainerNameLength;
+            var newSize = _memory.Buffer.Length + offsetDelta;
+            var newMemory = AllocatedMemory.Create(newSize);
+
+            // Copy old data
+            // headers
+            int preName = ContainerHeader.Size + FieldHeader.Size * containerHeader.FieldCount;
+            //  copy up to container name
+            _memory.Buffer.Span[..preName].CopyTo(newMemory.Buffer.Span);
+            ref var newContainerHeader = ref Unsafe.As<byte, ContainerHeader>(ref newMemory.Buffer.Span[0]);
+            newContainerHeader.Length = newSize;
+            newContainerHeader.DataOffset += offsetDelta;
+            newContainerHeader.ContainerNameLength = checked((short)newNameByteLength);
+            // apply offset delta
+            for (int i = 0; i < containerHeader.FieldCount; i++)
+            {
+                ref var fieldHeader = ref Unsafe.As<byte, FieldHeader>(ref newMemory.Buffer.Span[ContainerHeader.Size + FieldHeader.Size * i]);
+                fieldHeader.NameOffset += offsetDelta;
+                fieldHeader.DataOffset += offsetDelta;
+            }
+
+            // copy new container name
+            nameBytes.CopyTo(newMemory.Buffer.Span.Slice(preName, newNameByteLength));
+            // copy after container name
+            _memory.Buffer.Span[(preName + Header.ContainerNameLength)..].CopyTo(newMemory.Buffer.Span[(preName + newNameByteLength)..]);
+
+            ChangeContent(newMemory);
+        }
+
+
+
+
         /// <summary>
         /// Migrate this container to a new schema by adding/removing fields.
         /// Rules:
@@ -25,21 +63,26 @@ namespace Minerva.DataStorage
         /// Internal overload allowing to skip zero-initialization when the caller
         /// will fully overwrite the new buffer manually.
         /// </summary>  
-        public void Rescheme(ContainerLayout newSchema)
+        public void Rescheme(ContainerLayout newLayout, bool quiet = false)
         {
-            if (newSchema is null) throw new ArgumentNullException(nameof(newSchema));
+            if (newLayout is null) throw new ArgumentNullException(nameof(newLayout));
             EnsureNotDisposed();
 
             // same header
-            if (HeadersSegment.SequenceEqual(newSchema.Span))
+            if (newLayout.MatchesHeader(HeadersSegment))
                 return;
 
             // Prepare destination buffer
             //byte[] dstBuf = DefaultPool.Rent(newSchema.TotalLength);
-            AllocatedMemory dstBuf = AllocatedMemory.Create(newSchema.TotalLength);
+            using UnregisterBuffer unregister = UnregisterBuffer.New(this);
+            using FieldDeleteEventBuffer delete = FieldDeleteEventBuffer.New(this);
+            ref ContainerHeader header = ref Header;
+            int newLength = newLayout.TotalLength + header.ContainerNameLength;
+            AllocatedMemory dstBuf = AllocatedMemory.Create(newLength);
             var dst = dstBuf.Buffer.Span;
             dst.Clear();
-            newSchema.Span.CopyTo(dst);
+
+            newLayout.WriteTo(dst, _memory.AsSpan(header.ContainerNameOffset, header.ContainerNameLength));
 
             // Prepare new header hints (migrate by name)            
             ContainerView newView = new ContainerView(dst);
@@ -58,8 +101,11 @@ namespace Minerva.DataStorage
                     if (oldField.IsRef)
                     {
                         var oldIds = GetFieldData<ContainerReference>(in oldField);
-                        for (int j = 0; j < oldIds.Length; j++)
-                            Registry.Shared.Unregister(ref oldIds[j]);
+                        unregister.Add(oldIds, oldField.IsInlineArray, !quiet);
+                    }
+                    else
+                    {
+                        delete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
                     }
                     continue;
                 }
@@ -75,8 +121,11 @@ namespace Minerva.DataStorage
                     if (oldField.IsRef)
                     {
                         var oldIds = GetFieldData<ContainerReference>(in oldField);
-                        for (int j = 0; j < oldIds.Length; j++)
-                            Registry.Shared.Unregister(ref oldIds[j]);
+                        unregister.Add(oldIds, oldField.IsInlineArray, !quiet);
+                    }
+                    else
+                    {
+                        delete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
                     }
                     dstBytes.Clear();
                     continue;
@@ -109,7 +158,7 @@ namespace Minerva.DataStorage
 
                     int min = Math.Min(oldIds.Length, newIds.Length);
                     for (int i = 0; i < min; i++) newIds[i] = oldIds[i];
-                    for (int i = min; i < oldIds.Length; i++) Registry.Shared.Unregister(ref oldIds[i]);
+                    unregister.Add(oldIds[min..], oldField.IsInlineArray);
                 }
             }
 
@@ -117,6 +166,8 @@ namespace Minerva.DataStorage
             var oldBuf = _memory;
             ChangeContent(dstBuf);
             oldBuf.Dispose();
+            unregister.Send();
+            delete.Send();
         }
 
 
@@ -187,6 +238,10 @@ namespace Minerva.DataStorage
                 nextHeader.DataOffset += isNewField ? FieldHeader.Size + fieldName.Length * sizeof(char) : 0;
                 nextHeader.Length = newLength;
 
+                // copy container name
+                _memory.AsSpan(currentHeader.ContainerNameOffset, currentHeader.ContainerNameLength).CopyTo(span.Slice(currentHeader.ContainerNameOffset + (isNewField ? FieldHeader.Size : 0), currentHeader.ContainerNameLength));
+                nextHeader.ContainerNameLength = currentHeader.ContainerNameLength; // preserve old name length
+
                 int newFieldCount = nextHeader.FieldCount;
                 int nameOffset = nextHeader.NameOffset;
                 int dataOffset = nextHeader.DataOffset;
@@ -234,12 +289,6 @@ namespace Minerva.DataStorage
                 throw;
             }
             return targetIndex;
-        }
-
-        private void ChangeContent(AllocatedMemory next)
-        {
-            _memory = next;
-            _schemaVersion++;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -298,6 +347,107 @@ namespace Minerva.DataStorage
             }
         }
 
+
+
+
+        public void ReschemeForArray(int length, ValueType valueType, int? elemSize = null)
+        {
+            ref ContainerHeader oldHeader = ref Header;
+            int elementSize = elemSize ?? (valueType == ValueType.Blob ? throw new ArgumentException() : TypeUtil.SizeOf(valueType));
+            int dataOffset = ContainerHeader.Size
+                + FieldHeader.Size
+                + oldHeader.ContainerNameLength
+                + ContainerLayout.ArrayName.Length * sizeof(char);
+            int dataLength = length * elementSize;
+            int size = dataOffset + dataLength;
+
+            AllocatedMemory allocatedMemory = AllocatedMemory.Create(size);
+            // copy header
+            ref ContainerHeader newHeader = ref Unsafe.As<byte, ContainerHeader>(ref allocatedMemory.Buffer.Span[0]);
+            newHeader = oldHeader;
+            newHeader.Length = size;
+            newHeader.FieldCount = 1;
+            newHeader.DataOffset = dataOffset;
+            newHeader.ContainerNameLength = oldHeader.ContainerNameLength;
+            // copy container name
+            _memory.AsSpan(oldHeader.ContainerNameOffset, oldHeader.ContainerNameLength).CopyTo(allocatedMemory.AsSpan(newHeader.ContainerNameOffset, newHeader.ContainerNameLength));
+            // write array field header
+            ref FieldHeader fieldHeader = ref FieldHeader.FromSpanAndFieldIndex(allocatedMemory.Buffer.Span, 0);
+            fieldHeader.NameLength = (short)ContainerLayout.ArrayName.Length;
+            fieldHeader.NameOffset = newHeader.ContainerNameOffset + newHeader.ContainerNameLength;
+            fieldHeader.DataOffset = dataOffset;
+            fieldHeader.Length = dataLength;
+            fieldHeader.FieldType = new FieldType(valueType, true);
+            fieldHeader.ElemSize = (short)elementSize;
+            // write array field name
+            var nameBytes = MemoryMarshal.AsBytes(ContainerLayout.ArrayName.AsSpan());
+            nameBytes.CopyTo(allocatedMemory.AsSpan(fieldHeader.NameOffset, nameBytes.Length));
+
+            // zero init data area
+            Span<byte> dstBytes = allocatedMemory.AsSpan(dataOffset, dataLength);   // NEW buffer slice
+            dstBytes.Clear();
+
+            // record references to dispose
+            Span<ContainerReference> oldIds = default;
+
+            // try copy old data
+            if (FieldCount == 1)
+            {
+                ref var oldField = ref GetFieldHeader(0);
+                // truely same type
+                // value type the same, but is array/non array, only diff in length (arr or non arr)
+                if (oldField.Type == valueType)
+                {
+                    var srcBytes = GetFieldData(in oldField);           // OLD buffer read-only
+                                                                        // copy as much as possible
+                    int min = Math.Min(srcBytes.Length, dstBytes.Length);
+                    srcBytes[..min].CopyTo(dstBytes[..min]);
+                }
+                // implicit conversion needed
+                else if (oldField.Type != ValueType.Blob && valueType != ValueType.Blob && valueType != ValueType.Ref)
+                {
+                    var srcBytes = GetFieldData(in oldField);           // OLD buffer read-only
+                    Migration.MigrateValueFieldBytes(srcBytes, dstBytes, oldField.Type, valueType, true);
+                }
+                // any of them are refs
+                if (oldField.Type == ValueType.Ref)
+                {
+                    // Ref-to-Ref migration unchanged (copy ids, unregister tails)
+                    oldIds = GetFieldData<ContainerReference>(in oldField);
+                    if (valueType == ValueType.Ref)
+                    {
+                        var newIds = MemoryMarshal.Cast<byte, ContainerReference>(dstBytes);
+                        int min = Math.Min(oldIds.Length, newIds.Length);
+                        for (int i = 0; i < min; i++) newIds[i] = oldIds[i];
+                        // to dispose
+                        oldIds = oldIds[min..];
+                    }
+                }
+            }
+
+
+
+            using var oldMemory = _memory;
+            ChangeContent(allocatedMemory);
+
+            // dispose references
+            for (int i = 0; i < oldIds.Length; i++)
+            {
+                if (oldIds[i] == Registry.ID.Empty) continue;
+                var container = Registry.Shared.GetContainer(oldIds[i]);
+                Registry.Shared.Unregister(container);
+            }
+        }
+
+
+
+
+
+        private void ChangeContent(AllocatedMemory next)
+        {
+            _memory = next;
+            _schemaVersion++;
+        }
 
 
 

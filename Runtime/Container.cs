@@ -13,12 +13,11 @@ namespace Minerva.DataStorage
     {
         public const int Version = 0;
 
-
         private ulong _id;              // assigned by registry 
         private AllocatedMemory _memory;
-        private bool _disposed;
         private int _generation;
         private int _schemaVersion;
+        private bool _disposed;
 
         /// <summary> object id </summary>
         public ulong ID => _id;
@@ -102,6 +101,16 @@ namespace Minerva.DataStorage
             }
         }
 
+        public Span<char> Name
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                ref var header = ref this.Header;
+                return MemoryMarshal.Cast<byte, char>(_memory.AsSpan(header.ContainerNameOffset, header.ContainerNameLength));
+            }
+        }
+
         public ref AllocatedMemory Memory => ref _memory;
 
 
@@ -148,10 +157,16 @@ namespace Minerva.DataStorage
             _schemaVersion = 0;
         }
 
+        /// <summary>
+        /// Mark as dispose but not actually dispose the internal memory
+        /// </summary>
+        public void MarkDispose()
+        {
+            _disposed = true;
+        }
+
         public void Dispose()
         {
-            if (_disposed) return;
-
             // set disposed
             _disposed = true;
             _memory.Dispose();
@@ -173,6 +188,7 @@ namespace Minerva.DataStorage
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Container EnsureNotDisposed(int generation, int schemaVersion) => !IsDisposed(generation, schemaVersion) ? this : ThrowHelper.ThrowDisposed<Container>();
+
 
 
 
@@ -244,7 +260,7 @@ namespace Minerva.DataStorage
         public ref FieldHeader GetFieldHeader(ReadOnlySpan<char> fieldName)
         {
             if (!TryGetFieldHeader(fieldName, out var headerSpan))
-                ThrowHelper.ThrowArugmentException(nameof(fieldName));
+                ThrowHelper.ArgumentException(nameof(fieldName));
             return ref headerSpan[0];
         }
 
@@ -258,7 +274,7 @@ namespace Minerva.DataStorage
                     int index = ReschemeFor<T>(fieldName);
                     return ref GetFieldHeader(index);
                 }
-                else ThrowHelper.ThrowArugmentException(nameof(fieldName));
+                else ThrowHelper.ArgumentException(nameof(fieldName));
             }
             return ref headerSpan[0];
         }
@@ -359,7 +375,7 @@ namespace Minerva.DataStorage
         {
             int v = TryWrite_Internal(ref header, value, allowResize);
             if (v == 0) return;
-            ThrowHelper.ThrowWriteError(v, typeof(T), this, -1, allowResize);
+            ThrowHelper.ThrowWriteError(v, typeof(T), this, header.FieldType, allowResize);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -497,8 +513,6 @@ namespace Minerva.DataStorage
                 throw new ArgumentException($"Field '{GetFieldName(in f).ToString()}' byte length is not multiple of {ContainerReference.Size}.");
             return GetFieldData<ContainerReference>(in f);
         }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetRef(ReadOnlySpan<char> fieldName, out Span<ContainerReference> containerReferences)
         {
             int index = IndexOf(fieldName);
@@ -511,10 +525,20 @@ namespace Minerva.DataStorage
             return true;
         }
 
+        /// <summary>
+        /// INTERNAL DEBUG USE ONLY: Write object reference without validation.
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <param name="container"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteObject(ReadOnlySpan<char> fieldName, Container container) => GetRefNoRescheme(fieldName) = container.ID;
+        public void WriteObject(ReadOnlySpan<char> fieldName, Container container)
+        {
+            GetRefNoRescheme(fieldName) = container.ID;
+            if (container != null)
+                Registry.Shared.RegisterParent(container, this);
+        }
 
-        #endregion  
+        #endregion
 
 
 
