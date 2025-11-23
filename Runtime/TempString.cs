@@ -31,7 +31,7 @@ namespace Minerva.DataStorage
         public readonly ref char this[int index] => ref chars[index];
 
 
-
+        
 
 
         public void Append(string str)

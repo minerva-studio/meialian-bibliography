@@ -20,7 +20,13 @@ namespace Minerva.DataStorage
 
         private FieldHandle _handle;
 
-
+        /// <summary>
+        /// Whether the member exists.
+        /// </summary>
+        public bool Exist
+        {
+            get => !_handle.IsDisposed && _handle.Index >= 0;
+        }
 
         public bool IsDisposed
         {
@@ -28,11 +34,18 @@ namespace Minerva.DataStorage
             get
             {
                 if (_handle.IsDisposed) return true;
-                int fieldIndex = EnsureFieldIndex();
+                int fieldIndex = _handle.Index;
                 return _index < 0
                     ? (fieldIndex < 0 || fieldIndex > _storageObject.FieldCount)
                     : (!_storageObject.IsArray(fieldIndex) || _index >= _storageObject.GetArray(ref _handle).Length);
             }
+        }
+
+
+        public TypeData Type
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _storageObject.Container.GetFieldHeader(EnsureFieldIndex()).ElementType;
         }
 
         public ValueType ValueType
@@ -71,6 +84,8 @@ namespace Minerva.DataStorage
             }
         }
 
+        public StorageObject StorageObject => _storageObject;
+        public ReadOnlySpan<char> Name => _handle.Name;
         public StorageMember this[ReadOnlySpan<char> path]
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]

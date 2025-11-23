@@ -866,21 +866,23 @@ namespace Minerva.DataStorage
             return holder.AsArray();
         }
 
-        public StorageArray GetArrayByPath(ReadOnlySpan<char> path, TypeData type, bool createIfMissing = true)
+        public StorageArray GetArrayByPath(ReadOnlySpan<char> path, TypeData? type, bool createIfMissing = true)
         {
             if (path.Length == 0) ThrowHelper.ArgumentException(nameof(path));
 
             var parent = NavigateToObject(path, DefaultPathSeparator, createIfMissing, out var fieldSegment, out var _);
             if (fieldSegment.Length == 0) ThrowHelper.ArgumentException(nameof(path));
 
-            if (parent.TryGetArray(fieldSegment, out var arrayView) && arrayView.IsConvertibleTo(type))
+            if (parent.TryGetArray(fieldSegment, out var arrayView) && (!type.HasValue || arrayView.IsConvertibleTo(type.Value)))
                 return arrayView;
 
             if (!createIfMissing)
                 ThrowHelper.ThrowInvalidOperation();
+            if (!type.HasValue)
+                ThrowHelper.ArgumentNull(nameof(type));
 
             var holder = parent.GetObject(fieldSegment);
-            holder.MakeArray(type, 0);
+            holder.MakeArray(type.Value, 0);
             return holder.AsArray();
         }
 
@@ -898,7 +900,7 @@ namespace Minerva.DataStorage
             return parent.TryGetArray_Internal(fieldSegment, TypeUtil<T>.Type, out storageArray);
         }
 
-        public bool TryGetArrayByPath(ReadOnlySpan<char> path, TypeData type, out StorageArray storageArray)
+        public bool TryGetArrayByPath(ReadOnlySpan<char> path, TypeData? type, out StorageArray storageArray)
         {
             storageArray = default;
             if (path.Length == 0) return false;
@@ -1679,8 +1681,14 @@ namespace Minerva.DataStorage
             if (!HasField(fieldName))
                 return false;
             member = new StorageMember(obj, fieldName, index);
-            return !obj.IsNull;
+            return member.Exist;
         }
+
+
+
+
+
+
 
 
 

@@ -22,6 +22,28 @@ namespace Minerva.DataStorage
             Size = size;
         }
 
+
+
+        public bool CanCastTo(TypeData type, bool exact)
+        {
+            if (exact)
+            {
+                return this == type;
+            }
+            else
+            {
+                return CanImplicitlyCastTo(type);
+            }
+
+        }
+        public bool CanImplicitlyCastTo(TypeData other)
+        {
+            if (this == other)
+                return true;
+            return TypeUtil.IsImplicitlyConvertible(ValueType, other.ValueType);
+        }
+
+
         public static TypeData Of<T>() where T : unmanaged
         {
             ValueType valueType = TypeUtil<T>.ValueType;
