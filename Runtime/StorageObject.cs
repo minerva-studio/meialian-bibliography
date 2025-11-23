@@ -110,7 +110,9 @@ namespace Minerva.DataStorage
 
         // Basic read/write passthroughs (blittable)
 
+        #region Simple Read/Write
 
+        #region Write
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write(string fieldName, string value)
         {
@@ -217,8 +219,9 @@ namespace Minerva.DataStorage
             return false;
         }
 
+        #endregion
 
-
+        #region Override
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Override<T>(string fieldName, T value) where T : unmanaged
@@ -265,45 +268,9 @@ namespace Minerva.DataStorage
             NotifyFieldWrite(container, fieldName);
         }
 
+        #endregion
 
-
-
-
-        /// <summary>
-        /// Subscribe to write notifications for this container (all fields under it).
-        /// </summary>
-        public StorageSubscription Subscribe(StorageMemberHandler handler)
-        {
-            ThrowHelper.ThrowIfNull(handler, nameof(handler));
-            var container = _container.EnsureNotDisposed(_generation);
-            return StorageEventRegistry.SubscribeToContainer(container, handler);
-        }
-
-        /// <summary>
-        /// Subscribe to a field or child container specified by path segments separated with the default separator.
-        /// </summary>
-        public StorageSubscription Subscribe(string path, StorageMemberHandler handler, char separator = DefaultPathSeparator)
-        {
-            ThrowHelper.ThrowIfNull(path, nameof(path));
-            ThrowHelper.ThrowIfNull(handler, nameof(handler));
-
-            if (path.Length == 0)
-                return Subscribe(handler);
-
-            // ignore the index for subscription, subscribe to the array field instead
-            // e.g. "items[3]" -> subscribe to "items"
-            // but it might be to noisy if someone is writing to other index and we only interested in one item
-            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out _);
-            if (fieldSegment.Length == 0)
-                return container.Subscribe(handler);
-
-            return container.SubscribeLocal(fieldSegment, handler);
-        }
-
-
-
-
-
+        #region Read
 
 
         /// <summary>
@@ -423,9 +390,11 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T Read_Unsafe<T>(ReadOnlySpan<char> fieldName) where T : unmanaged => _container.Read_Unsafe<T>(fieldName);
 
+        #endregion
 
+        #endregion
 
-
+        #region Read/Write by Path
 
         /// <summary>
         /// Write a scalar value to a field located by a dot-separated path.
@@ -451,6 +420,503 @@ namespace Minerva.DataStorage
             if (index >= 0) obj.GetArray(fieldSegment).Write(index, value);
             else obj.Write(fieldSegment, value);
         }
+
+        /// <summary>
+        /// Read a scalar field located by a dot-separated path.
+        /// Does not create missing fields; throws if any segment or field is missing.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T ReadPath<T>(string path) where T : unmanaged
+        {
+            ThrowHelper.ThrowIfNull(path, nameof(path));
+            return ReadPath<T>(path.AsSpan());
+        }
+
+        /// <summary>
+        /// Read a scalar field located by a dot-separated path.
+        /// Does not create missing fields; throws if any segment or field is missing.
+        /// </summary>
+        public T ReadPath<T>(ReadOnlySpan<char> path, char separator = DefaultPathSeparator) where T : unmanaged
+        {
+            var obj = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out var index);
+            if (fieldSegment.Length == 0)
+                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
+
+            if (index >= 0)
+                return obj.GetArray(fieldSegment).Read<T>(index);
+
+            if (!obj.TryRead(fieldSegment, out T value))
+                throw new InvalidOperationException($"Field '{fieldSegment.ToString()}' not found for path '{path.ToString()}'.");
+
+            return value;
+        }
+
+        /// <summary>
+        /// Try to read a scalar field by path without allocating intermediate
+        /// objects. Returns false if any segment or field is missing.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryReadPath<T>(string path, out T value) where T : unmanaged
+        {
+            ThrowHelper.ThrowIfNull(path, nameof(path));
+            return TryReadPath(path.AsSpan(), out value);
+        }
+
+        /// <summary>
+        /// Try to read a scalar field by path without allocating intermediate
+        /// objects. Returns false if any segment or field is missing.
+        /// </summary>
+        public bool TryReadPath<T>(ReadOnlySpan<char> path, out T value, char separator = DefaultPathSeparator) where T : unmanaged
+        {
+            value = default;
+            try
+            {
+                var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out var index);
+                if (container.IsNull || fieldSegment.Length == 0)
+                    return false;
+                if (index >= 0)
+                {
+                    return container.GetArray(fieldSegment).TryRead<T>(index, out value);
+                }
+                return container.TryRead(fieldSegment, out value);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        #endregion
+
+        #region String/Array 
+
+        #region String 
+        #region Write
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteString(int index, ReadOnlySpan<char> value)
+        {
+            GetObject(index).WriteArray(value);
+            NotifyFieldWrite(_container, index);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteString(string fieldName, ReadOnlySpan<char> value)
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            WriteString(fieldName.AsSpan(), value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteString(ReadOnlySpan<char> fieldName, ReadOnlySpan<char> value)
+        {
+            GetObject(fieldName).WriteArray(value);
+            // since write array already notifies, no need to notify again
+            //NotifyFieldWrite(_container, fieldName);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteString(string value)
+        {
+            ThrowHelper.ThrowIfNull(value, nameof(value));
+            WriteArray(value.AsSpan());
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteString(ReadOnlySpan<char> value) => WriteArray(value);
+
+
+        #endregion
+
+
+
+        #region Read
+
+        /// <summary>
+        /// Read as a string (UTF-16)
+        /// </summary>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public string ReadString(string fieldName)
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            return ReadString(fieldName.AsSpan());
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public string ReadString(ReadOnlySpan<char> fieldName) => GetArray(fieldName).ToString();
+
+        /// <summary>
+        /// Read entire container as a string (UTF-16)
+        /// </summary>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public string ReadString()
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            if (!IsString)
+            {
+                if (FieldCount == 0)
+                    throw new InvalidOperationException($"This StorageObject does not represent a single string field because object is empty.");
+                if (FieldCount == 1)
+                    throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field field is of type {_container.GetFieldHeader(0).FieldType}.");
+                throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field count is {FieldCount}.");
+            }
+
+            return StorageArray.AsString(in container.GetFieldHeader(0), container);
+        }
+
+        #endregion
+        #endregion
+
+        #region Array
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteArray<T>(string fieldName, ReadOnlySpan<T> value) where T : unmanaged
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            WriteArray(fieldName.AsSpan(), value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteArray<T>(ReadOnlySpan<char> fieldName, ReadOnlySpan<T> value) where T : unmanaged
+        {
+            var container = _container.EnsureNotDisposed(_generation);
+            GetObject(fieldName).WriteArray(value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteArray<T>(ReadOnlySpan<T> value) where T : unmanaged
+        {
+            if (!IsArray())
+            {
+                if (FieldCount != 0)
+                    throw new InvalidOperationException("This StorageObject does not represent an array.");
+            }
+
+            MakeArray<T>(value.Length);
+            ref FieldHeader header = ref _container.GetFieldHeader(0);
+            MemoryMarshal.AsBytes(value).CopyTo(_container.GetFieldData(in header));
+            NotifyFieldWrite(_container, _container.GetFieldName(in header));
+        }
+
+        /// <summary>
+        /// Read an array from a child field.
+        /// </summary>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T[] ReadArray<T>(string fieldName) where T : unmanaged
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            return ReadArray<T>(fieldName.AsSpan());
+        }
+
+        public T[] ReadArray<T>(ReadOnlySpan<char> fieldName) where T : unmanaged => GetArray(fieldName).ToArray<T>();
+
+        /// <summary>
+        /// Read entire container as an array of unmanaged type T.
+        /// </summary>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T[] ReadArray<T>() where T : unmanaged
+        {
+            if (!IsArray())
+                throw new InvalidOperationException("This StorageObject does not represent an array.");
+
+            return StorageArray.ToArray<T>(in _container.GetFieldHeader(0), _container);
+        }
+
+
+
+        /// <summary>
+        /// Make this field an array
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="length"></param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal void MakeArray<T>(int length) where T : unmanaged
+        {
+            // scalar array fast path
+            _container.ReschemeForArray(length, TypeUtil<T>.ValueType, TypeUtil<T>.Size);
+        }
+
+        /// <summary>
+        /// Make this field an array
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="length"></param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal void MakeArray(ValueType valueType, int length, int? elemSize = null)
+        {
+            _container.ReschemeForArray(length, valueType, elemSize ?? TypeUtil.SizeOf(valueType));
+        }
+
+        /// <summary>
+        /// Ensure array capacity
+        /// </summary>
+        /// <param name="capacity"></param>
+        internal void EnsureArrayCapacity(int capacity)
+        {
+            // already ensure this is either empty object or array
+            if (FieldCount == 0)
+            {
+                MakeArray(ValueType.Ref, capacity);
+                return;
+            }
+            ref var header = ref _container.GetFieldHeader(0);
+            var arrayLength = header.ElementCount;
+            // satified
+            if (arrayLength >= capacity)
+                return;
+            // resize
+            _container.ReschemeForArray(capacity, header.Type, header.ElemSize);
+        }
+
+
+
+
+
+        public bool IsArray(string fieldName)
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            return IsArray(fieldName.AsSpan());
+        }
+
+        public bool IsArray(ReadOnlySpan<char> fieldName)
+        {
+            _container.EnsureNotDisposed(_generation);
+            if (!_container.TryGetFieldHeader(fieldName, out var headerSpan))
+                return false;
+
+            ref var header = ref headerSpan[0];
+            // inline
+            if (header.IsInlineArray)
+                return true;
+            // ref
+            if (header.IsRef)
+                return GetObject(in header, null).Container.IsArray;
+            return false;
+        }
+
+        internal bool IsArray(int index)
+        {
+            _container.EnsureNotDisposed(_generation);
+            if (index < 0 || index > FieldCount)
+                return false;
+
+            ref var header = ref _container.GetFieldHeader(index);
+            // inline
+            if (header.IsInlineArray)
+                return true;
+            // ref
+            if (header.IsRef)
+                return GetObject(in header, null).Container.IsArray;
+            return false;
+        }
+
+        /// <summary>
+        /// Is an array object
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool IsArray() => Container.IsArray;
+
+        #endregion
+
+
+
+
+        /// <summary>
+        /// Make storage an array
+        /// </summary>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StorageArray AsArray() => new(_container.EnsureNotDisposed(_generation));
+
+
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StorageArray GetArray(string fieldName)
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            return GetArray(fieldName.AsSpan());
+        }
+
+        /// <summary>
+        /// Get a stack-only view over a value array field.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StorageArray GetArray(ReadOnlySpan<char> fieldName)
+        {
+            _container.EnsureNotDisposed(_generation);
+            ref var header = ref _container.GetFieldHeader(fieldName);
+            // inline array
+            if (header.IsInlineArray)
+                return new(_container, fieldName);
+
+            // obj array
+            var obj = GetObject(in header, null);
+            if (!obj.IsNull && obj.IsArray())
+                return new(obj.Container);
+
+            throw new InvalidOperationException($"Field {fieldName.ToString()} is not an array");
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal StorageArray GetArray(ref FieldHandle fieldIndex)
+        {
+            ref var header = ref _container.GetFieldHeader(fieldIndex.Index);
+            // inline array
+            if (header.IsInlineArray)
+                return new(fieldIndex);
+
+            // obj array
+            var obj = GetObject(in header, null);
+            if (!obj.IsNull && obj.IsArray())
+                return new(obj.Container);
+
+            throw new InvalidOperationException($"Field is not an array");
+        }
+
+        /// <summary>
+        /// Get a stack-only view over a value array field.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryGetArray(string fieldName, out StorageArray storageArray)
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            _container.EnsureNotDisposed(_generation);
+            return TryGetArray(fieldName.AsSpan(), null, null, out storageArray);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryGetArray(ReadOnlySpan<char> fieldName, out StorageArray storageArray)
+        {
+            _container.EnsureNotDisposed(_generation);
+            return TryGetArray(fieldName, null, null, out storageArray);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryGetArray<T>(ReadOnlySpan<char> fieldSegment, out StorageArray storageArray) where T : unmanaged
+        {
+            _container.EnsureNotDisposed(_generation);
+            return TryGetArray_Internal(fieldSegment, TypeUtil<T>.ValueType, TypeUtil<T>.Size, out storageArray);
+        }
+
+        public bool TryGetArray(ReadOnlySpan<char> fieldSegment, ValueType? valueType, int? elementSize, out StorageArray storageArray)
+        {
+            _container.EnsureNotDisposed(_generation);
+            return TryGetArray_Internal(fieldSegment, valueType, elementSize, out storageArray);
+        }
+
+        private bool TryGetArray_Internal(ReadOnlySpan<char> fieldSegment, ValueType? valueType, int? elementSize, out StorageArray storageArray)
+        {
+            storageArray = default;
+            if (!_container.TryGetFieldHeader(fieldSegment, out var headerSpan))
+                return false;
+            ref var header = ref headerSpan[0];
+
+            if (valueType.HasValue) elementSize ??= TypeUtil.SizeOf(valueType.Value);
+            if (header.IsInlineArray)
+            {
+                if (valueType.HasValue
+                    && (header.Type != valueType || header.ElemSize != elementSize)) return false;
+                storageArray = new StorageArray(_container, fieldSegment);
+                return true;
+            }
+
+            if (!TryGetObject(fieldSegment, out var child) || child.IsNull || !child.IsArray())
+                return false;
+
+            if (child.FieldCount > 0)
+            {
+                ref var ch = ref child._container.GetFieldHeader(0);
+                if (valueType.HasValue
+                    && (header.Type != valueType || header.ElemSize != elementSize)) return false;
+            }
+
+            storageArray = new StorageArray(child.Container);
+            return true;
+        }
+
+
+
+
+
+        public StorageArray GetArrayByPath<T>(ReadOnlySpan<char> path, bool createIfMissing) where T : unmanaged
+        {
+            if (path.Length == 0) ThrowHelper.ArgumentException(nameof(path));
+
+            var parent = NavigateToObject(path, DefaultPathSeparator, createIfMissing, out var fieldSegment, out var _);
+            if (fieldSegment.Length == 0) ThrowHelper.ArgumentException(nameof(path));
+
+            // Already an array? return it directly (covers inline + ref arrays)
+            if (parent.TryGetArray(fieldSegment, out var arrayView) && arrayView.IsConvertibleTo<T>())
+                return arrayView;
+
+            if (!createIfMissing)
+                ThrowHelper.ThrowInvalidOperation();
+
+            // Create as a ref-array holder and return its array view
+            var holder = parent.GetObject(fieldSegment);
+            holder.MakeArray<T>(0);
+            return holder.AsArray();
+        }
+
+        public StorageArray GetArrayByPath(ReadOnlySpan<char> path, ValueType valueType, int? elementSize = null, bool createIfMissing = true)
+        {
+            if (path.Length == 0) ThrowHelper.ArgumentException(nameof(path));
+
+            var parent = NavigateToObject(path, DefaultPathSeparator, createIfMissing, out var fieldSegment, out var _);
+            if (fieldSegment.Length == 0) ThrowHelper.ArgumentException(nameof(path));
+
+            if (parent.TryGetArray(fieldSegment, out var arrayView) && arrayView.IsConvertibleTo(valueType, elementSize))
+                return arrayView;
+
+            if (!createIfMissing)
+                ThrowHelper.ThrowInvalidOperation();
+
+            var holder = parent.GetObject(fieldSegment);
+            holder.MakeArray(valueType, 0, elementSize);
+            return holder.AsArray();
+        }
+
+        public bool TryGetArrayByPath<T>(ReadOnlySpan<char> path, out StorageArray storageArray) where T : unmanaged
+        {
+            storageArray = default;
+            if (path.Length == 0) return false;
+
+            if (!TryNavigateToObject(path, DefaultPathSeparator, out var parent, out var fieldSegment, out var _))
+                return false;
+            if (fieldSegment.Length == 0)
+                return false;
+
+            // First check header (to detect inline arrays without allocating) 
+            return parent.TryGetArray_Internal(fieldSegment, TypeUtil<T>.ValueType, TypeUtil<T>.Size, out storageArray);
+        }
+
+        public bool TryGetArrayByPath(ReadOnlySpan<char> path, ValueType valueType, int? elementSize, out StorageArray storageArray)
+        {
+            storageArray = default;
+            if (path.Length == 0) return false;
+
+            if (!TryNavigateToObject(path, DefaultPathSeparator, out var parent, out var fieldSegment, out var _))
+                return false;
+            if (fieldSegment.Length == 0)
+                return false;
+            return parent.TryGetArray_Internal(fieldSegment, valueType, elementSize, out storageArray);
+        }
+
+        #endregion
+
+
+
+
+        #region String/Array Path
 
         /// <summary>
         /// Write a string value to a field located by a dot-separated path.
@@ -507,77 +973,6 @@ namespace Minerva.DataStorage
                 container.GetObjectInArray(fieldSegment, index).WriteArray(value);
             }
             else container.WriteArray(fieldSegment, value);
-        }
-
-        /// <summary>
-        /// Read a scalar field located by a dot-separated path.
-        /// Does not create missing fields; throws if any segment or field is missing.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T ReadPath<T>(string path) where T : unmanaged
-        {
-            ThrowHelper.ThrowIfNull(path, nameof(path));
-            return ReadPath<T>(path.AsSpan());
-        }
-
-        /// <summary>
-        /// Read a scalar field located by a dot-separated path.
-        /// Does not create missing fields; throws if any segment or field is missing.
-        /// </summary>
-        public T ReadPath<T>(ReadOnlySpan<char> path, char separator = DefaultPathSeparator) where T : unmanaged
-        {
-            var obj = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out var index);
-            if (fieldSegment.Length == 0)
-                throw new ArgumentException("Path must contain at least one segment.", nameof(path));
-
-            if (index >= 0)
-                return obj.GetArray(fieldSegment).Read<T>(index);
-
-            if (!obj.TryRead(fieldSegment, out T value))
-                throw new InvalidOperationException($"Field '{fieldSegment.ToString()}' not found for path '{path.ToString()}'.");
-
-            return value;
-        }
-
-        /// <summary>
-        /// Try to read a scalar field by path without allocating intermediate
-        /// objects. Returns false if any segment or field is missing.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryReadPath<T>(string path, out T value) where T : unmanaged
-        {
-            ThrowHelper.ThrowIfNull(path, nameof(path));
-            return TryReadPath(path.AsSpan(), out value);
-        }
-
-        /// <summary>
-        /// Try to read a scalar field by path without allocating intermediate
-        /// objects. Returns false if any segment or field is missing.
-        /// </summary>
-        public bool TryReadPath<T>(ReadOnlySpan<char> path, out T value, char separator = DefaultPathSeparator) where T : unmanaged
-        {
-            value = default;
-
-            try
-            {
-                var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out var index);
-                if (fieldSegment.Length == 0)
-                    return false;
-                if (index >= 0)
-                {
-                    value = container.GetArray(fieldSegment).Read<T>(index);
-                    return true;
-                }
-                return container.TryRead(fieldSegment, out value);
-            }
-            catch (ArgumentException)
-            {
-                return false;
-            }
-            catch (InvalidOperationException)
-            {
-                return false;
-            }
         }
 
         /// <summary>
@@ -646,11 +1041,75 @@ namespace Minerva.DataStorage
             return ts.ToArray<T>();
         }
 
+        #endregion
+
+
+
+        #region Subscription methods
+
+        /// <summary>
+        /// Subscribe to write notifications for this container (all fields under it).
+        /// </summary>
+        public StorageSubscription Subscribe(StorageMemberHandler handler)
+        {
+            ThrowHelper.ThrowIfNull(handler, nameof(handler));
+            var container = _container.EnsureNotDisposed(_generation);
+            return StorageEventRegistry.SubscribeToContainer(container, handler);
+        }
+
+        /// <summary>
+        /// Subscribe to a field or child container specified by path segments separated with the default separator.
+        /// </summary>
+        public StorageSubscription Subscribe(string path, StorageMemberHandler handler, char separator = DefaultPathSeparator)
+        {
+            ThrowHelper.ThrowIfNull(path, nameof(path));
+            ThrowHelper.ThrowIfNull(handler, nameof(handler));
+
+            if (path.Length == 0)
+                return Subscribe(handler);
+
+            // ignore the index for subscription, subscribe to the array field instead
+            // e.g. "items[3]" -> subscribe to "items"
+            // but it might be to noisy if someone is writing to other index and we only interested in one item
+            var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out _);
+            if (fieldSegment.Length == 0)
+                return container.Subscribe(handler);
+
+            return container.SubscribeLocal(fieldSegment, handler);
+        }
+
+        /// <summary>
+        /// Subscribe to a local field/child without performing path navigation.
+        /// </summary>
+        private StorageSubscription SubscribeLocal(ReadOnlySpan<char> name, StorageMemberHandler handler)
+        {
+            if (name.Length == 0)
+                return Subscribe(handler);
+
+            var container = _container.EnsureNotDisposed(_generation);
+            if (!container.TryGetFieldHeader(name, out var headerSpan))
+                throw new ArgumentException($"Field '{name.ToString()}' does not exist on this container.", nameof(name));
+
+            ref var header = ref headerSpan[0];
+            if (header.IsRef)
+            {
+                var child = GetObject(name, reschemeOnMissing: false, layout: null);
+                if (child.IsNull)
+                    throw new ArgumentException($"Container '{name.ToString()}' is null or missing.", nameof(name));
+                return child.Subscribe(handler);
+            }
+
+            return StorageEventRegistry.Subscribe(container, name.ToString(), handler);
+        }
+
+        #endregion
 
 
 
         // ---------------- Segment parsing & forward-only path state machine ----------------
-        // A forward-only reader over path segments supporting optional [index] suffix. z
+        // A forward-only reader over path segments supporting optional [index] suffix.
+
+
         /// <summary>
         /// Navigate to the object owning the final field in the path.
         /// Returns the StorageObject containing the final field, and outputs:
@@ -686,17 +1145,7 @@ namespace Minerva.DataStorage
                 if (segIndex >= 0)
                 {
                     // Segment like "Items[3]" -> array field on the current object
-                    var arrayView = current.GetArray(segName);
-                    if (arrayView.IsDisposed)
-                        throw new InvalidOperationException($"Segment '{segName.ToString()}' is not an array.");
-
-                    if (createIfMissing)
-                        next = arrayView.GetObject(segIndex);
-                    else if (!arrayView.TryGetObject(segIndex, out next))
-                        throw new IndexOutOfRangeException($"Index {segIndex} out of range for segment '{segName.ToString()}'.");
-
-                    if (next.IsNull)
-                        throw new InvalidOperationException($"Path segment '{segName.ToString()}[{index}]' refers to a null child object.");
+                    next = current.GetObjectInArray(segName, segIndex, createIfMissing, createIfMissing); // ensure array and object exist
                 }
                 else
                 {
@@ -705,10 +1154,10 @@ namespace Minerva.DataStorage
                         next = current.GetObject(segName);
                     else if (!current.TryGetObject(segName, out next))
                         throw new ArgumentException($"Path segment '{segName.ToString()}' does not exist on the current object.", nameof(path));
-
-                    if (next.IsNull)
-                        throw new InvalidOperationException($"Path segment '{segName.ToString()}' refers to a null child object.");
                 }
+
+                if (next.IsNull)
+                    throw new InvalidOperationException($"Path segment '{segName.ToString()}' refers to a null child object.");
 
                 current = next;
             }
@@ -770,343 +1219,9 @@ namespace Minerva.DataStorage
 
 
 
-
-
-        /// <summary>
-        /// Get a child object by dot-separated path, creating intermediate
-        /// objects as needed. The last segment is treated as an object field.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageObject GetObjectByPath(string path)
-        {
-            ThrowHelper.ThrowIfNull(path, nameof(path));
-            return GetObjectByPath(path.AsSpan());
-        }
-
-        /// <summary>
-        /// Get a child object by dot-separated path, creating intermediate
-        /// objects as needed. The last segment is treated as an object field.
-        /// </summary>
-        public StorageObject GetObjectByPath(ReadOnlySpan<char> path, char separator = DefaultPathSeparator)
-        {
-            if (path.Length == 0)
-                throw new ArgumentException("Path cannot be empty.", nameof(path));
-
-            var current = this;
-            int start = 0;
-
-            while (true)
-            {
-                var remaining = path.Slice(start);
-                int rel = remaining.IndexOf(separator);
-                if (rel < 0)
-                {
-                    var segment = remaining;
-                    if (segment.Length == 0)
-                        throw new ArgumentException("Path cannot end with a separator.", nameof(path));
-
-                    return current.GetObject(segment);
-                }
-
-                var part = remaining.Slice(0, rel);
-                if (part.Length == 0)
-                    throw new ArgumentException("Path contains an empty segment.", nameof(path));
-
-                current = current.GetObject(part);
-                start += rel + 1;
-            }
-        }
-
-        /// <summary>
-        /// Subscribe to a local field/child without performing path navigation.
-        /// </summary>
-        private StorageSubscription SubscribeLocal(ReadOnlySpan<char> name, StorageMemberHandler handler)
-        {
-            if (name.Length == 0)
-                return Subscribe(handler);
-
-            var container = _container.EnsureNotDisposed(_generation);
-            if (!container.TryGetFieldHeader(name, out var headerSpan))
-                throw new ArgumentException($"Field '{name.ToString()}' does not exist on this container.", nameof(name));
-
-            ref var header = ref headerSpan[0];
-            if (header.IsRef)
-            {
-                var child = GetObject(name, reschemeOnMissing: false, layout: null);
-                if (child.IsNull)
-                    throw new ArgumentException($"Container '{name.ToString()}' is null or missing.", nameof(name));
-                return child.Subscribe(handler);
-            }
-
-            return StorageEventRegistry.Subscribe(container, name.ToString(), handler);
-        }
-
-
-
-
-
-
-        /// <summary>
-        /// Delete a field from this object. Returns true if the field was found and deleted, false otherwise.
-        /// </summary>
-        /// <param name="fieldName"></param>
-        /// <returns></returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool Delete(string fieldName)
-        {
-            _container.EnsureNotDisposed(_generation);
-            if (!_container.TryGetFieldHeader(fieldName, out var headerSpan))
-                return false;
-
-            bool removed = false;
-            _container.Rescheme(b => removed = b.Remove(fieldName));
-            return removed;
-        }
-
-        /// <summary>
-        /// Delete multiple fields from this object. Returns the number of fields deleted.
-        /// </summary>
-        /// <param name="names"></param>
-        /// <returns></returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int Delete(params string[] names)
-        {
-            _container.EnsureNotDisposed(_generation);
-            int count = 0;
-            _container.Rescheme(b =>
-            {
-                foreach (var name in names)
-                {
-                    if (b.Remove(name)) count++;
-                }
-            });
-            return count;
-        }
-
-
-
-
-
-
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteString(int index, ReadOnlySpan<char> value)
-        {
-            GetObject(index).WriteArray(value);
-            NotifyFieldWrite(_container, index);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteString(string fieldName, ReadOnlySpan<char> value)
-        {
-            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            WriteString(fieldName.AsSpan(), value);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteString(ReadOnlySpan<char> fieldName, ReadOnlySpan<char> value)
-        {
-            GetObject(fieldName).WriteArray(value);
-            // since write array already notifies, no need to notify again
-            //NotifyFieldWrite(_container, fieldName);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteString(string value)
-        {
-            ThrowHelper.ThrowIfNull(value, nameof(value));
-            WriteArray(value.AsSpan());
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteString(ReadOnlySpan<char> value) => WriteArray(value);
-
-
-
-
-
-        /// <summary>
-        /// Read as a string (UTF-16)
-        /// </summary>
-        /// <returns></returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public string ReadString(string fieldName)
-        {
-            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            return ReadString(fieldName.AsSpan());
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public string ReadString(ReadOnlySpan<char> fieldName) => GetArray(fieldName).ToString();
-
-        /// <summary>
-        /// Read entire container as a string (UTF-16)
-        /// </summary>
-        /// <returns></returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public string ReadString()
-        {
-            var container = _container.EnsureNotDisposed(_generation);
-            if (!IsString)
-            {
-                if (FieldCount == 0)
-                    throw new InvalidOperationException($"This StorageObject does not represent a single string field because object is empty.");
-                if (FieldCount == 1)
-                    throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field field is of type {_container.GetFieldHeader(0).FieldType}.");
-                throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field count is {FieldCount}.");
-            }
-
-            return StorageArray.AsString(in container.GetFieldHeader(0), container);
-        }
-
-
-
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteArray<T>(string fieldName, ReadOnlySpan<T> value) where T : unmanaged
-        {
-            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            WriteArray(fieldName.AsSpan(), value);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteArray<T>(ReadOnlySpan<char> fieldName, ReadOnlySpan<T> value) where T : unmanaged
-        {
-            var container = _container.EnsureNotDisposed(_generation);
-            GetObject(fieldName).WriteArray(value);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void WriteArray<T>(ReadOnlySpan<T> value) where T : unmanaged
-        {
-            if (!IsArray())
-            {
-                if (FieldCount != 0)
-                    throw new InvalidOperationException("This StorageObject does not represent an array.");
-            }
-
-            MakeArray<T>(value.Length);
-            ref FieldHeader header = ref _container.GetFieldHeader(0);
-            MemoryMarshal.AsBytes(value).CopyTo(_container.GetFieldData(in header));
-            NotifyFieldWrite(_container, _container.GetFieldName(in header));
-        }
-
-        /// <summary>
-        /// Read an array from a child field.
-        /// </summary>
-        /// <returns></returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T[] ReadArray<T>(string fieldName) where T : unmanaged
-        {
-            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            return ReadArray<T>(fieldName.AsSpan());
-        }
-
-        public T[] ReadArray<T>(ReadOnlySpan<char> fieldName) where T : unmanaged => GetArray(fieldName).ToArray<T>();
-
-        /// <summary>
-        /// Read entire container as an array of unmanaged type T.
-        /// </summary>
-        /// <returns></returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T[] ReadArray<T>() where T : unmanaged
-        {
-            if (!IsArray())
-                throw new InvalidOperationException("This StorageObject does not represent an array.");
-
-            return StorageArray.ToArray<T>(in _container.GetFieldHeader(0), _container);
-        }
-
-        /// <summary>
-        /// Make storage an array
-        /// </summary>
-        /// <returns></returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageArray AsArray() => new(_container.EnsureNotDisposed(_generation));
-
-
-
-        /// <summary>
-        /// Make this field an array
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="length"></param>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal void MakeArray<T>(int length) where T : unmanaged
-        {
-            // scalar array fast path
-            _container.ReschemeForArray(length, TypeUtil<T>.ValueType, TypeUtil<T>.Size);
-        }
-
-        /// <summary>
-        /// Make this field an array
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="length"></param>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal void MakeArray(ValueType valueType, int length, int? elemSize = null)
-        {
-            _container.ReschemeForArray(length, valueType, elemSize ?? TypeUtil.SizeOf(valueType));
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void ValidateArrayObject()
-        {
-            if (_container.FieldCount > 1)
-                throw new InvalidOperationException("This StorageObject cannot be converted to an array because it contains multiple fields.");
-        }
-
-
-
-
-        public bool IsArray(string fieldName)
-        {
-            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            return IsArray(fieldName.AsSpan());
-        }
-
-        public bool IsArray(ReadOnlySpan<char> fieldName)
-        {
-            _container.EnsureNotDisposed(_generation);
-            if (!_container.TryGetFieldHeader(fieldName, out var headerSpan))
-                return false;
-
-            ref var header = ref headerSpan[0];
-            // inline
-            if (header.IsInlineArray)
-                return true;
-            // ref
-            if (header.IsRef)
-                return GetObject(in header, null).Container.IsArray;
-            return false;
-        }
-
-        internal bool IsArray(int index)
-        {
-            _container.EnsureNotDisposed(_generation);
-            if (index < 0 || index > FieldCount)
-                return false;
-
-            ref var header = ref _container.GetFieldHeader(index);
-            // inline
-            if (header.IsInlineArray)
-                return true;
-            // ref
-            if (header.IsRef)
-                return GetObject(in header, null).Container.IsArray;
-            return false;
-        }
-
-        /// <summary>
-        /// Is an array object
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly bool IsArray() => Container.IsArray;
-
-
-
-
         // Child navigation by reference field (single)
+
+        #region Object
 
         /// <summary>
         /// Get child object (always not null)
@@ -1203,8 +1318,6 @@ namespace Minerva.DataStorage
         }
 
 
-
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetObject(string fieldName, out StorageObject storageObject)
         {
@@ -1227,9 +1340,76 @@ namespace Minerva.DataStorage
         }
 
 
+        #endregion
+
+
+        #region Object by Path
+
+        /// <summary>
+        /// Get a child object by dot-separated path, creating intermediate
+        /// objects as needed. The last segment is treated as an object field.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StorageObject GetObjectByPath(string path)
+        {
+            ThrowHelper.ThrowIfNull(path, nameof(path));
+            return GetObjectByPath(path.AsSpan());
+        }
+
+        /// <summary>
+        /// Get a child object by dot-separated path, creating intermediate
+        /// objects as needed. The last segment is treated as an object field.
+        /// </summary>
+        public StorageObject GetObjectByPath(ReadOnlySpan<char> path, bool createIfMissing = true, char separator = DefaultPathSeparator)
+        {
+            if (path.Length == 0)
+                throw new ArgumentException("Path cannot be empty.", nameof(path));
+
+            var parent = NavigateToObject(path, separator, createIfMissing, out var fieldName, out var index);
+            return index < 0
+                ? parent.GetObject(fieldName, reschemeOnMissing: createIfMissing, layout: ContainerLayout.Empty)
+                : parent.GetObjectInArray(fieldName, index, createIfMissing, createIfMissing);
+        }
 
 
 
+
+        /// <summary>
+        /// Get a child object by dot-separated path, creating intermediate
+        /// objects as needed. The last segment is treated as an object field.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryGetObjectByPath(string path, out StorageObject storageObject)
+        {
+            ThrowHelper.ThrowIfNull(path, nameof(path));
+            return TryGetObjectByPath(path.AsSpan(), out storageObject);
+        }
+
+        /// <summary>
+        /// Get a child object by dot-separated path, creating intermediate
+        /// objects as needed. The last segment is treated as an object field.
+        /// </summary>
+        public bool TryGetObjectByPath(ReadOnlySpan<char> path, out StorageObject storageObject, char separator = DefaultPathSeparator)
+        {
+            if (!TryNavigateToObject(path, separator, out var parent, out var fieldSegment, out var index))
+            {
+                storageObject = default;
+                return false;
+            }
+            if (index < 0)
+            {
+                return parent.TryGetObject(fieldSegment, out storageObject);
+            }
+            else if (parent.TryGetArray(fieldSegment, out var arr))
+            {
+                return arr.TryGetObject(index, out storageObject);
+            }
+            storageObject = default;
+            return false;
+        }
+
+
+        // --- Restored object-in-array accessors ---
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal StorageObject GetObjectInArray(string fieldName, int index)
         {
@@ -1252,70 +1432,98 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal StorageObject GetObjectInArray(in FieldHeader header, int index)
         {
-            // inline array
+            // inline array of refs
             if (header.IsInlineArray)
             {
                 if (header.FieldType != TypeUtil<ContainerReference>.ArrayFieldType)
                     throw new InvalidOperationException($"Field {_container.GetFieldName(in header).ToString()} is not an object array.");
-
-                var rs = _container.GetFieldData<ContainerReference>(in header);
-                return StorageObjectFactory.GetNoAllocate(rs[index]);
+                var refs = _container.GetFieldData<ContainerReference>(in header);
+                return StorageObjectFactory.GetNoAllocate(refs[index]);
             }
-
-            // obj array
+            // referenced object that itself is an array
             var obj = GetObject(in header, null);
             if (!obj.IsNull && obj.IsArray())
             {
-                var rs = obj._container.GetRefSpan(0);
-                return StorageObjectFactory.GetNoAllocate(rs[index]);
+                var refs = obj._container.GetRefSpan(0);
+                return StorageObjectFactory.GetNoAllocate(refs[index]);
             }
-
             return default;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageArray GetArray(string fieldName)
+        internal StorageObject GetObjectInArray(ReadOnlySpan<char> fieldName, int index, bool allowCreateArray, bool allowCreateObject)
         {
-            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            return GetArray(fieldName.AsSpan());
+            if (index < 0) ThrowHelper.ThrowIndexOutOfRange();
+            _container.EnsureNotDisposed(_generation);
+
+            if (!TryGetArray(fieldName, out StorageArray arrayView))
+            {
+                if (!allowCreateArray)
+                    return default;
+                var holder = GetObject(fieldName); // create ref field if missing
+                switch (holder.FieldCount)
+                {
+                    case 0:
+                        holder.MakeArray(ValueType.Ref, index + 1);
+                        arrayView = holder.AsArray();
+                        break;
+                    default:
+                        arrayView = holder.IsArray() ? holder.AsArray() : throw new InvalidOperationException($"Field {fieldName.ToString()} exists but is not an array.");
+                        break;
+                }
+            }
+            if (index >= arrayView.Length)
+            {
+                if (!allowCreateArray) return default;
+                arrayView.EnsureLength(index + 1);
+            }
+            if (allowCreateObject) return arrayView.GetObject(index);
+            return arrayView.TryGetObject(index, out var child) ? child : default;
+        }
+
+        #endregion
+
+
+
+
+
+        /// <summary>
+        /// Delete a field from this object. Returns true if the field was found and deleted, false otherwise.
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool Delete(string fieldName)
+        {
+            _container.EnsureNotDisposed(_generation);
+            if (!_container.TryGetFieldHeader(fieldName, out var headerSpan))
+                return false;
+
+            bool removed = false;
+            _container.Rescheme(b => removed = b.Remove(fieldName));
+            return removed;
         }
 
         /// <summary>
-        /// Get a stack-only view over a value array field T[].
-        /// Field must be non-ref and length divisible by sizeof(T).
+        /// Delete multiple fields from this object. Returns the number of fields deleted.
         /// </summary>
+        /// <param name="names"></param>
+        /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageArray GetArray(ReadOnlySpan<char> fieldName)
+        public int Delete(params string[] names)
         {
             _container.EnsureNotDisposed(_generation);
-            ref var header = ref _container.GetFieldHeader(fieldName);
-            // inline array
-            if (header.IsInlineArray)
-                return new(_container, fieldName);
-
-            // obj array
-            var obj = GetObject(in header, null);
-            if (!obj.IsNull && obj.IsArray())
-                return new(obj.Container);
-
-            throw new InvalidOperationException($"Field {fieldName.ToString()} is not an array");
+            int count = 0;
+            _container.Rescheme(b =>
+            {
+                foreach (var name in names)
+                {
+                    if (b.Remove(name)) count++;
+                }
+            });
+            return count;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal StorageArray GetArray(ref FieldHandle fieldIndex)
-        {
-            ref var header = ref _container.GetFieldHeader(fieldIndex.Index);
-            // inline array
-            if (header.IsInlineArray)
-                return new(fieldIndex);
-
-            // obj array
-            var obj = GetObject(in header, null);
-            if (!obj.IsNull && obj.IsArray())
-                return new(obj.Container);
-
-            return default;
-        }
 
 
 
@@ -1361,6 +1569,21 @@ namespace Minerva.DataStorage
 
 
 
+
+
+
+
+        /// <summary>Check a field exist.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool HasField(string fieldName)
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            return _container.EnsureNotDisposed(_generation).IndexOf(fieldName) >= 0;
+        }
+
+        /// <summary>Check a field exist.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool HasField(ReadOnlySpan<char> fieldName) => _container.EnsureNotDisposed(_generation).IndexOf(fieldName) >= 0;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public FieldInfo GetField(string fieldName)
@@ -1460,19 +1683,6 @@ namespace Minerva.DataStorage
 
 
 
-
-        /// <summary>Check a field exist.</summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool HasField(string fieldName)
-        {
-            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            return _container.EnsureNotDisposed(_generation).IndexOf(fieldName) >= 0;
-        }
-
-        /// <summary>Check a field exist.</summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool HasField(ReadOnlySpan<char> fieldName) => _container.EnsureNotDisposed(_generation).IndexOf(fieldName) >= 0;
-
         /// <summary>
         /// Rescheme the container to match the target schema.
         /// </summary>
@@ -1537,7 +1747,6 @@ namespace Minerva.DataStorage
             StorageEventRegistry.NotifyFieldDelete(container, fieldName, fieldType);
             StorageEventRegistry.RemoveFieldSubscriptions(container, fieldName);
         }
-
     }
 }
 

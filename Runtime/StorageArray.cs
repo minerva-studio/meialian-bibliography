@@ -147,7 +147,36 @@ namespace Minerva.DataStorage
             StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
         }
 
+        public bool TryWrite<T>(int index, T value) where T : unmanaged
+        {
+            var src = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref value, 1));
+            return TryWrite(index, src, TypeUtil<T>.ValueType);
+        }
+
+        public bool TryWrite(int index, Span<byte> src, ValueType valueType)
+        {
+            if (index < 0 || index > Length)
+                return false;
+            int fieldIndex = _handle.EnsureNotDisposed();
+            ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
+            int elementSize = header.ElemSize;
+            var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+            bool result = Migration.TryWriteTo(src, valueType, span, header.Type, false);
+            if (result)
+                StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+            return result;
+        }
+
+
         public readonly T Read<T>(int index) where T : unmanaged => this[index].Read<T>();
+
+        public bool TryRead<T>(int index, out T value) where T : unmanaged
+        {
+            value = default;
+            if (index < 0 || index > Length)
+                return false;
+            return this[index].TryRead(out value, true);
+        }
 
 
 
@@ -252,6 +281,38 @@ namespace Minerva.DataStorage
             StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Name.ToString(), FieldType);
         }
 
+        /// <summary>
+        /// Resize the array
+        /// </summary>
+        /// <param name="newLength"></param>
+        public void Resize(int newLength)
+        {
+            _handle.EnsureNotDisposed();
+            _handle.Container.ResizeArrayField(_handle.Index, newLength);
+        }
+
+        /// <summary>
+        /// Resize the array
+        /// </summary>
+        /// <param name="length"></param>
+        public void EnsureLength(int length)
+        {
+            if (length <= Length)
+                return;
+            _handle.Container.ResizeArrayField(_handle.Index, length);
+        }
+
+        /// <summary>
+        /// Can array be treated as typeof T?
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        public bool IsConvertibleTo<T>() where T : unmanaged => AcceptTypeConversion<T>(in Header);
+        public bool IsConvertibleTo(ValueType valueType, int? elementSize = null) => AcceptTypeConversion(in Header, valueType, elementSize);
+
+
+
+
         public T[] ToArray<T>() where T : unmanaged
         {
             // 1) Disallow ref fields for value extraction.
@@ -319,6 +380,20 @@ namespace Minerva.DataStorage
                 return data.ToString();
             }
             throw new InvalidOperationException("Cannot call AsString() on a non-char array.");
+        }
+
+        internal static bool AcceptTypeConversion<TTarget>(in FieldHeader fieldHeader) where TTarget : unmanaged
+        {
+            ValueType valueType = TypeUtil<TTarget>.ValueType;
+            int size = TypeUtil<TTarget>.Size;
+
+            return AcceptTypeConversion(in fieldHeader, valueType, size);
+        }
+
+        internal static bool AcceptTypeConversion(in FieldHeader fieldHeader, ValueType toValueType, int? elementSize)
+        {
+            if (toValueType == ValueType.Blob) return fieldHeader.ElemSize == (elementSize ?? TypeUtil.SizeOf(toValueType));
+            return TypeUtil.IsImplicitlyConvertible(fieldHeader.Type, toValueType);
         }
 
 

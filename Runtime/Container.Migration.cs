@@ -350,9 +350,36 @@ namespace Minerva.DataStorage
 
 
 
+        public void ResizeArrayField(int index, int newLength)
+        {
+            ref FieldHeader fieldHeader = ref GetFieldHeader(index);
+            if (!fieldHeader.IsInlineArray)
+                throw new ArgumentException("Field is not an inline array.", nameof(index));
+            // good case: single member array container
+            if (index == 0 && FieldCount == 1)
+            {
+                ReschemeForArray(newLength, fieldHeader.Type, fieldHeader.ElemSize);
+                return;
+            }
+            // bad case: need reschemefor
+            else
+            {
+                var name = GetFieldName(index);
+                ReschemeFor(name, fieldHeader.Type, fieldHeader.ElemSize, newLength);
+            }
+        }
+
         public void ReschemeForArray(int length, ValueType valueType, int? elemSize = null)
         {
             ref ContainerHeader oldHeader = ref Header;
+            if (oldHeader.FieldCount == 1)
+            {
+                ref var oldField = ref GetFieldHeader(0);
+                // already same type and length
+                if (oldField.Type == valueType && oldField.ElementCount == length)
+                    return;
+            }
+
             int elementSize = elemSize ?? (valueType == ValueType.Blob ? throw new ArgumentException() : TypeUtil.SizeOf(valueType));
             int dataOffset = ContainerHeader.Size
                 + FieldHeader.Size
