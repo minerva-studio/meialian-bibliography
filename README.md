@@ -295,14 +295,14 @@ var root = storage.Root;
 // Subscribe to a specific field
 using var fieldSubscription = root.Subscribe("score", (in StorageFieldWriteEventArgs args) =>
 {
-    int score = args.Target.Read<int>(args.FieldName);
+    int score = args.Target.Read<int>(args.Path);
     UnityEngine.Debug.Log($"Score updated to {score}");
 });
 
 // Subscribe to the entire container
 using var containerSubscription = root.Subscribe(args =>
 {
-    UnityEngine.Debug.Log($"{args.FieldName} changed on root.");
+    UnityEngine.Debug.Log($"{args.Path} changed on root.");
 });
 
 root.Write("score", 42);
@@ -325,12 +325,6 @@ using var sub2 = stats.Subscribe("hp", args => ...);
 
 > `Subscribe()` or `Subscribe("")` targets the current container. Use dotted paths to reach deeper containers or fields; paths must point at data that already exists (create child containers up front with `GetObject` if needed).
 ```
-
-The adapter:
-
-* Walks your layout and writes fields to JSON.
-* Can infer or update the layout from JSON when deserializing into an empty or older storage.
-* Tries to “self-heal” certain mismatches (e.g., compatible type upgrades).
 
 ---
 
@@ -610,6 +604,12 @@ Both use an internal `JsonToStorageReader` that parses and writes directly into 
 ### (Unity) JSON adapter
 
 Namespace: `Minerva.DataStorage.Serialization`
+
+The adapter:
+
+* Walks your layout and writes fields to JSON.
+* Can infer or update the layout from JSON when deserializing into an empty or older storage.
+* Tries to “self-heal” certain mismatches (e.g., compatible type upgrades).
 
 * **`StorageAdapter`**
 
