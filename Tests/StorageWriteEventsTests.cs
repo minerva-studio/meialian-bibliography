@@ -1,6 +1,8 @@
 using NUnit.Framework;
 using System;
+using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace Minerva.DataStorage.Tests
 {
@@ -488,6 +490,137 @@ namespace Minerva.DataStorage.Tests
             // Recreate field and write; old subscription should be gone
             root.Write<int>("temp", 5);
             Assert.That(deleteEvents, Is.EqualTo(1), "Subscription should auto-unsubscribe after delete.");
+        }
+
+        [Test]
+        public void Field_TypeChange_Raises_SecondWrite_WithNewFieldType()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            root.Write<int>("v", 1); // create field
+
+            int eventCount = 0;
+            FieldType lastType = default;
+            using var sub = root.Subscribe("v", (in StorageEventArgs e) =>
+            {
+                Assert.That(e.Event, Is.EqualTo(StorageEvent.Write));
+                eventCount++;
+                lastType = e.FieldType;
+            });
+
+            // First write (same type) -> one event
+            root.Write<int>("v", 2);
+            // Second write with different size/type (int -> long) forces rescheme/type change
+            root.Write<long>("v", 9999999999L);
+
+            Assert.That(eventCount, Is.EqualTo(2), "Two write events expected (initial + type change). ");
+            Assert.That(lastType, Is.EqualTo(TypeUtil<long>.ScalarFieldType), "Last event must reflect new type.");
+        }
+
+        [Test]
+        public void Field_TypeChange_SameSize_ImplicitConversion_StillUpdatesType()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            // float32 and int32 both size 4; switching should be implicit / same size path
+            root.Write<int>("x", 5);
+            int count = 0; FieldType last = default;
+            using var sub = root.Subscribe("x", (in StorageEventArgs e) => { count++; last = e.FieldType; });
+            root.Write<float>("x", 3.14f);
+            Assert.That(count, Is.EqualTo(1));
+            Assert.That(last, Is.EqualTo(TypeUtil<float>.ScalarFieldType));
+        }
+
+        [Test]
+        public void InlineArray_Rescheme_LengthChange_RaisesWrite()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            // initial array
+            root.Override("arr", new ReadOnlySpan<int>(new int[] { 1, 2, 3 }).AsBytes(), ValueType.Int32, inlineArrayLength: 3);
+            int count = 0; int lastLen = 0;
+            using var sub = root.Subscribe("arr", (in StorageEventArgs e) => { count++; lastLen = root.GetArray("arr").Length; });
+            // Resize (different length -> rescheme)
+            root.Override("arr", new ReadOnlySpan<int>(new int[] { 9, 8, 7, 6 }).AsBytes(), ValueType.Int32, inlineArrayLength: 4);
+            Assert.That(count, Is.EqualTo(1));
+            Assert.That(lastLen, Is.EqualTo(4));
+        }
+
+        [Test]
+        public void Delete_RefField_RaisesDelete_BeforeParentWrite()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            var child = root.GetObject("child");
+            var grand = child.GetObject("grand");
+            int childEvents = 0; StorageEvent lastChildEvent = StorageEvent.None;
+            int rootEvents = 0; List<StorageEvent> rootSequence = new();
+
+            using var subChild = child.Subscribe((in StorageEventArgs e) => { childEvents++; lastChildEvent = e.Event; });
+            using var subRoot = root.Subscribe((in StorageEventArgs e) => { rootEvents++; rootSequence.Add(e.Event); });
+
+            root.Delete("child");
+
+            Assert.That(childEvents, Is.GreaterThanOrEqualTo(1));
+            Assert.That(lastChildEvent, Is.EqualTo(StorageEvent.Dispose).Or.EqualTo(StorageEvent.Delete));
+            Assert.IsFalse(root.HasField("child"));
+            Assert.That(rootSequence.Contains(StorageEvent.Delete), "Root sequence should include delete bubbling.");
+        }
+
+        [Test]
+        public void Mixed_Handler_Deletes_Other_Field_Writes_New_Field_Reads_Value()
+        {
+            using var storage = new Storage();
+            var root = storage.Root;
+            root.Write<int>("a", 1);
+            root.Write<int>("b", 2);
+            root.Write<int>("c", 3);
+            int writes = 0; int deletes = 0; int reads = 0;
+            using var sub = root.Subscribe((in StorageEventArgs e) =>
+            {
+                if (e.Event == StorageEvent.Write)
+                {
+                    writes++;
+                    if (e.Path == "a" && root.HasField("b")) root.Delete("b");
+                    if (!root.HasField("d")) root.Write<int>("d", 99);
+                    int cv = root.Read<int>("c"); reads++; Assert.That(cv, Is.EqualTo(3));
+                }
+                else if (e.Event == StorageEvent.Delete)
+                    deletes++;
+            });
+
+            root.Write<int>("a", 10); // triggers handler, deletes b, writes d
+            Assert.IsFalse(root.HasField("b"));
+            Assert.IsTrue(root.HasField("d"));
+            Assert.That(writes, Is.GreaterThanOrEqualTo(1));
+            Assert.That(reads, Is.GreaterThanOrEqualTo(1));
+            Assert.That(deletes, Is.GreaterThanOrEqualTo(1));
+        }
+
+        [Test]
+        public void Dispose_Storage_Raises_Dispose_For_Root_And_Children()
+        {
+            var storage = new Storage();
+            var root = storage.Root;
+            var child = root.GetObject("child");
+            var grand = child.GetObject("grand");
+            int rootDisposes = 0; int childDisposes = 0; int grandDisposes = 0;
+            using var rootSub = root.Subscribe((in StorageEventArgs e) => { if (e.Event == StorageEvent.Dispose && e.Target.IsNull) rootDisposes++; });
+            using var childSub = child.Subscribe((in StorageEventArgs e) => { if (e.Event == StorageEvent.Dispose && e.Target.IsNull) childDisposes++; });
+            using var grandSub = grand.Subscribe((in StorageEventArgs e) => { if (e.Event == StorageEvent.Dispose && e.Target.IsNull) grandDisposes++; });
+
+            storage.Dispose();
+            Assert.That(rootDisposes, Is.EqualTo(1));
+            Assert.That(childDisposes, Is.EqualTo(1));
+            Assert.That(grandDisposes, Is.EqualTo(1));
+        }
+    }
+
+    internal static class SpanExtensions
+    {
+        public static ReadOnlySpan<byte> AsBytes<T>(this ReadOnlySpan<T> span) where T : unmanaged
+        {
+            return MemoryMarshal.AsBytes(span);
         }
     }
 }
