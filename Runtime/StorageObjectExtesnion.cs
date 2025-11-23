@@ -69,7 +69,7 @@ namespace Minerva.DataStorage
 
         public static StorageArray MakeObjectArray(this StorageObject storageObject, int length)
         {
-            storageObject.MakeArray(ValueType.Ref, length);
+            storageObject.MakeArray(TypeData.Ref, length);
             return storageObject.AsArray();
         }
     }

@@ -181,7 +181,8 @@ namespace Minerva.DataStorage
         /// <param name="type"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeForObject(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) => ReschemeFor(fieldName, ValueType.Ref, Unsafe.SizeOf<ContainerReference>(), inlineArrayLength);
+        public int ReschemeForObject(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null)
+            => ReschemeFor(fieldName, TypeData.Ref, inlineArrayLength);
 
         /// <summary>
         /// Rescheme to add a new field of type T with given fieldName.
@@ -191,13 +192,16 @@ namespace Minerva.DataStorage
         /// <param name="type"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeFor(fieldName, TypeUtil<T>.ValueType, TypeUtil<T>.Size, inlineArrayLength);
+        public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged
+            => ReschemeFor(fieldName, TypeUtil<T>.Type, inlineArrayLength);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int ReschemeFor(ReadOnlySpan<char> fieldName, ValueType valueType, int elementSize, int? inlineArrayLength)
+        public int ReschemeFor(ReadOnlySpan<char> fieldName, TypeData elementType, int? inlineArrayLength)
         {
             int index = IndexOf(fieldName);
             int elementCount = inlineArrayLength ?? 1;
+            ValueType valueType = elementType.ValueType;
+            int elementSize = elementType.Size;
 
             bool isNewField = index < 0;
             int targetIndex = isNewField ? ~index : index;
@@ -358,20 +362,21 @@ namespace Minerva.DataStorage
             // good case: single member array container
             if (index == 0 && FieldCount == 1)
             {
-                ReschemeForArray(newLength, fieldHeader.Type, fieldHeader.ElemSize);
+                ReschemeForArray(newLength, fieldHeader.ElementType);
                 return;
             }
             // bad case: need reschemefor
             else
             {
                 var name = GetFieldName(index);
-                ReschemeFor(name, fieldHeader.Type, fieldHeader.ElemSize, newLength);
+                ReschemeFor(name, fieldHeader.ElementType, newLength);
             }
         }
 
-        public void ReschemeForArray(int length, ValueType valueType, int? elemSize = null)
+        public void ReschemeForArray(int length, TypeData type)
         {
             ref ContainerHeader oldHeader = ref Header;
+            ValueType valueType = type.ValueType;
             if (oldHeader.FieldCount == 1)
             {
                 ref var oldField = ref GetFieldHeader(0);
@@ -380,7 +385,7 @@ namespace Minerva.DataStorage
                     return;
             }
 
-            int elementSize = elemSize ?? (valueType == ValueType.Blob ? throw new ArgumentException() : TypeUtil.SizeOf(valueType));
+            int elementSize = type.Size;
             int dataOffset = ContainerHeader.Size
                 + FieldHeader.Size
                 + oldHeader.ContainerNameLength

@@ -568,6 +568,7 @@ namespace Minerva.DataStorage.Serialization.Tests
             // Use the same pattern as the integer array test:
             // child container backing an inline array.
             root.WriteArray<TestBlob>("Blobs", blobs);
+            UnityEngine.Debug.Log(TypeUtil<TestBlob>.Type);
 
             var json = storage.ToJson().ToString();
             Log(json);

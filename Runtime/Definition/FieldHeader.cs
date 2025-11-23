@@ -48,7 +48,16 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => FieldType.IsRef;
         }
-
+        public TypeData ElementType
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            readonly get => new(FieldType.Type, ElemSize);
+            set
+            {
+                FieldType = new FieldType(value.ValueType, IsInlineArray);
+                ElemSize = value.Size;
+            }
+        }
         public readonly ValueType Type
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -412,7 +412,7 @@ namespace Minerva.DataStorage
         {
             int elementCount = inlineArrayLength ?? 1;
             int elemSize = valueType == ValueType.Blob ? value.Length / elementCount : TypeUtil.SizeOf(valueType);
-            int index = ReschemeFor(fieldName, valueType, elemSize, inlineArrayLength);
+            int index = ReschemeFor(fieldName, TypeData.Of(valueType, elemSize), inlineArrayLength);
             ref var header = ref GetFieldHeader(index);
             value.CopyTo(GetFieldData(in header));
         }

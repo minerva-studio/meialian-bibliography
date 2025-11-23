@@ -152,7 +152,7 @@ namespace Minerva.DataStorage
         public static readonly bool IsFloatingPoint = ValueType.IsFloatingPoint();
         public static readonly FieldType ScalarFieldType = Create(false);
         public static readonly FieldType ArrayFieldType = Create(true);
-
+        public static readonly TypeData Type = new(ValueType, (short)Size);
 
         public static FieldType Create(bool isArray = false) => new FieldType(ValueType, isArray);
 
@@ -161,7 +161,7 @@ namespace Minerva.DataStorage
             if (typeof(T).IsEnum)
             {
                 var ut = Enum.GetUnderlyingType(typeof(T));
-                switch (Type.GetTypeCode(ut))
+                switch (System.Type.GetTypeCode(ut))
                 {
                     case TypeCode.SByte: return ValueType.Int8;
                     case TypeCode.Byte: return ValueType.UInt8;
@@ -171,7 +171,7 @@ namespace Minerva.DataStorage
                     case TypeCode.UInt32: return ValueType.UInt32;
                     case TypeCode.Int64: return ValueType.Int64;
                     case TypeCode.UInt64: return ValueType.UInt64;
-                    default: return ValueType.Unknown;
+                    default: return ValueType.Blob;
                 }
             }
 

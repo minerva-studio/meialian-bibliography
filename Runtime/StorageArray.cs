@@ -308,6 +308,7 @@ namespace Minerva.DataStorage
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>
         public bool IsConvertibleTo<T>() where T : unmanaged => AcceptTypeConversion<T>(in Header);
+        public bool IsConvertibleTo(TypeData type) => AcceptTypeConversion(in Header, type);
         public bool IsConvertibleTo(ValueType valueType, int? elementSize = null) => AcceptTypeConversion(in Header, valueType, elementSize);
 
 
@@ -382,6 +383,9 @@ namespace Minerva.DataStorage
             throw new InvalidOperationException("Cannot call AsString() on a non-char array.");
         }
 
+
+
+
         internal static bool AcceptTypeConversion<TTarget>(in FieldHeader fieldHeader) where TTarget : unmanaged
         {
             ValueType valueType = TypeUtil<TTarget>.ValueType;
@@ -394,6 +398,12 @@ namespace Minerva.DataStorage
         {
             if (toValueType == ValueType.Blob) return fieldHeader.ElemSize == (elementSize ?? TypeUtil.SizeOf(toValueType));
             return TypeUtil.IsImplicitlyConvertible(fieldHeader.Type, toValueType);
+        }
+
+        internal static bool AcceptTypeConversion(in FieldHeader fieldHeader, TypeData toType)
+        {
+            if (toType.ValueType == ValueType.Blob) return fieldHeader.ElemSize == toType.Size;
+            return TypeUtil.IsImplicitlyConvertible(fieldHeader.Type, toType.ValueType);
         }
 
 

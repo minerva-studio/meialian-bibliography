@@ -115,7 +115,7 @@ namespace Minerva.DataStorage.Tests
             var a = s.Root.GetObject("a");
             var b = a.GetObject("b");
             // Turn b into an object array of length 3
-            b.MakeArray(ValueType.Ref, 3);
+            b.MakeArray(TypeData.Ref, 3);
             // Allocate element 1 container
             var arr = b.AsArray();
             arr.GetObject(1); // create container at index 1
@@ -131,7 +131,7 @@ namespace Minerva.DataStorage.Tests
             using var s = Create();
             var a = s.Root.GetObject("a");
             var b = a.GetObject("b");
-            b.MakeArray(ValueType.Ref, 2);
+            b.MakeArray(TypeData.Ref, 2);
             var arr = b.AsArray();
             arr.GetObject(1);
 
@@ -145,7 +145,7 @@ namespace Minerva.DataStorage.Tests
             using var s = Create();
             var a = s.Root.GetObject("a");
             var b = a.GetObject("b");
-            b.MakeArray(ValueType.Ref, 2);
+            b.MakeArray(TypeData.Ref, 2);
             // auto allocate element 1
             Assert.DoesNotThrow(() => s.Root.WritePath<int>("a.b[1].value", 7));
         }

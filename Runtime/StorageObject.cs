@@ -641,7 +641,7 @@ namespace Minerva.DataStorage
         internal void MakeArray<T>(int length) where T : unmanaged
         {
             // scalar array fast path
-            _container.ReschemeForArray(length, TypeUtil<T>.ValueType, TypeUtil<T>.Size);
+            _container.ReschemeForArray(length, TypeUtil<T>.Type);
         }
 
         /// <summary>
@@ -650,9 +650,9 @@ namespace Minerva.DataStorage
         /// <typeparam name="T"></typeparam>
         /// <param name="length"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal void MakeArray(ValueType valueType, int length, int? elemSize = null)
+        internal void MakeArray(TypeData type, int length)
         {
-            _container.ReschemeForArray(length, valueType, elemSize ?? TypeUtil.SizeOf(valueType));
+            _container.ReschemeForArray(length, type);
         }
 
         /// <summary>
@@ -664,7 +664,7 @@ namespace Minerva.DataStorage
             // already ensure this is either empty object or array
             if (FieldCount == 0)
             {
-                MakeArray(ValueType.Ref, capacity);
+                MakeArray(TypeData.Ref, capacity);
                 return;
             }
             ref var header = ref _container.GetFieldHeader(0);
@@ -673,7 +673,7 @@ namespace Minerva.DataStorage
             if (arrayLength >= capacity)
                 return;
             // resize
-            _container.ReschemeForArray(capacity, header.Type, header.ElemSize);
+            _container.ReschemeForArray(capacity, header.ElementType);
         }
 
 
@@ -790,41 +790,40 @@ namespace Minerva.DataStorage
         {
             ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
             _container.EnsureNotDisposed(_generation);
-            return TryGetArray(fieldName.AsSpan(), null, null, out storageArray);
+            return TryGetArray(fieldName.AsSpan(), null, out storageArray);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetArray(ReadOnlySpan<char> fieldName, out StorageArray storageArray)
         {
             _container.EnsureNotDisposed(_generation);
-            return TryGetArray(fieldName, null, null, out storageArray);
+            return TryGetArray(fieldName, null, out storageArray);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetArray<T>(ReadOnlySpan<char> fieldSegment, out StorageArray storageArray) where T : unmanaged
         {
             _container.EnsureNotDisposed(_generation);
-            return TryGetArray_Internal(fieldSegment, TypeUtil<T>.ValueType, TypeUtil<T>.Size, out storageArray);
+            return TryGetArray_Internal(fieldSegment, TypeUtil<T>.Type, out storageArray);
         }
 
-        public bool TryGetArray(ReadOnlySpan<char> fieldSegment, ValueType? valueType, int? elementSize, out StorageArray storageArray)
+        public bool TryGetArray(ReadOnlySpan<char> fieldSegment, TypeData? type, out StorageArray storageArray)
         {
             _container.EnsureNotDisposed(_generation);
-            return TryGetArray_Internal(fieldSegment, valueType, elementSize, out storageArray);
+            return TryGetArray_Internal(fieldSegment, type, out storageArray);
         }
 
-        private bool TryGetArray_Internal(ReadOnlySpan<char> fieldSegment, ValueType? valueType, int? elementSize, out StorageArray storageArray)
+        private bool TryGetArray_Internal(ReadOnlySpan<char> fieldSegment, TypeData? type, out StorageArray storageArray)
         {
             storageArray = default;
             if (!_container.TryGetFieldHeader(fieldSegment, out var headerSpan))
                 return false;
             ref var header = ref headerSpan[0];
 
-            if (valueType.HasValue) elementSize ??= TypeUtil.SizeOf(valueType.Value);
             if (header.IsInlineArray)
             {
-                if (valueType.HasValue
-                    && (header.Type != valueType || header.ElemSize != elementSize)) return false;
+                if (type.HasValue
+                    && (header.Type != type!.Value.ValueType || header.ElemSize != type.Value.Size)) return false;
                 storageArray = new StorageArray(_container, fieldSegment);
                 return true;
             }
@@ -835,8 +834,8 @@ namespace Minerva.DataStorage
             if (child.FieldCount > 0)
             {
                 ref var ch = ref child._container.GetFieldHeader(0);
-                if (valueType.HasValue
-                    && (header.Type != valueType || header.ElemSize != elementSize)) return false;
+                if (type.HasValue
+                    && (header.Type != type!.Value.ValueType || header.ElemSize != type.Value.Size)) return false;
             }
 
             storageArray = new StorageArray(child.Container);
@@ -867,21 +866,21 @@ namespace Minerva.DataStorage
             return holder.AsArray();
         }
 
-        public StorageArray GetArrayByPath(ReadOnlySpan<char> path, ValueType valueType, int? elementSize = null, bool createIfMissing = true)
+        public StorageArray GetArrayByPath(ReadOnlySpan<char> path, TypeData type, bool createIfMissing = true)
         {
             if (path.Length == 0) ThrowHelper.ArgumentException(nameof(path));
 
             var parent = NavigateToObject(path, DefaultPathSeparator, createIfMissing, out var fieldSegment, out var _);
             if (fieldSegment.Length == 0) ThrowHelper.ArgumentException(nameof(path));
 
-            if (parent.TryGetArray(fieldSegment, out var arrayView) && arrayView.IsConvertibleTo(valueType, elementSize))
+            if (parent.TryGetArray(fieldSegment, out var arrayView) && arrayView.IsConvertibleTo(type))
                 return arrayView;
 
             if (!createIfMissing)
                 ThrowHelper.ThrowInvalidOperation();
 
             var holder = parent.GetObject(fieldSegment);
-            holder.MakeArray(valueType, 0, elementSize);
+            holder.MakeArray(type, 0);
             return holder.AsArray();
         }
 
@@ -896,10 +895,10 @@ namespace Minerva.DataStorage
                 return false;
 
             // First check header (to detect inline arrays without allocating) 
-            return parent.TryGetArray_Internal(fieldSegment, TypeUtil<T>.ValueType, TypeUtil<T>.Size, out storageArray);
+            return parent.TryGetArray_Internal(fieldSegment, TypeUtil<T>.Type, out storageArray);
         }
 
-        public bool TryGetArrayByPath(ReadOnlySpan<char> path, ValueType valueType, int? elementSize, out StorageArray storageArray)
+        public bool TryGetArrayByPath(ReadOnlySpan<char> path, TypeData type, out StorageArray storageArray)
         {
             storageArray = default;
             if (path.Length == 0) return false;
@@ -908,7 +907,7 @@ namespace Minerva.DataStorage
                 return false;
             if (fieldSegment.Length == 0)
                 return false;
-            return parent.TryGetArray_Internal(fieldSegment, valueType, elementSize, out storageArray);
+            return parent.TryGetArray_Internal(fieldSegment, type, out storageArray);
         }
 
         #endregion
@@ -1105,6 +1104,7 @@ namespace Minerva.DataStorage
         #endregion
 
 
+        #region Navigate
 
         // ---------------- Segment parsing & forward-only path state machine ----------------
         // A forward-only reader over path segments supporting optional [index] suffix.
@@ -1217,9 +1217,8 @@ namespace Minerva.DataStorage
             return false;
         }
 
+        #endregion
 
-
-        // Child navigation by reference field (single)
 
         #region Object
 
@@ -1464,7 +1463,7 @@ namespace Minerva.DataStorage
                 switch (holder.FieldCount)
                 {
                     case 0:
-                        holder.MakeArray(ValueType.Ref, index + 1);
+                        holder.MakeArray(TypeData.Ref, index + 1);
                         arrayView = holder.AsArray();
                         break;
                     default:
@@ -1569,9 +1568,7 @@ namespace Minerva.DataStorage
 
 
 
-
-
-
+        #region Persistent Field Info
 
         /// <summary>Check a field exist.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1609,6 +1606,10 @@ namespace Minerva.DataStorage
             var name = _container.GetFieldName(in header);
             return new FieldInfo(name, in header);
         }
+
+        #endregion
+
+
 
 
 
@@ -1683,12 +1684,14 @@ namespace Minerva.DataStorage
 
 
 
+
         /// <summary>
         /// Rescheme the container to match the target schema.
         /// </summary>
         /// <param name="target"></param> 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Rescheme(ContainerLayout target) => _container.EnsureNotDisposed(_generation).Rescheme(target);
+
 
 
 

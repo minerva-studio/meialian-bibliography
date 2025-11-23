@@ -653,7 +653,7 @@ namespace Minerva.DataStorage.Serialization
 
                     if (arrayType == ValueType.Bool || arrayType == ValueType.Float64 || arrayType == ValueType.Int64)
                     {
-                        arrayObject.MakeArray(arrayType, scalarValues.Count);
+                        arrayObject.MakeArray((TypeData)arrayType, scalarValues.Count);
                         var arrayView = arrayObject.AsArray();
                         for (int i = 0; i < scalarValues.Count; i++)
                         {
@@ -674,7 +674,7 @@ namespace Minerva.DataStorage.Serialization
                     }
                     if (arrayType == ValueType.Blob)
                     {
-                        arrayObject.MakeArray(ValueType.Blob, blobs.Count, blobs[0].Length);
+                        arrayObject.MakeArray(TypeData.Blob(blobs[0].Length), blobs.Count);
                         var arrayView = arrayObject.AsArray();
                         for (int i = 0; i < blobs.Count; i++)
                         {
@@ -684,7 +684,7 @@ namespace Minerva.DataStorage.Serialization
                     }
                     if (arrayType == ValueType.Ref)
                     {
-                        arrayObject.MakeArray(ValueType.Ref, containers.Count);
+                        arrayObject.MakeArray(TypeData.Ref, containers.Count);
                         var arrayView = arrayObject.AsArray();
                         for (int i = 0; i < containers.Count; i++)
                         {
