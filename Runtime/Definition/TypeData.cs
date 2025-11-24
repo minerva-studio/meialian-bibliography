@@ -44,12 +44,7 @@ namespace Minerva.DataStorage
         }
 
 
-        public static TypeData Of<T>() where T : unmanaged
-        {
-            ValueType valueType = TypeUtil<T>.ValueType;
-            int size = TypeUtil<T>.Size;
-            return new TypeData(valueType, (short)size);
-        }
+        public static TypeData Of<T>() where T : unmanaged => TypeUtil<T>.Type;
 
 
         public static TypeData? Of(ValueType? valueType, int? elementSize) => valueType == null ? null : Of(valueType.Value, elementSize);

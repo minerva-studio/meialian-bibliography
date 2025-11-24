@@ -38,12 +38,20 @@ namespace Minerva.DataStorage
 
         public readonly bool IsDisposed => _handle.Container == null || _handle.IsDisposed;
 
-        public readonly bool IsRefArray => _handle.Container.IsArray;
+        /// <summary>
+        /// Is an external array? (not inline to the parent object)
+        /// </summary>
+        public readonly bool IsExternalArray => _handle.Container.IsArray;
+
+        /// <summary>
+        /// Is an object array? (a ref array)
+        /// </summary>
+        public readonly bool IsObjectArray => Type == ValueType.Ref;
 
         /// <summary>
         /// Is a string? (a ref array of char16)
         /// </summary>
-        public readonly bool IsString => IsRefArray && Type == ValueType.Char16;
+        public readonly bool IsString => IsExternalArray && Type == ValueType.Char16;
 
         /// <summary>
         /// Array Length
@@ -130,38 +138,41 @@ namespace Minerva.DataStorage
             }
         }
 
-        public void Write<T>(int index, T value) where T : unmanaged
+        public bool Write<T>(int index, T value) where T : unmanaged
         {
             var src = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref value, 1));
-            Write(index, src, TypeUtil<T>.ValueType);
+            return Write(index, src, TypeUtil<T>.ValueType);
         }
 
-        public void Write(int index, Span<byte> src, ValueType valueType)
+        public bool Write(int index, Span<byte> src, ValueType valueType)
         {
             int fieldIndex = _handle.EnsureNotDisposed();
             ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
             int elementSize = header.ElemSize;
             var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
-            Migration.TryWriteTo(src, valueType, span, header.Type, false);
-
-            StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+            bool result = Migration.TryWriteTo(src, valueType, span, header.Type, true);
+            if (result)
+                StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+            return result;
         }
 
-        public bool TryWrite<T>(int index, T value) where T : unmanaged
+        public bool TryWrite<T>(int index, T value, bool isExplicit = true) where T : unmanaged
         {
             var src = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref value, 1));
-            return TryWrite(index, src, TypeUtil<T>.ValueType);
+            return TryWrite(index, src, TypeUtil<T>.ValueType, isExplicit);
         }
 
-        public bool TryWrite(int index, Span<byte> src, ValueType valueType)
+        public bool TryWrite(int index, Span<byte> src, ValueType valueType, bool isExplicit = true)
         {
             if (index < 0 || index > Length)
                 return false;
-            int fieldIndex = _handle.EnsureNotDisposed();
+            if (_handle.IsDisposed)
+                return false;
+            int fieldIndex = _handle.Index;
             ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
             int elementSize = header.ElemSize;
             var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
-            bool result = Migration.TryWriteTo(src, valueType, span, header.Type, false);
+            bool result = Migration.TryWriteTo(src, valueType, span, header.Type, isExplicit);
             if (result)
                 StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
             return result;
@@ -216,7 +227,15 @@ namespace Minerva.DataStorage
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
         public bool TryGetObject(int index, out StorageObject child)
         {
-            return References[index].TryGet(out child);
+            Span<ContainerReference> references = References;
+            if (references.Length <= index)
+            {
+                child = default;
+                return false;
+            }
+
+            ContainerReference containerReference = references[index];
+            return containerReference.TryGet(out child);
         }
 
 
@@ -300,6 +319,18 @@ namespace Minerva.DataStorage
             if (length <= Length)
                 return;
             _handle.Container.ResizeArrayField(_handle.Index, length);
+        }
+
+        /// <summary>
+        /// Rescheme array to match type
+        /// </summary>
+        /// <param name="type"></param>
+        /// <param name="newLength"></param>
+        internal void Rescheme(TypeData type, int? newLength = null)
+        {
+            _handle.EnsureNotDisposed();
+            newLength ??= Length;
+            _handle.Container.ReschemeFor(_handle.Name, type, newLength);
         }
 
         /// <summary>

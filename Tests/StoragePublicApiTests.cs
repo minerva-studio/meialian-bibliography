@@ -210,6 +210,326 @@ namespace Minerva.DataStorage.Tests
             Assert.That(back2, Is.EqualTo(big2));
         }
 
+
+        #region Array
+
+        [Test]
+        public void StorageObject_GetArray_ValueArray_ReadWrite_RoundTrip()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArray("ints", new[] { 1, 2, 3 });
+            var arr = root.GetArray("ints");
+            Assert.That(arr.IsExternalArray, Is.True);
+            Assert.That(arr.IsObjectArray, Is.False);
+            Assert.That(arr.Length, Is.EqualTo(3));
+
+            arr.Write(1, 99);
+            CollectionAssert.AreEqual(new[] { 1, 99, 3 }, root.ReadArray<int>("ints"));
+        }
+
+        [Test]
+        public void StorageObject_TryGetArray_Generic_Success_And_TypeMismatch()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArray("floats", new[] { 1f, 2f });
+            Assert.That(root.TryGetArray<float>("floats".AsSpan(), out var ok), Is.True);
+            Assert.That(ok.Length, Is.EqualTo(2));
+            Assert.That(root.TryGetArray<int>("floats".AsSpan(), out var bad), Is.False);
+        }
+
+        [Test]
+        public void StorageObject_TryGetArray_TypeData_Filter_Fails_On_TypeMismatch()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArray("nums", new[] { 10, 20 });
+            Assert.That(root.TryGetArray("nums".AsSpan(), TypeData.Of<int>(), out var arr2), Is.True);
+            Assert.That(root.TryGetArray("nums".AsSpan(), TypeData.Of<float>(), out var arr), Is.True);
+            Assert.That(arr2.Length, Is.EqualTo(2));
+            root.WriteArray("numss", new[] { 10f, 20f });
+            Assert.That(root.TryGetArray("numss".AsSpan(), TypeData.Of<int>(), out var arr3), Is.False);
+            Assert.That(root.TryGetArray("numss".AsSpan(), TypeData.Of<float>(), out var arr4), Is.True);
+            Assert.That(arr4.Length, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void StorageObject_GetArrayByPath_Creates_ValueArray_IfMissing()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var arr = root.GetArrayByPath<int>("stats.values".AsSpan(), true);
+            Assert.That(arr.Length, Is.EqualTo(0));
+
+            arr.EnsureLength(3);
+            arr.Write(0, 5);
+            arr.Write(1, 6);
+            arr.Write(2, 7);
+
+            CollectionAssert.AreEqual(new[] { 5, 6, 7 }, root.ReadArrayPath<int>("stats.values"));
+        }
+
+        [Test]
+        public void StorageObject_GetArrayByPath_ObjectArray_CreateAndWriteElement()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var objArr = root.GetArrayByPath("world.entities".AsSpan(), TypeData.Ref, true);
+            objArr.EnsureLength(2);
+            objArr.GetObject(1).Write("hp", 33);
+
+            Assert.That(root.ReadPath<int>("world.entities[1].hp"), Is.EqualTo(33));
+        }
+
+        [Test]
+        public void StorageObject_TryGetArrayByPath_ObjectArray_Fails_On_ValueArray()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArrayPath("data.values", new[] { 1, 2, 3 });
+            Assert.That(root.TryGetArrayByPath("data.values".AsSpan(), TypeData.Ref, out var arr), Is.False);
+        }
+
+        [Test]
+        public void StorageObject_IsArray_Overloads_Work_For_Value_And_Object()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArray("nums", new[] { 1, 2 });
+            Assert.That(root.IsArray("nums"), Is.True);
+
+            var objArr = root.GetArrayByPath("actors".AsSpan(), TypeData.Ref, true);
+            objArr.EnsureLength(1);
+            Assert.That(root.IsArray("actors"), Is.True);
+
+            Assert.That(root.IsArray(), Is.False, "Root object itself is not an array container.");
+            Assert.That(root.GetObject("actors").IsArray(), Is.True, "Object array holder should report IsArray().");
+        }
+
+        [Test]
+        public void StorageObject_AsArray_On_ArrayContainer_ValueArray()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var holder = root.GetObject("holder");
+            holder.WriteArray(new[] { 10, 11, 12 });
+
+            Assert.That(holder.IsArray(), Is.True);
+            var arr = holder.AsArray();
+            Assert.That(arr.Length, Is.EqualTo(3));
+            CollectionAssert.AreEqual(new[] { 10, 11, 12 }, holder.ReadArray<int>());
+        }
+
+        [Test]
+        public void StorageObject_AsArray_On_ArrayContainer_ObjectArray()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var objArr = root.GetArrayByPath("scene.units".AsSpan(), TypeData.Ref, true);
+            objArr.EnsureLength(2);
+            objArr.GetObject(0).Write("name", "Hero");
+
+            var holder = root.GetObject("scene").GetObject("units");
+            Assert.That(holder.IsArray(), Is.True);
+            var arrView = holder.AsArray();
+            Assert.That(arrView.IsObjectArray, Is.True);
+            Assert.That(arrView.Length, Is.EqualTo(2));
+            Assert.That(root.ReadStringPath("scene.units[0].name"), Is.EqualTo("Hero"));
+        }
+
+        [Test]
+        public void StorageObject_TryGetArray_Generic_On_ObjectArray_Fails()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var objArr = root.GetArrayByPath("objs".AsSpan(), TypeData.Ref, true);
+            objArr.EnsureLength(1);
+
+            Assert.That(root.TryGetArray<int>("objs".AsSpan(), out var typed), Is.False);
+            Assert.That(root.TryGetArray("objs".AsSpan(), TypeData.Ref, out var untyped), Is.True);
+            Assert.That(untyped.IsObjectArray, Is.True);
+        }
+
+        [Test]
+        public void StorageObject_ObjectArray_Element_Write_Read()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var arr = root.GetArrayByPath("items".AsSpan(), TypeData.Ref, true);
+            arr.EnsureLength(3);
+
+            arr.GetObject(2).Write("quality", 88);
+            Assert.That(root.ReadPath<int>("items[2].quality"), Is.EqualTo(88));
+        }
+
+        [Test]
+        public void StorageObject_Array_Element_ClearAt_SetsRefZero()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var arr = root.GetArrayByPath("objects".AsSpan(), TypeData.Ref, true);
+            arr.EnsureLength(2);
+            arr.GetObject(0).Write("hp", 5);
+            Assert.That(root.ReadPath<int>("objects[0].hp"), Is.EqualTo(5));
+
+            arr.ClearAt(0);
+            Assert.That(arr.TryGetObject(0, out var cleared), Is.False);
+        }
+
+        [Test]
+        public void StorageObject_Array_Clear_Resets_All_Slots()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var arr = root.GetArrayByPath("objects".AsSpan(), TypeData.Ref, true);
+            arr.EnsureLength(3);
+            arr.GetObject(0).Write("id", 1);
+            arr.GetObject(1).Write("id", 2);
+
+            arr.Clear();
+            Assert.That(arr.TryGetObject(0, out var a0), Is.False);
+            Assert.That(arr.TryGetObject(1, out var a1), Is.False);
+        }
+
+        [Test]
+        public void StorageObject_Array_EnsureLength_Expands_ValueArray()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArray("nums", new[] { 1, 2 });
+            var arr = root.GetArray("nums");
+            arr.EnsureLength(5);
+            Assert.That(arr.Length, Is.EqualTo(5));
+            CollectionAssert.AreEqual(new[] { 1, 2, 0, 0, 0 }, root.ReadArray<int>("nums"));
+        }
+
+        [Test]
+        public void StorageObject_Array_Resize_Shrinks_ValueArray()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArray("nums", new[] { 1, 2, 3, 4 });
+            var arr = root.GetArray("nums");
+            arr.Resize(2);
+            CollectionAssert.AreEqual(new[] { 1, 2 }, root.ReadArray<int>("nums"));
+        }
+
+        [Test]
+        public void StorageObject_GetOrCreateArray_OverrideExisting_Type()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArray("values", new float[] { 1f, 2f, 3f });
+            var original = root.GetArray("values");
+            Assert.That(original.Type, Is.EqualTo(ValueType.Float32));
+
+            var replaced = root.GetOrCreateArray("values".AsSpan(), TypeData.Of<int>(), overrideExisting: true);
+            Assert.That(replaced.Type, Is.EqualTo(ValueType.Int32));
+            replaced.EnsureLength(3);
+            replaced.Write(0, 1f);
+            replaced.Write(1, 2f);
+            replaced.Write(2, 3f);
+
+            CollectionAssert.AreEqual(new[] { 1, 2, 3 }, root.ReadArray<int>("values"));
+            CollectionAssert.AreEqual(new[] { 1f, 2f, 3f }, root.ReadArray<float>("values"));
+        }
+
+        [Test]
+        public void StorageObject_GetOrCreateArray_Respects_Existing_When_Not_Override()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArray("floats", new[] { 5f, 6f });
+            var arr1 = root.GetOrCreateArray("floats", TypeData.Of<float>(), overrideExisting: false);
+            Assert.That(arr1.Type, Is.EqualTo(ValueType.Float32));
+            Assert.Throws<ArgumentException>(() =>
+                root.GetOrCreateArray("floats", TypeData.Of<int>(), overrideExisting: false));
+        }
+
+        [Test]
+        public void StorageObject_Array_IsConvertibleTo_Works_For_ImplicitConversions()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArray("ints", new[] { 1, 2 });
+            var arr = root.GetArray("ints");
+            Assert.That(arr.IsConvertibleTo<float>(), Is.True); // int->float implicit read
+            Assert.That(arr.IsConvertibleTo(TypeData.Of<float>()), Is.True);
+            Assert.That(arr.IsConvertibleTo(ValueType.Float32), Is.True);
+        }
+
+        [Test]
+        public void StorageObject_ReadArray_FromChildArrayContainer()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var holder = root.GetObject("holder");
+            holder.WriteArray(new[] { 9, 8, 7 });
+            CollectionAssert.AreEqual(new[] { 9, 8, 7 }, holder.ReadArray<int>());
+        }
+
+        [Test]
+        public void StorageObject_TryGetArray_ValueArray_Fails_On_ObjectArray()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var objArr = root.GetArrayByPath("refs".AsSpan(), TypeData.Ref, true);
+            objArr.EnsureLength(1);
+            Assert.That(root.TryGetArray<int>("refs".AsSpan(), out var valueArr), Is.False);
+            Assert.That(root.TryGetArray("refs".AsSpan(), TypeData.Ref, out var refArr), Is.True);
+            Assert.That(refArr.IsObjectArray, Is.True);
+        }
+
+        [Test]
+        public void StorageObject_Array_Path_Index_Write_Read()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.GetArrayByPath("units".AsSpan(), TypeData.Ref, true).EnsureLength(2);
+            root.WritePath("units[1].hp", 55);
+            Assert.That(root.ReadPath<int>("units[1].hp"), Is.EqualTo(55));
+        }
+
+        [Test]
+        public void StorageObject_Array_String_AsArray_RoundTrip()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.Write("title", "Minerva");
+            var arr = root.GetArray("title");
+            Assert.That(arr.Type, Is.EqualTo(ValueType.Char16));
+            var back = arr.AsString();
+            Assert.That(back, Is.EqualTo("Minerva"));
+        }
+
+        #endregion
+
+
+        #region Path
+
         [Test]
         public void Storage_Path_SingleField_Write_And_Read()
         {
@@ -632,6 +952,10 @@ namespace Minerva.DataStorage.Tests
             Assert.That(root.ReadPath<float>("types.float"), Is.EqualTo(3.14f));
             Assert.That(root.ReadPath<double>("types.double"), Is.EqualTo(2.71828));
         }
+
+        #endregion
+
+        #region Subscribe
 
         [Test]
         public void Storage_FieldWrite_Subscription_Fires_On_Write()
@@ -2087,6 +2411,8 @@ namespace Minerva.DataStorage.Tests
             child.Write("val", 1);
             Assert.That(notified, Is.True);
         }
+
+        #endregion
     }
 
     public static class StorageApiTestExt

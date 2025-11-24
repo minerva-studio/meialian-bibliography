@@ -521,6 +521,12 @@ namespace Minerva.DataStorage
                 containerReferences = default;
                 return false;
             }
+            ref var header = ref GetFieldHeader(index);
+            if (!header.IsRef)
+            {
+                containerReferences = default;
+                return false;
+            }
             containerReferences = GetRefSpan(index);
             return true;
         }

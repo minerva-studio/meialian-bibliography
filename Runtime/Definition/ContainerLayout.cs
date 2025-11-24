@@ -118,6 +118,19 @@ namespace Minerva.DataStorage
         }
 
         /// <summary>
+        /// Build array of given type
+        /// </summary>
+        /// <param name="type"></param>
+        /// <param name="length"></param>
+        /// <returns></returns>
+        public static ContainerLayout BuildArray(int length, TypeData type)
+        {
+            var b = new ObjectBuilder();
+            b.SetArray(ArrayName, type, length);
+            return b.BuildLayout();
+        }
+
+        /// <summary>
         /// Build array of fixed sized element
         /// </summary>
         /// <param name="valueType"></param>

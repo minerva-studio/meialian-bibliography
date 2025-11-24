@@ -215,6 +215,16 @@ namespace Minerva.DataStorage
             _map[name] = new Entry { Type = fieldType, ElemSize = (short)elem, Data = length };
             return this;
         }
+        /// <summary>Set an array payload of unmanaged T.</summary>
+        public ObjectBuilder SetArray(string name, TypeData type, int arraySize) => SetArray(name.AsMemory(), type, arraySize);
+        internal ObjectBuilder SetArray(ReadOnlyMemory<char> name, TypeData type, int arraySize)
+        {
+            var fieldType = new FieldType(type.ValueType, true);
+            int elem = type.Size;
+            int length = elem * arraySize;
+            _map[name] = new Entry { Type = fieldType, ElemSize = (short)elem, Data = length };
+            return this;
+        }
 
         /// <summary>Set an array payload of unmanaged T.</summary>
         public ObjectBuilder SetArray<T>(string name, int arraySize) where T : unmanaged => SetArray<T>(name.AsMemory(), arraySize);

@@ -187,6 +187,8 @@ namespace Minerva.DataStorage
             if (typeof(T) == typeof(ulong)) return ValueType.UInt64;
             if (typeof(T) == typeof(float)) return ValueType.Float32;
             if (typeof(T) == typeof(double)) return ValueType.Float64;
+            if (typeof(T) == typeof(nint)) return Unsafe.SizeOf<nint>() == sizeof(int) ? ValueType.Int32 : ValueType.Int64;
+            if (typeof(T) == typeof(nuint)) return Unsafe.SizeOf<nuint>() == sizeof(int) ? ValueType.Int32 : ValueType.Int64;
             if (typeof(T) == typeof(ContainerReference)) return ValueType.Ref;
             return ValueType.Blob;
         }

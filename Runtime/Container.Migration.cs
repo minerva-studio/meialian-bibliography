@@ -7,6 +7,10 @@ namespace Minerva.DataStorage
 {
     internal sealed partial class Container
     {
+        /// <summary>
+        /// Rename container, will not invoke any events.
+        /// </summary>
+        /// <param name="newContainerName"></param>
         public void Rename(ReadOnlySpan<char> newContainerName)
         {
             var nameBytes = MemoryMarshal.AsBytes(newContainerName);
@@ -63,6 +67,9 @@ namespace Minerva.DataStorage
         /// Internal overload allowing to skip zero-initialization when the caller
         /// will fully overwrite the new buffer manually.
         /// </summary>  
+        /// <remarks>
+        /// Invoke all necessary events manually if <paramref name="quiet"/> is false.
+        /// </remarks>
         public void Rescheme(ContainerLayout newLayout, bool quiet = false)
         {
             if (newLayout is null) throw new ArgumentNullException(nameof(newLayout));
@@ -195,6 +202,13 @@ namespace Minerva.DataStorage
         public int ReschemeFor<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged
             => ReschemeFor(fieldName, TypeUtil<T>.Type, inlineArrayLength);
 
+        /// <summary>
+        /// Rescheme for a field, will not invoke events.
+        /// </summary>
+        /// <param name="fieldName"></param>
+        /// <param name="elementType"></param>
+        /// <param name="inlineArrayLength"></param>
+        /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int ReschemeFor(ReadOnlySpan<char> fieldName, TypeData elementType, int? inlineArrayLength)
         {
