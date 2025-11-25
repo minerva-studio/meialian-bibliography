@@ -400,11 +400,12 @@ namespace Minerva.DataStorage
                     return;
             }
 
+            var nameBytes = MemoryMarshal.AsBytes(GetFieldName(0));
             int elementSize = type.Size;
             int dataOffset = ContainerHeader.Size
                 + FieldHeader.Size
                 + oldHeader.ContainerNameLength
-                + ContainerLayout.ArrayName.Length * sizeof(char);
+                + nameBytes.Length;
             int dataLength = length * elementSize;
             int size = dataOffset + dataLength;
 
@@ -420,14 +421,13 @@ namespace Minerva.DataStorage
             _memory.AsSpan(oldHeader.ContainerNameOffset, oldHeader.ContainerNameLength).CopyTo(allocatedMemory.AsSpan(newHeader.ContainerNameOffset, newHeader.ContainerNameLength));
             // write array field header
             ref FieldHeader fieldHeader = ref FieldHeader.FromSpanAndFieldIndex(allocatedMemory.Buffer.Span, 0);
-            fieldHeader.NameLength = (short)ContainerLayout.ArrayName.Length;
+            fieldHeader.NameLength = (short)nameBytes.Length;
             fieldHeader.NameOffset = newHeader.ContainerNameOffset + newHeader.ContainerNameLength;
             fieldHeader.DataOffset = dataOffset;
             fieldHeader.Length = dataLength;
             fieldHeader.FieldType = new FieldType(valueType, true);
             fieldHeader.ElemSize = (short)elementSize;
             // write array field name
-            var nameBytes = MemoryMarshal.AsBytes(ContainerLayout.ArrayName.AsSpan());
             nameBytes.CopyTo(allocatedMemory.AsSpan(fieldHeader.NameOffset, nameBytes.Length));
 
             // zero init data area
