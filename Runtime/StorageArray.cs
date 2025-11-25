@@ -244,7 +244,7 @@ namespace Minerva.DataStorage
 
         private readonly StorageObject CreateObject(ref ContainerReference reference, int index, ContainerLayout layout)
         {
-            using var tempString = new TempString(_handle.Name);
+            using var tempString = TempString.Create(_handle.Name);
             tempString.Append('[');
             Span<char> span = stackalloc char[11];
             if (!index.TryFormat(span, out var len))

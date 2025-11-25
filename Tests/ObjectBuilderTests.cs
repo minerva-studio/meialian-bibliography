@@ -237,7 +237,6 @@ namespace Minerva.DataStorage.Tests
             // compute expected absolute offsets using sizes
             int hpSize = sizeof(int);
             int scoresSize = 3 * sizeof(int);
-            int ticksSize = sizeof(long);
 
             // Determine actual order by comparing Name to enforce the cumulative check
             // (If you want, you can just assert exact values directly since we know the sort: hp < scores < ticks)

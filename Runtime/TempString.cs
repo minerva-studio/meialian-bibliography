@@ -6,66 +6,75 @@ namespace Minerva.DataStorage
     /// <summary>
     /// Simple disposable string builder
     /// </summary>
-    public struct TempString : IDisposable
+    public class TempString : IDisposable
     {
+        static ObjectPool<TempString> TempStringPool = new ObjectPool<TempString>(() => new TempString(16), ts => ts.Dispose());
         static ArrayPool<char> Pool = ArrayPool<char>.Create();
 
         char[] chars;
         string cache;
+        int generation;
 
-        public TempString(int capacity)
+        private TempString(int capacity)
+        {
+            Init(capacity);
+        }
+
+        public bool IsDisposed => chars == null;
+        public Span<char> Span => chars.AsSpan(0, Length);
+        public int Length { get; set; }
+        public int Generation => generation;
+        public ref char this[int index] => ref chars[index];
+
+
+
+        private void Init(int capacity)
         {
             chars = Pool.Rent(capacity);
             Length = 0;
             cache = "";
         }
 
-        public TempString(string chars) : this(chars.AsSpan()) { }
-
-        public TempString(ReadOnlySpan<char> chars) : this(chars.Length)
+        public void EnsureNotDisposed(int expectedGeneration)
         {
-            Append(chars);
+            if (generation != expectedGeneration)
+                ThrowHelper.ThrowDisposed(nameof(TempString));
         }
 
-        public readonly bool IsDisposed => chars == null;
-        public readonly Span<char> Span => chars.AsSpan(0, Length);
-        public int Length { get; set; }
-        public readonly ref char this[int index] => ref chars[index];
 
 
-        
-
-
-        public void Append(string str)
+        public TempString Append(string str)
         {
             ThrowHelper.ThrowIfNull(chars, nameof(str));
-            Append(str.AsSpan());
+            return Append(str.AsSpan());
         }
 
-        public void Append(ReadOnlySpan<char> str)
+        public TempString Append(ReadOnlySpan<char> str)
         {
-            if (str.Length == 0) return;
+            if (str.Length == 0) return this;
             EnsureFreeSize(str.Length);
             str.CopyTo(chars.AsSpan(Length));
             Length += str.Length;
             cache = null;
+            return this;
         }
 
-        public void Append(char v)
+        public TempString Append(char v)
         {
             EnsureFreeSize(1);
             chars[Length++] = v;
+            return this;
         }
 
-        public void Prepend(string str)
+        public TempString Prepend(string str)
         {
             ThrowHelper.ThrowIfNull(chars, nameof(str));
-            Prepend(str.AsSpan());
+            return Prepend(str.AsSpan());
         }
 
-        public void Prepend(ReadOnlySpan<char> str)
+        public TempString Prepend(ReadOnlySpan<char> str)
         {
-            if (str.Length == 0) return;
+            if (str.Length == 0) return this;
             EnsureFreeSize(str.Length);
             // shift existing
             chars.AsSpan(0, Length).CopyTo(chars.AsSpan(str.Length, Length));
@@ -73,9 +82,10 @@ namespace Minerva.DataStorage
             str.CopyTo(chars.AsSpan(0, str.Length));
             Length += str.Length;
             cache = null;
+            return this;
         }
 
-        public void Prepend(char v)
+        public TempString Prepend(char v)
         {
             EnsureFreeSize(1);
             // shift existing
@@ -84,10 +94,11 @@ namespace Minerva.DataStorage
             chars[0] = v;
             Length += 1;
             cache = null;
+            return this;
         }
 
-        public readonly int IndexOf(char v) => Array.IndexOf(chars, v);
-        public readonly int LastIndexOf(char v) => Array.LastIndexOf(chars, v);
+        public int IndexOf(char v) => Array.IndexOf(chars, v);
+        public int LastIndexOf(char v) => Array.LastIndexOf(chars, v);
 
 
 
@@ -111,8 +122,10 @@ namespace Minerva.DataStorage
         public void Dispose()
         {
             Pool.Return(chars);
+            TempStringPool.Return(this);
             chars = null;
             Length = 0;
+            generation++;
         }
 
         public override string ToString()
@@ -124,6 +137,22 @@ namespace Minerva.DataStorage
         public static implicit operator ReadOnlySpan<char>(in TempString tempString)
         {
             return tempString.Span;
+        }
+
+
+        public static TempString Create() => Create(16);
+        public static TempString Create(int capacity)
+        {
+            var tempString = TempStringPool.Rent();
+            tempString.Init(capacity);
+            return tempString;
+        }
+
+        public static TempString Create(string chars) => Create(chars.AsSpan());
+
+        public static TempString Create(ReadOnlySpan<char> chars)
+        {
+            return Create(chars.Length).Append(chars);
         }
     }
 }

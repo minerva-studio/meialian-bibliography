@@ -12,8 +12,8 @@ namespace Minerva.DataStorage
         /// not be used in tight inner loops when the caller can provide a span/array directly.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void WriteArray<T>(this StorageObject storageObject, string fieldName, IEnumerable<T> values)
-            where T : unmanaged => storageObject.GetObject(fieldName).WriteArray(values);
+        public static void WriteArray<T>(this StorageObject storageObject, string fieldName, IEnumerable<T> values) where T : unmanaged
+            => storageObject.GetObject(fieldName).WriteArray(values);
 
         /// <summary>
         /// Convenience overload for writing an inline array from any IEnumerable{T}.

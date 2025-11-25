@@ -1,16 +1,31 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
+using static Minerva.DataStorage.StorageQuery;
 
 namespace Minerva.DataStorage
 {
+    public interface IStorageQuery
+    {
+        internal StorageObject Root { get; }
+        ReadOnlySpan<char> NameSpan { get; }
+        Result Result { get; internal set; }
+        bool IsDisposed { get; }
+
+        void ImplicitCallFinalizer();
+
+        public static bool operator true(IStorageQuery query) => query.Result;
+        public static bool operator false(IStorageQuery query) => !query.Result;
+    }
+
     /// <summary>
     /// Deferred path query DSL. Does NOT create or mutate automatically.
     /// Use Ensure()/Exist() terminal objects to apply creation or checks.
     /// </summary>
-    public struct StorageQuery : IDisposable
+    public struct StorageQuery : IStorageQuery, IDisposable
     {
-        private StorageObject _root;
-        private TempString _segments;
+        private readonly StorageObject _root;
+        private readonly TempString _segments;
+        private int _generation;
 
         // In-place expectation state
         private Result _result;
@@ -18,28 +33,34 @@ namespace Minerva.DataStorage
         internal StorageQuery(StorageObject root)
         {
             _root = root;
-            _segments = new TempString(0);
             _result = Result.Succeeded;
+            _segments = TempString.Create();
+            _generation = _segments.Generation;
         }
 
         internal StorageQuery(StorageObject root, string first)
         {
             _root = root;
-            _segments = new TempString(first.Length);
-            _segments.Append(first);
             _result = Result.Succeeded;
+            _segments = TempString.Create(first.Length);
+            _segments.Append(first);
+            _generation = _segments.Generation;
         }
 
         internal StorageQuery(StorageObject root, TempString path)
         {
             _root = root;
-            _segments = path;
             _result = Result.Succeeded;
+            _segments = path;
+            _generation = _segments.Generation;
         }
 
 
         /// <summary>Complete path as string.</summary>
-        public string Path => _segments.ToString();
+        public readonly string Path => _segments.ToString();
+
+        /// <summary> Is query disposed. </summary>
+        public readonly bool IsDisposed => _segments.IsDisposed || _segments.Generation != _generation;
 
         /// <summary>True when at least one segment added.</summary>
         public readonly bool HasSegments => _segments.Length > 0;
@@ -52,13 +73,16 @@ namespace Minerva.DataStorage
 
         public readonly ReadOnlySpan<char> NameSpan => _segments.Span;
 
+        readonly StorageObject IStorageQuery.Root => _root;
+        Result IStorageQuery.Result { readonly get => _result; set => _result = _result && value; }
+
 
 
 
         /// <summary>
         /// Append a path segment (may itself include '[index]' or dots you intend literally).
         /// </summary>
-        public StorageQuery Location(ReadOnlySpan<char> path)
+        public readonly StorageQuery Location(ReadOnlySpan<char> path)
         {
             if (path.Length == 0) throw new ArgumentException("Segment cannot be empty", nameof(path));
             if (_segments.Length > 0) _segments.Append('.');
@@ -69,7 +93,7 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Append an index to the last segment: turns 'items' into 'items[3]'.
         /// </summary>
-        public StorageQuery Index(int index)
+        public readonly StorageQuery Index(int index)
         {
             if (index < 0) throw new ArgumentOutOfRangeException(nameof(index));
             if (_segments.Length == 0) throw new InvalidOperationException("Cannot apply index before any segment.");
@@ -81,48 +105,7 @@ namespace Minerva.DataStorage
             return this;
         }
 
-        /// <summary>Subscribe to writes for this path.</summary>
-        public StorageSubscription Subscribe(StorageMemberHandler handler)
-        {
-            if (handler == null) throw new ArgumentNullException(nameof(handler));
-            EnsureRootValid();
-            return _root.Subscribe(Path, handler);
-        }
 
-
-
-
-        #region Convert Senmantic
-
-        /// <summary>
-        /// Enter ensure semantics (creation allowed).
-        /// </summary>
-        /// <remarks>
-        /// This operation finalized the query. <br/>
-        /// Do NOT reuse the same StorageQuery after calling Ensure()/Exist() (they dispose internal state);
-        /// but after Expect() you may keep chaining. 
-        /// </remarks>
-        public EnsureStatement Ensure()
-        {
-            var e = new EnsureStatement(_root, Path);
-            _segments.Dispose();
-            return e;
-        }
-
-        /// <summary>
-        /// Enter exist semantics (no creation).
-        /// </summary>
-        /// <remarks>
-        /// This operation finalized the query. <br/>
-        /// Do NOT reuse the same StorageQuery after calling Ensure()/Exist() (they dispose internal state);
-        /// but after Expect() you may keep chaining. 
-        /// </remarks>
-        public ExistStatement Exist()
-        {
-            var e = new ExistStatement(_root, Path);
-            _segments.Dispose();
-            return e;
-        }
 
         /// <summary>
         /// Begin persistent semantics: returns a Persistent object that holds the path.
@@ -131,193 +114,137 @@ namespace Minerva.DataStorage
         /// <remarks>
         /// Remember to Dispose() the returned Persistent when done. otherwise object pool leaks.
         /// </remarks>
-        public Persistent Persist()
+        public readonly Persistent Persist()
         {
             var perisistent = new Persistent(_root, NameSpan);
             Dispose();
             return perisistent;
         }
 
-        /// <summary>
-        /// Begin the non-intrusive Expect DSL for the current accumulated path.  
-        /// </summary>
-        /// <remarks> 
-        /// Usage pattern(chaining):
-        /// <code>
-        ///   root.Query()
-        ///       .Location("player").Expect().Object()
-        ///       .Location("stats").Expect().Object()
-        ///       .Location("hp").Expect().Scalar&lt;int&gt;();
-        /// </code>
-        /// Do NOT reuse the same StorageQuery after calling Ensure()/Exist() (they dispose internal state);
-        /// but after Expect() you may keep chaining.
-        /// </remarks>
-        public readonly ExpectStatement Expect()
+
+
+
+
+        readonly void IStorageQuery.ImplicitCallFinalizer()
         {
-            var exp = new ExpectStatement(this);
-            return exp;
+            Dispose();
         }
 
-
-        #endregion
-
-
-
-
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private readonly void EnsureRootValid()
-        {
-            if (_root.IsNull || _root.IsDisposed)
-                ThrowHelper.ThrowDisposed("Root StorageObject invalid.");
-        }
-
-        public void Dispose()
+        public readonly void Dispose()
         {
             _segments.Dispose();
-            _root = default;
         }
 
-        internal void SetFail(string message) => _result = _result && Result.Failed(message);
 
-        public override string ToString() => $"Query({Path})";
+        public readonly override string ToString() => $"Query({_segments})";
+
+
 
         public static implicit operator Result(StorageQuery query) => query._result;
         public static implicit operator bool(StorageQuery query) => query._result;
+        public static bool operator true(StorageQuery query) => query._result;
+        public static bool operator false(StorageQuery query) => !query._result;
+
+
 
 
 
         /// <summary>
-        /// Frozen reusable path view.
+        /// Reusable path view. no implicit dispose on finalization.
         /// Compared to plain string:
         /// - Holds pooled TempString for zero-allocation repeated reads/writes.
         /// - Exposes Span-based access (NameSpan).
         /// - Must be explicitly disposed to return buffer.
         /// Use this for high-frequency repeated operations, not for one-shot calls.
         /// </summary>
-        public struct Persistent : IDisposable
+        public struct Persistent : IStorageQuery, IDisposable
         {
             private readonly StorageObject _root;
-            private TempString _path;
+            private readonly TempString _segments;
+            private readonly int _generation;
+            private Result _result;
 
             internal Persistent(StorageObject root, ReadOnlySpan<char> path)
             {
                 _root = root;
-                _path = new TempString(path);
+                _result = Result.Succeeded;
+                _segments = TempString.Create(path);
+                _generation = _segments.Generation;
             }
 
-            public readonly ReadOnlySpan<char> NameSpan => _path.Span;
+            public readonly ReadOnlySpan<char> NameSpan => _segments.Span;
+            /// <summary> Is query disposed. </summary> 
+            public readonly bool IsDisposed => _segments.IsDisposed || _segments.Generation != _generation;
+
+            readonly StorageObject IStorageQuery.Root => _root;
+            Result IStorageQuery.Result { readonly get => _result; set => _result = _result && value; }
+
+
+
+
+            /// <summary>
+            /// Append a path segment (may itself include '[index]' or dots you intend literally).
+            /// </summary>
+            public readonly Persistent Location(ReadOnlySpan<char> path)
+            {
+                if (path.Length == 0) throw new ArgumentException("Segment cannot be empty", nameof(path));
+                if (_segments.Length > 0) _segments.Append('.');
+                _segments.Append(path);
+                return this;
+            }
+
+            /// <summary>
+            /// Append an index to the last segment: turns 'items' into 'items[3]'.
+            /// </summary>
+            public readonly Persistent Index(int index)
+            {
+                if (index < 0) throw new ArgumentOutOfRangeException(nameof(index));
+                if (_segments.Length == 0) throw new InvalidOperationException("Cannot apply index before any segment.");
+                _segments.Append('[');
+                Span<char> chars = stackalloc char[11];
+                index.TryFormat(chars, out int written);
+                _segments.Append(chars[..written]);
+                _segments.Append(']');
+                return this;
+            }
+
+
 
             /// <summary>Get member view for this path.</summary>
             public readonly StorageMember GetMember(bool createIfMissing = true)
             {
-                EnsureRootValid();
-                var path = NameSpan;
+                this.EnsureRootValid();
+                var path = NameSpan.ToString();
                 return createIfMissing ? _root.GetMember(path) : (_root.TryGetMember(path, out var m) ? m : default);
             }
 
             /// <summary>Try get member view (non-creating).</summary>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public readonly bool TryGetMember(out StorageMember member)
             {
-                EnsureRootValid();
-                return _root.TryGetMember(NameSpan, out member);
+                member = default;
+                this.EnsureRootValid();
+                return this && _root.TryGetMember(NameSpan.ToString(), out member);
             }
 
-            /// <summary>Read scalar of type T (throws if not found or incompatible).</summary>
-            public readonly T Read<T>() where T : unmanaged
+
+
+            readonly void IStorageQuery.ImplicitCallFinalizer()
             {
-                EnsureRootValid();
-                return _root.ReadPath<T>(NameSpan);
+                // Nothing to do here
             }
 
-            /// <summary>Try read scalar T.</summary>
-            public readonly bool TryRead<T>(out T value) where T : unmanaged
+            public readonly void Dispose()
             {
-                EnsureRootValid();
-                return _root.TryReadPath<T>(NameSpan, out value);
-            }
-
-            /// <summary>Write scalar T (creates intermediate nodes).</summary>
-            public readonly void Write<T>(T value) where T : unmanaged
-            {
-                EnsureRootValid();
-                _root.WritePath(NameSpan, value);
-            }
-
-            /// <summary>Read string.</summary>
-            public readonly string ReadString()
-            {
-                EnsureRootValid();
-                return _root.ReadStringPath(NameSpan);
-            }
-
-            /// <summary>Write string.</summary>
-            public readonly void WriteString(string value)
-            {
-                EnsureRootValid();
-                _root.WritePath(NameSpan, value);
-            }
-
-            /// <summary>Get object if path resolves to object reference; returns null object if missing.</summary>
-            public readonly StorageObject GetObjectOrDefault()
-            {
-                EnsureRootValid();
-                return _root.GetObjectByPath(NameSpan, createIfMissing: false);
-            }
-
-            /// <summary>Get array view (throws if not array).</summary>
-            public readonly StorageArray Array<T>() where T : unmanaged
-            {
-                EnsureRootValid();
-                return _root.GetArrayByPath<T>(NameSpan, false);
-            }
-
-            /// <summary>Try get array view.</summary>
-            public readonly bool TryArray<T>(out StorageArray array) where T : unmanaged
-            {
-                EnsureRootValid();
-                return _root.TryGetArrayByPath<T>(NameSpan, out array);
-            }
-
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            private readonly void EnsureRootValid()
-            {
-                if (_root.IsNull || _root.IsDisposed)
-                    ThrowHelper.ThrowDisposed("Root StorageObject invalid.");
+                _segments.Dispose();
             }
 
 
-
-
-            #region Convert Senmantic
-
-            /// <summary>
-            /// Enter ensure semantics (creation allowed).
-            /// </summary> 
-            public EnsureStatement Ensure()
-            {
-                var e = new EnsureStatement(_root, _path.ToString());
-                return e;
-            }
-
-            /// <summary>
-            /// Enter exist semantics (no creation).
-            /// </summary> 
-            public ExistStatement Exist()
-            {
-                var e = new ExistStatement(_root, _path.ToString());
-                return e;
-            }
-
-            #endregion
-            public void Dispose()
-            {
-                _path.Dispose();
-            }
+            public static implicit operator Result(Persistent query) => query._result;
+            public static implicit operator bool(Persistent query) => query._result;
+            public static bool operator true(Persistent query) => query._result;
+            public static bool operator false(Persistent query) => !query._result;
         }
-
-
-
 
         /// <summary> 
         /// Expect semantics <br/>
@@ -344,66 +271,68 @@ namespace Minerva.DataStorage
         /// - Exist : Read-only presence/type inspection; finalizes the query (returns ExistStatement). <br/>
         /// - Expect: Lightweight assertions, does NOT finalize; purely diagnostic. <br/>
         /// </summary>
-        public readonly struct ExpectStatement
+        public readonly struct ExpectStatement<T> where T : struct, IStorageQuery
         {
-            private readonly StorageQuery _query;
+            private readonly T _query;
 
-            internal ExpectStatement(StorageQuery query)
+            internal ExpectStatement(T query)
             {
                 _query = query;
             }
+
+            internal string Path => _query.NameSpan.ToString();
 
             // Helper: returns member for full path (may include [index] which is not a field)
             private bool TryGetMember(out StorageMember member)
             {
                 member = default;
-                if (_query.Failed) return false;
-                return _query._root.TryGetMember(_query.NameSpan, out member);
+                if (!_query.Result) return false;
+                return _query.Root.TryGetMember(_query.NameSpan, out member);
             }
 
-            private StorageQuery Fail(string msg, bool strict)
+            private T Fail(string msg, bool strict)
             {
                 var q = _query;
-                if (strict) q.SetFail(msg);
+                if (strict) q.Result = Result.Failed(msg);
                 return q;
             }
 
-            private StorageQuery Pass() => _query;
+            private T Pass() => _query;
 
             /// <summary>Accept anything (never fails).</summary>
-            public StorageQuery Any()
+            public T Any()
             {
                 return _query;
             }
 
             /// <summary>Expect an object (non-array ref).</summary>
-            public StorageQuery Object(bool strict = true)
+            public T Object(bool strict = true)
             {
-                if (_query.Failed) return _query;
+                if (!_query.Result) return _query;
                 if (!TryGetMember(out var m))
-                    return Fail($"Expectation failed: '{_query.Path}' missing.", strict);
+                    return Fail($"Expectation failed: '{Path}' missing.", strict);
 
                 if (!(m.ValueType == ValueType.Ref && !m.IsArray))
-                    return Fail($"Expect Object: '{_query.Path}' not object.", strict);
+                    return Fail($"Expect Object: '{Path}' not object.", strict);
                 return Pass();
             }
 
             /// <summary>Expect an object array (ref array).</summary>
-            public StorageQuery ObjectArray(bool strict = true)
+            public T ObjectArray(bool strict = true)
             {
-                if (_query.Failed) return _query;
+                if (!_query.Result) return _query;
                 if (!TryGetMember(out var m))
-                    return Fail($"Expectation failed: '{_query.Path}' missing.", strict);
+                    return Fail($"Expectation failed: '{Path}' missing.", strict);
 
                 if (!(m.IsArray && m.ValueType == ValueType.Ref))
-                    return Fail($"Expect ObjectArray: '{_query.Path}' not object array.", strict);
+                    return Fail($"Expect ObjectArray: '{Path}' not object array.", strict);
                 return Pass();
             }
 
             /// <summary>Expect object array element at index (requires Index() before Expect()).</summary>
-            public StorageQuery ObjectElement(bool strict = true)
+            public T ObjectElement(bool strict = true)
             {
-                if (_query.Failed) return _query;
+                if (!_query.Result) return _query;
                 int index = ReadIndex();
                 if (index < 0)
                     return Fail("Expect ObjectElement requires index.", strict);
@@ -414,7 +343,7 @@ namespace Minerva.DataStorage
                     return Fail("Malformed indexed path.", strict);
                 var parentPath = full[..bracket];
 
-                if (!_query._root.TryGetMember(parentPath, out var parent) ||
+                if (!_query.Root.TryGetMember(parentPath, out var parent) ||
                     !(parent.IsArray && parent.ValueType == ValueType.Ref))
                     return Fail($"Expect ObjectElement: parent '{parentPath.ToString()}' not object array.", strict);
 
@@ -429,16 +358,16 @@ namespace Minerva.DataStorage
             }
 
             /// <summary>Expect scalar of T (non-ref, non-array).</summary>
-            public StorageQuery Scalar<T>(bool strict = true) where T : unmanaged
+            public T Scalar<TValue>(bool strict = true) where TValue : unmanaged
             {
-                if (_query.Failed) return _query;
+                if (!_query.Result) return _query;
                 if (!TryGetMember(out var m))
-                    return Fail($"Expectation failed: '{_query.Path}' missing.", strict);
+                    return Fail($"Expectation failed: '{Path}' missing.", strict);
 
                 if (m.IsArray || m.ValueType == ValueType.Ref)
-                    return Fail($"Expect Scalar<{typeof(T).Name}>: '{_query.Path}' not scalar.", strict);
+                    return Fail($"Expect Scalar<{typeof(TValue).Name}>: '{Path}' not scalar.", strict);
 
-                var expected = TypeData.Of<T>().ValueType;
+                var expected = TypeData.Of<TValue>().ValueType;
                 if (m.ValueType != expected)
                     return Fail($"Expect Scalar<{expected}>: actual {m.ValueType}.", strict);
 
@@ -446,17 +375,17 @@ namespace Minerva.DataStorage
             }
 
             /// <summary>Expect value array of T (including char16 for string).</summary>
-            public StorageQuery ValueArray<T>(bool strict = true) where T : unmanaged
+            public T ValueArray<TValue>(bool strict = true) where TValue : unmanaged
             {
-                if (_query.Failed) return _query;
+                if (!_query.Result) return _query;
                 if (!TryGetMember(out var m))
-                    return Fail($"Expectation failed: '{_query.Path}' missing.", strict);
+                    return Fail($"Expectation failed: '{Path}' missing.", strict);
 
                 // value array: is array && not ref
                 if (!m.IsArray || m.ValueType == ValueType.Ref)
-                    return Fail($"Expect ValueArray<{typeof(T).Name}>: '{_query.Path}' not value array.", strict);
+                    return Fail($"Expect ValueArray<{typeof(TValue).Name}>: '{Path}' not value array.", strict);
 
-                var expected = TypeData.Of<T>().ValueType;
+                var expected = TypeData.Of<TValue>().ValueType;
                 if (m.ValueType != expected)
                     return Fail($"Expect ValueArray<{expected}>: actual {m.ValueType}.", strict);
 
@@ -464,21 +393,21 @@ namespace Minerva.DataStorage
             }
 
             /// <summary>Expect char16 value array (string sugar).</summary>
-            public StorageQuery String(bool strict = true)
+            public T String(bool strict = true)
             {
-                if (_query.Failed) return _query;
+                if (!_query.Result) return _query;
                 if (!TryGetMember(out var m))
-                    return Fail($"Expectation failed: '{_query.Path}' missing.", strict);
+                    return Fail($"Expectation failed: '{Path}' missing.", strict);
 
                 if (!m.IsArray || m.ValueType != ValueType.Char16)
-                    return Fail($"Expect String: '{_query.Path}' not char16 array.", strict);
+                    return Fail($"Expect String: '{Path}' not char16 array.", strict);
 
                 return Pass();
             }
 
             private int ReadIndex()
             {
-                if (!_query.HasSegments) throw new InvalidOperationException("Expect() requires at least one Location().");
+                if (_query.NameSpan.IsEmpty) throw new InvalidOperationException("Expect() requires at least one Location().");
                 var full = _query.NameSpan;
                 int idxStart = full.LastIndexOf('[');
                 int idxEnd = full.LastIndexOf(']');
@@ -618,8 +547,18 @@ namespace Minerva.DataStorage
         /// </summary>
         public readonly struct ExistStatement
         {
+            /// <summary>
+            /// An always-false ExistStatement (invalid root/path).
+            /// </summary>
+            public static readonly ExistStatement False = default;
+
             private readonly StorageObject _root;
             private readonly string _path;
+
+            /// <summary>
+            /// Is exist in early-fail state (invalid root or path).
+            /// </summary>
+            private readonly bool Failed => _root.IsNull || _path == null;
 
             internal ExistStatement(StorageObject root, string path)
             {
@@ -627,35 +566,76 @@ namespace Minerva.DataStorage
                 _path = path;
             }
 
-            public bool Has => _root.TryGetMember(_path, out _);
+            public bool Has => !Failed && _root.TryGetMember(_path, out _);
 
-            public bool Object() => _root.TryGetMember(_path, out var m) && m.ValueType == ValueType.Ref;
+            public bool Object() => !Failed && _root.TryGetMember(_path, out var m) && m.ValueType == ValueType.Ref;
 
-            public bool Object(out StorageObject storageObject) => _root.TryGetObjectByPath(_path.AsSpan(), out storageObject);
+            public bool Object(out StorageObject storageObject)
+            {
+                if (Failed)
+                {
+                    storageObject = default;
+                    return false;
+                }
+                return _root.TryGetObjectByPath(_path.AsSpan(), out storageObject);
+            }
 
             public bool Scalar<T>(bool exact) where T : unmanaged =>
-                _root.TryGetMember(_path, out var m) && m.Type.CanCastTo(TypeUtil<T>.Type, exact);
+                !Failed && _root.TryGetMember(_path, out var m) && m.Type.CanCastTo(TypeUtil<T>.Type, exact);
 
-            public bool Scalar<T>(out T value) where T : unmanaged =>
-                _root.TryReadPath<T>(_path, out value);
-
-            public T ScalarOrDefault<T>() where T : unmanaged =>
-                _root.TryReadPath<T>(_path, out var v) ? v : default;
+            public bool Scalar<T>(out T value) where T : unmanaged
+            {
+                if (Failed)
+                {
+                    value = default;
+                    return false;
+                }
+                return _root.TryReadPath<T>(_path, out value);
+            }
 
             public bool ArrayOf<T>(out StorageArray array) where T : unmanaged
-                => _root.TryGetArrayByPath<T>(_path.AsSpan(), out array);
+            {
+                if (Failed)
+                {
+                    array = default;
+                    return false;
+                }
+                return _root.TryGetArrayByPath<T>(_path.AsSpan(), out array);
+            }
 
             public bool ArrayOf(TypeData? type, out StorageArray array)
-                => _root.TryGetArrayByPath(_path.AsSpan(), type, out array);
+            {
+                if (Failed)
+                {
+                    array = default;
+                    return false;
+                }
+                return _root.TryGetArrayByPath(_path.AsSpan(), type, out array);
+            }
 
             public bool ArrayOfObject(out StorageArray array)
-                => _root.TryGetArrayByPath(_path.AsSpan(), TypeData.Ref, out array);
+            {
+                if (Failed)
+                {
+                    array = default;
+                    return false;
+                }
+                return _root.TryGetArrayByPath(_path.AsSpan(), TypeData.Ref, out array);
+            }
 
             public bool ArrayOfAny(out StorageArray storageArray)
-                => _root.TryGetArrayByPath(_path.AsSpan(), null, out storageArray);
+            {
+                if (Failed)
+                {
+                    storageArray = default;
+                    return false;
+                }
+                return _root.TryGetArrayByPath(_path.AsSpan(), null, out storageArray);
+            }
 
             public bool As<T>(bool exact = false) where T : unmanaged
             {
+                if (Failed) return false;
                 if (!_root.TryGetMember(_path, out var member))
                     return false;
                 var typeData = TypeData.Of<T>();
@@ -667,35 +647,58 @@ namespace Minerva.DataStorage
             public override string ToString() => $"Exist({_path})";
             public static implicit operator bool(ExistStatement exist) => exist.Has;
         }
+    }
 
-        public readonly struct Result : IEquatable<Result>
+    /// <summary>
+    /// Result of an operation: success or failure with error message.
+    /// </summary>
+    public readonly struct Result : IEquatable<Result>
+    {
+        public static readonly Result Succeeded = new(true, null);
+
+        public readonly bool Success;
+        public readonly string ErrorMessage;
+
+        public Result(bool success, string errorMessage)
         {
-            public static readonly Result Succeeded = new(true, null);
-
-            public readonly bool Success;
-            public readonly string ErrorMessage;
-
-            public Result(bool success, string errorMessage)
-            {
-                Success = success;
-                ErrorMessage = errorMessage;
-            }
-
-            public static Result Failed(string message) => new Result(false, message);
-
-            public bool Equals(Result other) => Success == other.Success && ErrorMessage == other.ErrorMessage;
-            public override bool Equals(object obj) => obj is Result other && Equals(other);
-            public override int GetHashCode() => HashCode.Combine(Success, ErrorMessage);
-            public static bool operator ==(Result left, Result right) => left.Equals(right);
-            public static bool operator !=(Result left, Result right) => !(left == right);
-            public static Result operator &(Result left, Result right) => !left.Success ? left : right;
-            public static Result operator |(Result left, Result right) => left.Success ? left : right;
-            public static bool operator true(Result result) => result.Success;
-            public static bool operator false(Result result) => !result.Success;
-
-            public static implicit operator bool(Result result) => result.Success;
-
+            Success = success;
+            ErrorMessage = errorMessage;
         }
+
+        public static Result Failed(string message) => new Result(false, message);
+
+        public bool Equals(Result other) => Success == other.Success && ErrorMessage == other.ErrorMessage;
+        public override bool Equals(object obj) => obj is Result other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine(Success, ErrorMessage);
+        public static bool operator ==(Result left, Result right) => left.Equals(right);
+        public static bool operator !=(Result left, Result right) => !(left == right);
+        public static Result operator &(Result left, Result right) => !left.Success ? left : right;
+        public static Result operator |(Result left, Result right) => left.Success ? left : right;
+        public static bool operator true(Result result) => result.Success;
+        public static bool operator false(Result result) => !result.Success;
+
+        public static implicit operator bool(Result result) => result.Success;
+
+        public void ThrowIfFailed()
+        {
+            if (!Success)
+                throw new InvalidOperationException(ErrorMessage ?? "Operation failed.");
+        }
+    }
+
+    /// <summary>
+    /// Query context, used for implicit finalization of queries in using blocks.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    public readonly struct QueryContext<T> : IDisposable where T : struct, IStorageQuery
+    {
+        public readonly T Query;
+        public QueryContext(T query)
+        {
+            Query = query;
+        }
+
+        public readonly void Dispose() => Query.ImplicitCallFinalizer();
     }
 
     public static class StorageExtensions
@@ -703,8 +706,98 @@ namespace Minerva.DataStorage
         public static StorageQuery Query(this StorageObject root) => new StorageQuery(root);
         public static StorageQuery Query(this StorageObject root, string first) => new StorageQuery(root, first);
         public static StorageQuery Location(this StorageObject root, string segment) => new StorageQuery(root).Location(segment);
-        public static StorageQuery.EnsureStatement Ensure(this StorageObject root, string path) => new StorageQuery.EnsureStatement(root, path);
-        public static StorageQuery.ExistStatement Exist(this StorageObject root, string path) => new StorageQuery.ExistStatement(root, path);
+        public static EnsureStatement Ensure(this StorageObject root, string path) => new EnsureStatement(root, path);
+        public static ExistStatement Exist(this StorageObject root, string path) => new ExistStatement(root, path);
+
+
+
+        /// <summary>
+        /// Enter ensure semantics (creation allowed).
+        /// </summary>
+        /// <remarks>
+        /// This operation finalized the query. <br/>
+        /// For normal query, Do NOT reuse the StorageQuery after calling Ensure()/Exist() (they dispose internal state);
+        /// but after Expect() you may keep chaining. 
+        /// </remarks>
+        public static EnsureStatement Ensure<T>(this T query) where T : struct, IStorageQuery
+        {
+            if (!query.Result)
+            {
+                query.ImplicitCallFinalizer();
+                query.Result.ThrowIfFailed();
+            }
+
+            using QueryContext<T> queryContext = new(query);
+            var e = new EnsureStatement(query.Root, query.NameSpan.ToString());
+            return e;
+        }
+
+        /// <summary>
+        /// Enter exist semantics (no creation).
+        /// </summary>
+        /// <remarks>
+        /// This operation finalized the query. <br/>
+        /// For normal query, Do NOT reuse the same StorageQuery after calling Ensure()/Exist() (they dispose internal state);
+        /// but after Expect() you may keep chaining. 
+        /// </remarks>
+        public static ExistStatement Exist<T>(this T query) where T : struct, IStorageQuery
+        {
+            if (!query.Result)
+            {
+                return ExistStatement.False;
+            }
+            using QueryContext<T> queryContext = new(query);
+            var e = new ExistStatement(query.Root, query.NameSpan.ToString());
+            return e;
+        }
+
+        /// <summary>
+        /// Begin the non-intrusive Expect DSL for the current accumulated path.  
+        /// </summary>
+        /// <remarks> 
+        /// Usage pattern(chaining):
+        /// <code>
+        ///   root.Query()
+        ///       .Location("player").Expect().Object()
+        ///       .Location("stats").Expect().Object()
+        ///       .Location("hp").Expect().Scalar&lt;int&gt;();
+        /// </code>
+        /// Do NOT reuse the same StorageQuery after calling Ensure()/Exist() (they dispose internal state);
+        /// but after Expect() you may keep chaining.
+        /// </remarks>
+        public static ExpectStatement<T> Expect<T>(this T query) where T : struct, IStorageQuery
+        {
+            var exp = new ExpectStatement<T>(query);
+            return exp;
+        }
+
+
+
+        /// <summary>Subscribe to writes for this path.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static StorageSubscription Subscribe<T>(this T query, StorageMemberHandler handler) where T : struct, IStorageQuery
+        {
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            query.EnsureRootValid();
+
+            using QueryContext<T> queryContext = new(query);
+            var sub = query.Root.Subscribe(query.NameSpan.ToString(), handler);
+            return sub;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void EnsureRootValid<T>(this T query) where T : struct, IStorageQuery
+        {
+            if (query.IsDisposed || query.Root.IsNull || query.Root.IsDisposed)
+                ThrowHelper.ThrowDisposed("Root StorageObject invalid.");
+        }
+
+
+
+
+
+
+
 
 
 
@@ -713,60 +806,14 @@ namespace Minerva.DataStorage
         public static T Read<T>(this StorageQuery storageQuery) where T : unmanaged
             => storageQuery.Exist().Scalar(out T value) ? value : default;
 
-        /// <summary>Try read scalar T.</summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool TryRead<T>(this StorageQuery storageQuery, out T value) where T : unmanaged
-            => storageQuery.Exist().Scalar(out value);
-
-        /// <summary>Read string.</summary>
-        /// 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static string ReadString(this StorageQuery storageQuery)
-            => storageQuery.Exist().ArrayOf<char>(out var arr) ? arr.ToString() : null;
-
-        /// <summary>Get object if path resolves to object reference; returns null object if missing.</summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static StorageObject GetObjectOrDefault(this StorageQuery storageQuery)
-            => storageQuery.Exist().Object(out var obj) ? obj : default;
-
-        /// <summary>Get array view (throws if not exist or not an array of T).</summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static StorageArray Array<T>(this StorageQuery storageQuery) where T : unmanaged
-            => storageQuery.Exist().ArrayOf<T>(out var arr) ? arr : throw new InvalidOperationException($"Path '{storageQuery.Path}' is not array of {typeof(T).Name}.");
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static StorageArray Array(this StorageQuery storageQuery, TypeData? typeData = null)
-            => storageQuery.Exist().ArrayOf(typeData, out var arr) ? arr : throw new InvalidOperationException($"Path '{storageQuery.Path}' is not array of {(typeData?.ToString() ?? "any")}.");
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static StorageArray ArrayOfAny(this StorageQuery storageQuery)
-            => storageQuery.Array(null);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static StorageArray ArrayOfObject(this StorageQuery storageQuery)
-            => storageQuery.Exist().ArrayOfObject(out var arr) ? arr : throw new InvalidOperationException($"Path '{storageQuery.Path}' is not object array.");
-
-        /// <summary>Try get array view.</summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool TryArray<T>(this StorageQuery storageQuery, out StorageArray array) where T : unmanaged
-            => storageQuery.Exist().ArrayOf(TypeUtil<T>.Type, out array);
-
-        /// <summary>Try get array view.</summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool TryArray(this StorageQuery storageQuery, out StorageArray array, TypeData? type = null)
-            => storageQuery.Exist().ArrayOf(type, out array);
-
-
-
-
         /// <summary>Write scalar T (creates intermediate nodes).</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Write<T>(this StorageQuery storageQuery, T value) where T : unmanaged
             => storageQuery.Ensure().Is(value);
 
-        /// <summary>Write string.</summary>
+        /// <summary>Try read scalar T.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void WriteString(this StorageQuery storageQuery, string value)
-            => storageQuery.Ensure().Is(value);
+        public static bool TryRead<T>(this StorageQuery storageQuery, out T value) where T : unmanaged
+            => storageQuery.Exist().Scalar(out value);
     }
 }

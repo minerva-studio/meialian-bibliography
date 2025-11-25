@@ -291,7 +291,7 @@ namespace Minerva.DataStorage.Tests
                         .Location("stats")
                         .Location("speeds");
 
-            Assert.That(q.TryArray<float>(out var arr), Is.True);
+            Assert.That(q.Exist().ArrayOf<float>(out var arr), Is.True);
             Assert.That(arr.Length, Is.EqualTo(3));
         }
 
@@ -305,7 +305,7 @@ namespace Minerva.DataStorage.Tests
             var q = root.Query()
                         .Location("stats");
 
-            Assert.That(q.TryArray<float>(out var arr), Is.False);
+            Assert.That(q.Exist().ArrayOf<float>(out var arr), Is.False);
             Assert.That(arr.IsDisposed, Is.True);
         }
     }

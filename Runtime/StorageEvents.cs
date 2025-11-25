@@ -167,7 +167,7 @@ namespace Minerva.DataStorage
 
             // upward
             Container current = source;
-            using TempString str = new(!source.IsArray ? fieldName ?? "" : "");
+            using TempString str = TempString.Create(!source.IsArray ? fieldName ?? "" : "");
             while (Container.Registry.Shared.TryGetParent(current, out var parent))
             {
                 Span<char> name = current.NameSpan;
