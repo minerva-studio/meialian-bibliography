@@ -421,7 +421,7 @@ namespace Minerva.DataStorage
             _memory.AsSpan(oldHeader.ContainerNameOffset, oldHeader.ContainerNameLength).CopyTo(allocatedMemory.AsSpan(newHeader.ContainerNameOffset, newHeader.ContainerNameLength));
             // write array field header
             ref FieldHeader fieldHeader = ref FieldHeader.FromSpanAndFieldIndex(allocatedMemory.Buffer.Span, 0);
-            fieldHeader.NameLength = (short)nameBytes.Length;
+            fieldHeader.NameLength = (short)(nameBytes.Length / sizeof(char));
             fieldHeader.NameOffset = newHeader.ContainerNameOffset + newHeader.ContainerNameLength;
             fieldHeader.DataOffset = dataOffset;
             fieldHeader.Length = dataLength;
