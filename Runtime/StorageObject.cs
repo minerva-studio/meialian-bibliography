@@ -782,6 +782,64 @@ namespace Minerva.DataStorage
             throw new InvalidOperationException($"Field is not an array");
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StorageArray GetArray(ReadOnlySpan<char> fieldSegment, TypeData? type = null, bool createIfMissing = true, bool reschemeOnTypeMismatch = true, bool overrideExisting = false)
+        {
+            _container.EnsureNotDisposed(_generation);
+            return GetArray_Internal(fieldSegment, type, createIfMissing, reschemeOnTypeMismatch, overrideExisting);
+        }
+
+        private StorageArray GetArray_Internal(ReadOnlySpan<char> fieldSegment, TypeData? type, bool createIfMissing, bool reschemeOnTypeMismatch, bool overrideExisting)
+        {
+            if (TryGetArray_Internal(fieldSegment, null, out var storageArray))
+            {
+                if (type.HasValue && !storageArray.IsConvertibleTo(type.Value))
+                {
+                    if (reschemeOnTypeMismatch || overrideExisting)
+                        storageArray.Rescheme(type.Value);
+                    else ThrowHelper.ArgumentException("Array type mismatch");
+                }
+                return storageArray;
+            }
+
+            if (!type.HasValue)
+                ThrowHelper.ArgumentNull(nameof(type));
+
+            if (!_container.TryGetFieldHeader(fieldSegment, out var outHeader))
+            {
+                if (!createIfMissing)
+                    ThrowHelper.ThrowInvalidOperation();
+
+                var holder = GetObject(fieldSegment);
+                holder.MakeArray(type.Value, 0);
+                return holder.AsArray();
+            }
+            // found but not array
+            else
+            {
+                if (!overrideExisting)
+                    ThrowHelper.ArgumentException("Field exists but is not an array.");
+
+                FieldHeader fieldHeader = outHeader[0];
+                StorageObject holder;
+                bool reschemeForField = !fieldHeader.IsRef;
+                if (reschemeForField)
+                {
+                    _container.ReschemeFor(fieldSegment, TypeData.Ref, null);
+                }
+                holder = GetObject(fieldSegment);
+                holder.MakeArray(type.Value, 0);
+                StorageArray storageArr = holder.AsArray();
+                if (reschemeForField)
+                {
+                    NotifyFieldDelete(_container, fieldSegment.ToString(), fieldHeader.FieldType);
+                }
+                return storageArr;
+            }
+        }
+
+
+
         /// <summary>
         /// Get a stack-only view over a value array field.
         /// </summary>
@@ -840,85 +898,44 @@ namespace Minerva.DataStorage
             return true;
         }
 
-        public StorageArray GetOrCreateArray(ReadOnlySpan<char> fieldSegment, TypeData type, bool overrideExisting = false)
-        {
-            _container.EnsureNotDisposed(_generation);
-            if (TryGetArray_Internal(fieldSegment, type, out var storageArray))
-                return storageArray;
-
-            if (!_container.TryGetFieldHeader(fieldSegment, out var outHeader))
-            {
-                var holder = GetObject(fieldSegment);
-                holder.MakeArray(type, 0);
-                return holder.AsArray();
-            }
-            // not found
-            else if (outHeader.Length == 0)
-            {
-                var holder = GetObject(fieldSegment);
-                holder.MakeArray(type, 0);
-                return holder.AsArray();
-            }
-            else if (!overrideExisting)
-            {
-                ThrowHelper.ArgumentException("Field exists but is not an array.");
-                return default;
-            }
-            // found but not array
-            else
-            {
-                FieldHeader fieldHeader = outHeader[0];
-                StorageObject holder;
-                bool reschemeForField = !fieldHeader.IsRef;
-                if (reschemeForField)
-                {
-                    _container.ReschemeFor(fieldSegment, TypeData.Ref, null);
-                }
-                holder = GetObject(fieldSegment);
-                holder.MakeArray(type, 0);
-                StorageArray storageArr = holder.AsArray();
-                if (reschemeForField)
-                {
-                    NotifyFieldDelete(_container, fieldSegment.ToString(), fieldHeader.FieldType);
-                }
-                return storageArr;
-            }
-        }
 
 
+        /// <summary>
+        /// Get the array located by a dot-separated path.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="path"></param>
+        /// <param name="createIfMissing"></param>
+        /// <param name="reschemeOnTypeMismatch">Rescheme the array itself if type mismatch</param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StorageArray GetArrayByPath<T>(string path, bool createIfMissing = true, bool reschemeOnTypeMismatch = true, bool overrideExisting = false) where T : unmanaged
+            => GetArrayByPath(path, TypeUtil<T>.Type, createIfMissing, reschemeOnTypeMismatch, overrideExisting);
 
+        /// <summary>
+        /// Get the array located by a dot-separated path.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="path"></param>
+        /// <param name="createIfMissing"></param>
+        /// <param name="reschemeOnTypeMismatch">Rescheme the array itself if type mismatch</param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StorageArray GetArrayByPath<T>(ReadOnlySpan<char> path, bool createIfMissing = true, bool reschemeOnTypeMismatch = true, bool overrideExisting = false) where T : unmanaged
+            => GetArrayByPath(path, TypeUtil<T>.Type, createIfMissing, reschemeOnTypeMismatch, overrideExisting);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public StorageArray GetArrayByPath(string path, TypeData? type, bool createIfMissing = true, bool reschemeOnTypeMismatch = true, bool overrideExisting = false)
+            => GetArrayByPath(path.AsSpan(), type, createIfMissing, reschemeOnTypeMismatch, overrideExisting);
 
-        public StorageArray GetArrayByPath<T>(ReadOnlySpan<char> path, bool createIfMissing) where T : unmanaged
-            => GetArrayByPath(path, TypeUtil<T>.Type, createIfMissing);
-
-        public StorageArray GetArrayByPath(ReadOnlySpan<char> path, TypeData? type, bool createIfMissing = true, bool reschemeOnTypeMismatch = false)
+        public StorageArray GetArrayByPath(ReadOnlySpan<char> path, TypeData? type, bool createIfMissing = true, bool reschemeOnTypeMismatch = true, bool overrideExisting = false)
         {
             if (path.Length == 0) ThrowHelper.ArgumentException(nameof(path));
 
             var parent = NavigateToObject(path, DefaultPathSeparator, createIfMissing, out var fieldSegment, out var _);
             if (fieldSegment.Length == 0) ThrowHelper.ArgumentException(nameof(path));
 
-            if (parent.TryGetArray(fieldSegment, out var arrayView))
-            {
-                if (!type.HasValue || arrayView.IsConvertibleTo(type.Value))
-                    return arrayView;
-                else if (reschemeOnTypeMismatch)
-                {
-                    arrayView.Rescheme(type.Value);
-                    return arrayView;
-                }
-                else ThrowHelper.ArgumentException("Array type mismatch");
-            }
-
-            if (!createIfMissing)
-                ThrowHelper.ThrowInvalidOperation();
-            if (!type.HasValue)
-                ThrowHelper.ArgumentNull(nameof(type));
-
-            var holder = parent.GetObject(fieldSegment);
-            holder.MakeArray(type.Value, 0);
-            return holder.AsArray();
+            return parent.GetArray_Internal(fieldSegment, type, createIfMissing, reschemeOnTypeMismatch, overrideExisting);
         }
 
         public bool TryGetArrayByPath<T>(ReadOnlySpan<char> path, out StorageArray storageArray) where T : unmanaged

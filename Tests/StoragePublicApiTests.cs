@@ -440,7 +440,7 @@ namespace Minerva.DataStorage.Tests
             var original = root.GetArray("values");
             Assert.That(original.Type, Is.EqualTo(ValueType.Float32));
 
-            var replaced = root.GetOrCreateArray("values".AsSpan(), TypeData.Of<int>(), overrideExisting: true);
+            var replaced = root.GetArray("values".AsSpan(), TypeData.Of<int>(), reschemeOnTypeMismatch: false, overrideExisting: true);
             Assert.That(replaced.Type, Is.EqualTo(ValueType.Int32));
             replaced.EnsureLength(3);
             replaced.Write(0, 1f);
@@ -458,10 +458,10 @@ namespace Minerva.DataStorage.Tests
             var root = storage.Root;
 
             root.WriteArray("floats", new[] { 5f, 6f });
-            var arr1 = root.GetOrCreateArray("floats", TypeData.Of<float>(), overrideExisting: false);
+            var arr1 = root.GetArray("floats", TypeData.Of<float>(), overrideExisting: false);
             Assert.That(arr1.Type, Is.EqualTo(ValueType.Float32));
             Assert.Throws<ArgumentException>(() =>
-                root.GetOrCreateArray("floats", TypeData.Of<int>(), overrideExisting: false));
+                root.GetArray("floats", TypeData.Of<int>(), reschemeOnTypeMismatch: false, overrideExisting: false));
         }
 
         [Test]

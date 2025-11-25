@@ -219,18 +219,19 @@ namespace Minerva.DataStorage
 
             bool isNewField = index < 0;
             int targetIndex = isNewField ? ~index : index;
-            var existedHeader = isNewField ? default : GetFieldHeader(index);
             int newDataLength = elementSize * elementCount;
             ref var currentHeader = ref Header;
             int newLength = isNewField
                 // new field, add header, name, data length
                 ? currentHeader.Length + FieldHeader.Size + fieldName.Length * sizeof(char) + newDataLength
                 // already exist, then no header size change, no name change, only data size change
-                : currentHeader.Length - existedHeader.Length + newDataLength;
+                : currentHeader.Length + newDataLength; // (have not reduce the old field data size yet here)
             FieldType newFieldType = new(valueType, inlineArrayLength.HasValue);
 
             if (!isNewField)
             {
+                ref var existedHeader = ref GetFieldHeader(index);
+                newLength -= existedHeader.Length; // reduced
                 // no rescheme needed (exist, same type, same inline length)
                 if (existedHeader.FieldType == newFieldType && existedHeader.ElementCount == elementCount)
                     return index;
