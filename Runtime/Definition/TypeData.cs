@@ -16,7 +16,7 @@ namespace Minerva.DataStorage
         public readonly ValueType ValueType;
         public readonly short Size;
 
-        public TypeData(ValueType valueType, short size)
+        internal TypeData(ValueType valueType, short size)
         {
             ValueType = valueType;
             Size = size;
@@ -45,13 +45,8 @@ namespace Minerva.DataStorage
 
 
         public static TypeData Of<T>() where T : unmanaged => TypeUtil<T>.Type;
-
-
-        public static TypeData? Of(ValueType? valueType, int? elementSize) => valueType == null ? null : Of(valueType.Value, elementSize);
-        public static TypeData Of(ValueType valueType, int size) => new TypeData(valueType, (short)size);
-        public static TypeData Of(ValueType valueType, short size) => new TypeData(valueType, size);
         public static TypeData Blob(int size) => new TypeData(ValueType.Blob, (short)size);
-        public static TypeData Of(ValueType valueType, int? size = null)
+        static TypeData Of(ValueType valueType, int? size = null)
         {
             if (valueType == ValueType.Unknown || valueType == ValueType.Blob)
                 ThrowHelper.ArgumentException("Cannot create TypeData for Unknown ValueType", nameof(valueType));
