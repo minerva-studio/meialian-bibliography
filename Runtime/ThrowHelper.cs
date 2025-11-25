@@ -24,6 +24,10 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.NoInlining)]
         public static T ThrowDisposed<T>() => throw new ObjectDisposedException(nameof(Container));
 
+        [DoesNotReturn]
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static void ThrowDisposed(string message) => throw new ObjectDisposedException(message);
+
 
         [DoesNotReturn]
         [MethodImpl(MethodImplOptions.NoInlining)]
