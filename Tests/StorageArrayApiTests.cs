@@ -272,5 +272,195 @@ namespace Minerva.DataStorage.Tests
             root.WritePath("scene.actors[1].hp", 88);
             Assert.That(root.ReadPath<int>("scene.actors[1].hp"), Is.EqualTo(88));
         }
+
+        [Test]
+        public void StringArray_Write_Expand_And_Shrink()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            root.Write("caption", "Hi");
+            Assert.That(root.TryGetArray("caption".AsSpan(), TypeData.Of<char>(), out var arr), Is.True);
+            Assert.That(arr.IsString, Is.True);
+            Assert.That(arr.AsString(), Is.EqualTo("Hi"));
+
+            arr.Write("HelloWorld");
+            Assert.That(arr.AsString(), Is.EqualTo("HelloWorld"));
+
+            arr.Write("X");
+            Assert.That(arr.AsString(), Is.EqualTo("X"));
+        }
+
+        [Test]
+        public void StringArray_Write_Via_Path()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            root.WritePath("ui.title.text", "Title");
+            Assert.That(root.TryGetArrayByPath("ui.title.text".AsSpan(), TypeData.Of<char>(), out var arr), Is.True);
+            Assert.That(arr.IsString, Is.True);
+            Assert.That(arr.AsString(), Is.EqualTo("Title"));
+
+            arr.Write("NewTitle");
+            Assert.That(root.ReadStringPath("ui.title.text"), Is.EqualTo("NewTitle"));
+        }
+
+        [Test]
+        public void Ensure_Creates_CharArray_Then_Write_String()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            var ensured = root.Ensure("dialog.line").IsArray<char>(minLength: 0, allowOverride: true);
+            Assert.That(ensured.IsString, Is.True);
+
+            ensured.Write("First");
+            Assert.That(root.ReadStringPath("dialog.line"), Is.EqualTo("First"));
+
+            ensured.Write("SecondLine");
+            Assert.That(root.ReadStringPath("dialog.line"), Is.EqualTo("SecondLine"));
+        }
+
+        [Test]
+        public void Override_IntArray_To_FloatArray()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            root.WriteArray("values", new[] { 1, 2, 3 });
+            Assert.That(root.TryGetArray<int>("values".AsSpan(), out var original), Is.True);
+            Assert.That(original.Type, Is.EqualTo(ValueType.Int32));
+
+            var floats = new float[] { 3.5f, 4.5f };
+            root.Override("values", floats);
+
+            Assert.That(root.TryGetArray<float>("values".AsSpan(), out var floatArr), Is.True);
+            Assert.That(floatArr.Type, Is.EqualTo(ValueType.Float32));
+            CollectionAssert.AreEqual(floats, root.ReadArray<float>("values"));
+        }
+
+        [Test]
+        public void Override_IntArray_To_DoubleArray_Different_Length()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            root.WriteArray("nums", new[] { 10, 20, 30, 40 });
+            Assert.That(root.TryGetArray<int>("nums".AsSpan(), out var intArr), Is.True);
+            Assert.That(intArr.Type, Is.EqualTo(ValueType.Int32));
+
+            var doubles = new double[] { 1.25, 2.5 };
+            root.Override("nums", doubles);
+
+            Assert.That(root.TryGetArray<double>("nums".AsSpan(), out var dblArr), Is.True);
+            Assert.That(dblArr.Type, Is.EqualTo(ValueType.Float64));
+            CollectionAssert.AreEqual(doubles, root.ReadArray<double>("nums"));
+        }
+
+        [Test]
+        public void Override_IntArray_To_StringArray()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            root.WriteArray("mixed", new[] { 1, 2, 3 });
+            Assert.That(root.TryGetArray<int>("mixed".AsSpan(), out var arrInt), Is.True);
+            Assert.That(arrInt.Type, Is.EqualTo(ValueType.Int32));
+
+            var chars = "Alpha".ToCharArray();
+            root.Override("mixed", chars);
+
+            Assert.That(root.TryGetArray("mixed".AsSpan(), TypeData.Of<char>(), out var arrChars), Is.True);
+            Assert.That(arrChars.Type, Is.EqualTo(ValueType.Char16));
+            Assert.That(arrChars.IsString, Is.True);
+            Assert.That(root.ReadString("mixed"), Is.EqualTo("Alpha"));
+
+            arrChars.Write("Z");
+            Assert.That(root.ReadString("mixed"), Is.EqualTo("Z"));
+        }
+
+        [Test]
+        public void StorageArray_Override_SameLength_NoResize_Allowed()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            root.WriteArray("data", new[] { 1, 2, 3 });
+            var arr = root.GetObject("data").AsArray();
+            Assert.That(arr.Type, Is.EqualTo(ValueType.Int32));
+            Assert.That(arr.Length, Is.EqualTo(3));
+
+            arr.Override(new ReadOnlySpan<int>(new[] { 9, 8, 7 }), allowResize: false);
+            CollectionAssert.AreEqual(new[] { 9, 8, 7 }, root.ReadArray<int>("data"));
+            Assert.That(arr.Length, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void StorageArray_Override_DifferentLength_Resize_Disallowed()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            root.WriteArray("nums", new[] { 1, 2, 3, 4 });
+            var arr = root.GetObject("nums").AsArray();
+            Assert.That(arr.Length, Is.EqualTo(4));
+
+            var newSpan = new ReadOnlySpan<int>(new[] { 5, 6 });
+            arr.Override(newSpan, allowResize: false);
+
+            var back = root.ReadArray<int>("nums");
+            Assert.That(back.Length, Is.EqualTo(4));
+            CollectionAssert.AreEqual(new[] { 5, 6, 3, 4 }, back);
+        }
+
+        [Test]
+        public void StorageArray_Override_DifferentLength_Resize_Allowed()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            root.WriteArray("nums", new[] { 1, 2, 3, 4 });
+            var arr = root.GetObject("nums").AsArray();
+            Assert.That(arr.Length, Is.EqualTo(4));
+
+            arr.Set(new ReadOnlySpan<int>(new[] { 9, 9, 9 }));
+            var back = root.ReadArray<int>("nums");
+            Assert.That(back.Length, Is.EqualTo(3));
+            CollectionAssert.AreEqual(new[] { 9, 9, 9 }, back);
+        }
+
+        [Test]
+        public void StorageArray_Write_String_On_Array_Obtained_By_Path()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            root.WritePath("meta.info.name", "A");
+            Assert.That(root.TryGetArrayByPath("meta.info.name".AsSpan(), TypeData.Of<char>(), out var arr), Is.True);
+            arr.Write("BiggerNameSegment");
+            Assert.That(root.ReadStringPath("meta.info.name"), Is.EqualTo("BiggerNameSegment"));
+        }
+
+        [Test]
+        public void StorageArray_RawOverride_Then_String_Write()
+        {
+            using var s = new Storage(ContainerLayout.Empty);
+            var root = s.Root;
+
+            var ints = new[] { 100, 200 };
+            root.Override("raw", MemoryMarshal.AsBytes<int>(ints), ValueType.Int32, inlineArrayLength: ints.Length);
+            Assert.That(root.TryGetArray<int>("raw".AsSpan(), out var intArr), Is.True);
+            CollectionAssert.AreEqual(ints, root.ReadArray<int>("raw"));
+
+            var chars = "Hello".ToCharArray();
+            root.Override("raw", chars);
+            Assert.That(root.TryGetArray("raw".AsSpan(), TypeData.Of<char>(), out var strArr), Is.True);
+            Assert.That(strArr.Type, Is.EqualTo(ValueType.Char16));
+            Assert.That(root.ReadString("raw"), Is.EqualTo("Hello"));
+
+            strArr.Write("X");
+            Assert.That(root.ReadString("raw"), Is.EqualTo("X"));
+        }
     }
 }

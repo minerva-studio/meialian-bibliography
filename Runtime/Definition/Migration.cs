@@ -160,7 +160,7 @@ namespace Minerva.DataStorage
             return MigrateValueFieldBytes(src, dst, oldVt, newVt);
         }
 
-        public static bool MigrateValueFieldBytes(ReadOnlySpan<byte> src, Span<byte> dst, ValueType oldVt, ValueType newVt, bool isExplicit = false)
+        public static bool MigrateValueFieldBytes(ReadOnlySpan<byte> src, Span<byte> dst, ValueType oldVt, ValueType newVt, bool isExplicit = false, bool zeroFillRemaining = true)
         {
             // Unknown fallback: raw copy + zero-fill/truncate
             if (oldVt == ValueType.Unknown || newVt == ValueType.Unknown)
@@ -199,7 +199,7 @@ namespace Minerva.DataStorage
             {
                 int bytesToCopy = cnt * oldElem;
                 if (bytesToCopy > 0) src[..bytesToCopy].CopyTo(dst);
-                if (dst.Length > bytesToCopy) dst[bytesToCopy..].Clear();
+                if (dst.Length > bytesToCopy && zeroFillRemaining) dst[bytesToCopy..].Clear();
                 return false;
             }
 
@@ -218,8 +218,11 @@ namespace Minerva.DataStorage
             }
 
             // zero-fill remainder of destination if any
-            int used = cnt * newElem;
-            if (dst.Length > used) dst[used..].Clear();
+            if (zeroFillRemaining)
+            {
+                int used = cnt * newElem;
+                if (dst.Length > used) dst[used..].Clear();
+            }
             return true;
         }
 

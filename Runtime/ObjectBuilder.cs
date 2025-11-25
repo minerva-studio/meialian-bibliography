@@ -511,7 +511,7 @@ namespace Minerva.DataStorage
         internal static ObjectBuilder FromContainer(Container container)
         {
             var builder = new ObjectBuilder();
-            builder.SetName(container.Name);
+            builder.SetName(container.NameSpan);
             for (int i = 0; i < container.FieldCount; i++)
             {
                 ref var header = ref container.GetFieldHeader(i);

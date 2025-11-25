@@ -93,7 +93,7 @@ namespace Minerva.DataStorage
                     throw new InvalidOperationException("Cyclic container reference detected during unregister.");
                 }
 
-                using TempString str = new TempString(container.Name);
+                using TempString str = new TempString(container.NameSpan);
                 Traverse(container, c =>
                 {
                     // NOTE: c is Disposed. Accessing c.Memory will throw.
@@ -436,7 +436,7 @@ namespace Minerva.DataStorage
                         continue;
 
                     if (item.IsDeleted)
-                        fieldName = container.Name.ToString();
+                        fieldName = container.NameSpan.ToString();
                     Registry.Shared.Unregister(container);
 
                     if (!quiet && fieldName != null)

@@ -68,7 +68,11 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => FieldType.IsInlineArray;
         }
-        public int ElementCount
+
+        /// <summary>
+        /// The elememt count (for inline array; 1 for non-array; otherwise some error occured)
+        /// </summary>
+        public readonly int ElementCount
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => Length / ElemSize;

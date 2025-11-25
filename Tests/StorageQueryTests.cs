@@ -104,7 +104,7 @@ namespace Minerva.DataStorage.Tests
                         .Location("player").Expect().Object()
                         .Location("stats").Expect().Object();
 
-            Assert.That(q.ExpectFailed, Is.False);
+            Assert.That(q.Failed, Is.False);
         }
 
         [Test]
@@ -119,8 +119,8 @@ namespace Minerva.DataStorage.Tests
                         .Location("scores")
                         .Expect().ObjectArray(); // should fail
 
-            Assert.That(q.ExpectFailed, Is.True);
-            Assert.That(q.ExpectError, Is.Not.Null.And.Contains("not object array"));
+            Assert.That(q.Failed, Is.True);
+            Assert.That(q.Error, Is.Not.Null.And.Contains("not object array"));
         }
 
         [Test]
@@ -150,7 +150,7 @@ namespace Minerva.DataStorage.Tests
                         .Index(2).Expect().ObjectElement()
                         .Location("hp").Expect().Scalar<int>();
 
-            Assert.That(q.ExpectFailed, Is.False);
+            Assert.That(q.Failed, Is.False);
             Assert.That(q.Read<int>(), Is.EqualTo(10));
         }
 
@@ -166,8 +166,8 @@ namespace Minerva.DataStorage.Tests
                         .Location("value").Expect().Object()  // should fail
                         .Location("anything").Expect().Scalar<int>(); // should be ignored
 
-            Assert.That(q.ExpectFailed, Is.True);
-            Assert.That(q.ExpectError, Is.Not.Null.And.Contains("not object"));
+            Assert.That(q.Failed, Is.True);
+            Assert.That(q.Error, Is.Not.Null.And.Contains("not object"));
         }
 
         [Test]
@@ -206,7 +206,7 @@ namespace Minerva.DataStorage.Tests
                         .Location("value");
 
             Assert.That(q.Path, Is.EqualTo("a.b.c[2].value"));
-            Assert.That(q.ToString(), Is.EqualTo("a.b.c[2].value"));
+            Assert.That(q.ToString(), Is.EqualTo("Query(a.b.c[2].value)"));
         }
 
         [Test]

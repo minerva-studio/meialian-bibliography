@@ -170,7 +170,7 @@ namespace Minerva.DataStorage
             using TempString str = new(!source.IsArray ? fieldName ?? "" : "");
             while (Container.Registry.Shared.TryGetParent(current, out var parent))
             {
-                Span<char> name = current.Name;
+                Span<char> name = current.NameSpan;
                 if (str.Length > 0 && str[0] != '[') str.Prepend('.');
                 if (parent.IsArray) str.Prepend(name[name.LastIndexOf('[')..]);
                 else str.Prepend(name);

@@ -101,7 +101,7 @@ namespace Minerva.DataStorage
             }
         }
 
-        public Span<char> Name
+        public Span<char> NameSpan
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
@@ -110,6 +110,8 @@ namespace Minerva.DataStorage
                 return MemoryMarshal.Cast<byte, char>(_memory.AsSpan(header.ContainerNameOffset, header.ContainerNameLength));
             }
         }
+
+        public string Name => NameSpan.ToString();
 
         public ref AllocatedMemory Memory => ref _memory;
 

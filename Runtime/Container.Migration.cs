@@ -212,6 +212,14 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int ReschemeFor(ReadOnlySpan<char> fieldName, TypeData elementType, int? inlineArrayLength)
         {
+            using UnregisterBuffer unregisterBuffer = UnregisterBuffer.New(this);
+            int index = ReschemeFor(fieldName, elementType, inlineArrayLength, unregisterBuffer);
+            unregisterBuffer.Send();
+            return index;
+        }
+
+        public int ReschemeFor(ReadOnlySpan<char> fieldName, TypeData elementType, int? inlineArrayLength, UnregisterBuffer unregisterBuffer)
+        {
             int index = IndexOf(fieldName);
             int elementCount = inlineArrayLength ?? 1;
             ValueType valueType = elementType.ValueType;
@@ -281,7 +289,16 @@ namespace Minerva.DataStorage
                         fieldName.CopyTo(MemoryMarshal.Cast<byte, char>(next.AsSpan(nameOffset, f.NameLength * sizeof(char))));
                         // data
                         next.AsSpan(dataOffset, f.Length).Clear();
-                        if (!isNewField) j++;
+                        if (!isNewField)
+                        {
+                            ref FieldHeader currentFieldHeader = ref GetFieldHeader(j++);
+                            // check object unregister
+                            if (currentFieldHeader.IsRef)
+                            {
+                                var rs = GetFieldData<ContainerReference>(in currentFieldHeader);
+                                unregisterBuffer.Add(rs, currentFieldHeader.IsInlineArray);
+                            }
+                        }
                     }
                     else
                     {

@@ -66,6 +66,14 @@ namespace Minerva.DataStorage
             storageObject.WriteArray<T>(data.AsSpan());
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Override<T>(this StorageObject storageObject, string name, T[] values) where T : unmanaged
+            => storageObject.Override<T>(name, values.AsSpan());
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Override<T>(this StorageArray arr, T[] values, bool allowResize = true) where T : unmanaged
+            => arr.Override<T>(values.AsSpan(), allowResize: allowResize);
+
 
         public static StorageArray MakeObjectArray(this StorageObject storageObject, int length)
         {
