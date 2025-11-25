@@ -184,7 +184,8 @@ namespace Minerva.DataStorage
                     last = last.Substring(0, idxStart);
                 }
             }
-            return new ExpectStatement(this, index);
+            var exp = new ExpectStatement(this, index);
+            return exp;
         }
 
 
@@ -240,8 +241,9 @@ namespace Minerva.DataStorage
 
             private StorageQuery Fail(string msg, bool strict)
             {
-                if (strict) _query.FailExpect(msg);
-                return _query;
+                var q = _query;
+                if (strict) q.FailExpect(msg);
+                return q;
             }
 
             private StorageQuery Pass() => _query;
@@ -411,7 +413,7 @@ namespace Minerva.DataStorage
                     }
                 }
 
-                var created = _root.GetArrayByPath<T>(_path.AsSpan(), true);
+                var created = _root.GetArrayByPath<T>(_path.AsSpan(), true, overrideExisting: allowOverride);
                 if (minLength > 0) created.EnsureLength(minLength);
                 return created;
             }

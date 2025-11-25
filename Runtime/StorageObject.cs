@@ -1730,7 +1730,7 @@ namespace Minerva.DataStorage
             member = default;
             if (!TryNavigateToObject(path, separator, out var obj, out var fieldName, out var index))
                 return false;
-            if (!HasField(fieldName))
+            if (!obj.HasField(fieldName))
                 return false;
             member = new StorageMember(obj, fieldName, index);
             return member.Exist;
