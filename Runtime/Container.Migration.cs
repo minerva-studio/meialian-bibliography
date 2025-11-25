@@ -242,13 +242,32 @@ namespace Minerva.DataStorage
                 newLength -= existedHeader.Length; // reduced
                 // no rescheme needed (exist, same type, same inline length)
                 if (existedHeader.FieldType == newFieldType && existedHeader.ElementCount == elementCount)
+                {
                     return index;
+                }
                 // length is fine, just need to reset header
                 if (existedHeader.Length >= newDataLength)
                 {
-                    existedHeader.Length = newDataLength;
-                    existedHeader.FieldType = newFieldType;
-                    existedHeader.ElemSize = (short)elementSize;
+                    if (!existedHeader.IsRef)
+                    {
+                        Span<byte> old = GetFieldData(existedHeader);
+                        using var temp = AllocatedMemory.Create(old);
+                        var oldFieldType = existedHeader.FieldType;
+                        existedHeader.Length = newDataLength;
+                        existedHeader.FieldType = newFieldType;
+                        existedHeader.ElemSize = (short)elementSize;
+                        Span<byte> newSpan = GetFieldData(existedHeader);
+                        Migration.MigrateValueFieldBytes(temp.Buffer.Span, newSpan, oldFieldType.Type, newFieldType.Type, true);
+                    }
+                    else
+                    {
+                        var old = GetFieldData<ContainerReference>(existedHeader);
+                        existedHeader.Length = newDataLength;
+                        existedHeader.FieldType = newFieldType;
+                        existedHeader.ElemSize = (short)elementSize;
+                        unregisterBuffer.Add(old, existedHeader.IsInlineArray);
+                        GetFieldData(existedHeader).Clear();
+                    }
                     return index;
                 }
             }
@@ -402,6 +421,25 @@ namespace Minerva.DataStorage
             {
                 var name = GetFieldName(index);
                 ReschemeFor(name, fieldHeader.ElementType, newLength);
+            }
+        }
+
+        public void ResizeArrayField(int index, int newLength, UnregisterBuffer unregisterBuffer)
+        {
+            ref FieldHeader fieldHeader = ref GetFieldHeader(index);
+            if (!fieldHeader.IsInlineArray)
+                throw new ArgumentException("Field is not an inline array.", nameof(index));
+            // good case: single member array container
+            if (index == 0 && FieldCount == 1)
+            {
+                ReschemeForArray(newLength, fieldHeader.ElementType);
+                return;
+            }
+            // bad case: need reschemefor
+            else
+            {
+                var name = GetFieldName(index);
+                ReschemeFor(name, fieldHeader.ElementType, newLength, unregisterBuffer);
             }
         }
 

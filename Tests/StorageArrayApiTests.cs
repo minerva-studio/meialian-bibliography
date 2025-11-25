@@ -381,7 +381,7 @@ namespace Minerva.DataStorage.Tests
         }
 
         [Test]
-        public void StorageArray_Override_SameLength_NoResize_Allowed()
+        public void StorageArray_CopyFrom_SameLength_NoResize_Allowed()
         {
             using var s = new Storage(ContainerLayout.Empty);
             var root = s.Root;
@@ -391,13 +391,13 @@ namespace Minerva.DataStorage.Tests
             Assert.That(arr.Type, Is.EqualTo(ValueType.Int32));
             Assert.That(arr.Length, Is.EqualTo(3));
 
-            arr.Override(new ReadOnlySpan<int>(new[] { 9, 8, 7 }), allowResize: false);
+            arr.CopyFrom(new ReadOnlySpan<int>(new[] { 9, 8, 7 }), allowResize: false);
             CollectionAssert.AreEqual(new[] { 9, 8, 7 }, root.ReadArray<int>("data"));
             Assert.That(arr.Length, Is.EqualTo(3));
         }
 
         [Test]
-        public void StorageArray_Override_DifferentLength_Resize_Disallowed()
+        public void StorageArray_CopyFrom_DifferentLength_Resize_Disallowed()
         {
             using var s = new Storage(ContainerLayout.Empty);
             var root = s.Root;
@@ -407,7 +407,7 @@ namespace Minerva.DataStorage.Tests
             Assert.That(arr.Length, Is.EqualTo(4));
 
             var newSpan = new ReadOnlySpan<int>(new[] { 5, 6 });
-            arr.Override(newSpan, allowResize: false);
+            arr.CopyFrom(newSpan, allowResize: false);
 
             var back = root.ReadArray<int>("nums");
             Assert.That(back.Length, Is.EqualTo(4));
@@ -424,7 +424,7 @@ namespace Minerva.DataStorage.Tests
             var arr = root.GetObject("nums").AsArray();
             Assert.That(arr.Length, Is.EqualTo(4));
 
-            arr.Set(new ReadOnlySpan<int>(new[] { 9, 9, 9 }));
+            arr.Override(new ReadOnlySpan<int>(new[] { 9, 9, 9 }));
             var back = root.ReadArray<int>("nums");
             Assert.That(back.Length, Is.EqualTo(3));
             CollectionAssert.AreEqual(new[] { 9, 9, 9 }, back);

@@ -223,6 +223,14 @@ namespace Minerva.DataStorage
 
         #region Override
 
+        /// <summary> 
+        /// Override existing data with given bytes
+        /// </summary>
+        /// <remarks>
+        /// Try avoid using this method, use typed Write/Override methods instead.
+        /// </remarks>
+        /// <param name="fieldName"></param>
+        /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Override<T>(string fieldName, T value) where T : unmanaged
         {
@@ -230,9 +238,25 @@ namespace Minerva.DataStorage
             Override(fieldName.AsSpan(), MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref value, 1)), TypeUtil<T>.ValueType);
         }
 
+        /// <summary> 
+        /// Override existing data with given bytes
+        /// </summary>
+        /// <remarks>
+        /// Try avoid using this method, use typed Write/Override methods instead.
+        /// </remarks>
+        /// <param name="fieldName"></param>
+        /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Override<T>(ReadOnlySpan<char> fieldName, T value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref value, 1)), TypeUtil<T>.ValueType);
 
+        /// <summary> 
+        /// Override existing data with given bytes
+        /// </summary>
+        /// <remarks>
+        /// Try avoid using this method, use typed Write/Override methods instead.
+        /// </remarks>
+        /// <param name="fieldName"></param>
+        /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Override<T>(string fieldName, ReadOnlySpan<T> value) where T : unmanaged
         {
@@ -240,9 +264,28 @@ namespace Minerva.DataStorage
             Override(fieldName.AsSpan(), MemoryMarshal.AsBytes(value), TypeUtil<T>.ValueType, value.Length);
         }
 
+        /// <summary> 
+        /// Override existing data with given bytes
+        /// </summary>
+        /// <remarks>
+        /// Try avoid using this method, use typed Write/Override methods instead.
+        /// </remarks>
+        /// <param name="fieldName"></param>
+        /// <param name="value"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Override<T>(ReadOnlySpan<char> fieldName, ReadOnlySpan<T> value) where T : unmanaged => Override(fieldName, MemoryMarshal.AsBytes(value), TypeUtil<T>.ValueType, value.Length);
 
+        /// <summary> 
+        /// Override existing data with given bytes
+        /// </summary>
+        /// <remarks>
+        /// Try avoid using this method, use typed Write/Override methods instead.
+        /// </remarks>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <param name="value"></param>
+        /// <param name="valueType"></param>
+        /// <param name="inlineArrayLength"></param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Override<T>(string fieldName, ReadOnlySpan<byte> value, ValueType valueType, int? inlineArrayLength = null)
         {
@@ -253,6 +296,9 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Override existing data with given bytes
         /// </summary>
+        /// <remarks>
+        /// Try avoid using this method, use typed Write/Override methods instead.
+        /// </remarks>
         /// <param name="fieldName"></param>
         /// <param name="value"></param>
         /// <param name="valueType"></param>

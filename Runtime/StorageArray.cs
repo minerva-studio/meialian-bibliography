@@ -167,13 +167,25 @@ namespace Minerva.DataStorage
         {
             if (!IsString)
                 ThrowHelper.ArgumentException("Cannot write string to non-string array.");
+
+            // just call write array on object
+            if (this.IsExternalArray)
+            {
+                new StorageObject(_handle.Container).WriteArray(valueSpan);
+                return;
+            }
+
             int fieldIndex = _handle.EnsureNotDisposed();
             ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
             int length = valueSpan.Length;
-            Resize(length);
+
+            // no event would occur for this invoke
+            _handle.Container.ReschemeFor(_handle.Name, TypeUtil<char>.Type, length, default);
+
             header = ref _handle.Container.GetFieldHeader(fieldIndex);
             var span = _handle.Container.GetFieldData(in header);
             MemoryMarshal.AsBytes(valueSpan).CopyTo(span);
+
             StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
         }
 
@@ -209,68 +221,6 @@ namespace Minerva.DataStorage
                 return false;
             return this[index].TryRead(out value, true);
         }
-
-
-
-
-
-        /// <summary>
-        /// Override content by given value
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="values"></param>
-        /// <param name="allowResize">if array length is less than given size, can we resize the array?</param>
-        /// <param name="allowTypeRescheme">Can we chagne the array type?</param>
-        public void Override<T>(ReadOnlySpan<T> values, bool allowResize = true, bool allowTypeRescheme = false) where T : unmanaged
-        {
-            int fieldIndex = _handle.EnsureNotDisposed();
-            ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
-            using var unregisterBuffer = Container.UnregisterBuffer.New(_handle.Container);
-
-            if (!header.ElementType.CanCastTo(TypeUtil<T>.Type, false))
-            {
-                if (!allowTypeRescheme)
-                    ThrowHelper.ArgumentException("Type mismatch in Override.");
-                _handle.Container.ReschemeFor(_handle.Name, TypeUtil<T>.Type, values.Length, unregisterBuffer);
-                header = ref _handle.Container.GetFieldHeader(fieldIndex);
-            }
-
-            int length = header.ElementCount;
-            if (values.Length > length)
-                if (!allowResize)
-                {
-                    ThrowHelper.ArgumentException("Length exceed in Override.");
-                }
-                else
-                {
-                    Resize(values.Length);
-                    header = ref _handle.Container.GetFieldHeader(fieldIndex);
-                }
-
-            Span<byte> data = _handle.Container.GetFieldData(in header);
-            ValueType dstType = header.FieldType.Type;
-            ValueType srcType = TypeUtil<T>.ValueType;
-            Migration.MigrateValueFieldBytes(MemoryMarshal.AsBytes(values), data, srcType, dstType, true, zeroFillRemaining: false);
-
-            unregisterBuffer.Send();
-            StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
-        }
-
-        public void Set<T>(ReadOnlySpan<T> values) where T : unmanaged
-        {
-            using var unregisterBuffer = Container.UnregisterBuffer.New(_handle.Container);
-
-            _handle.Container.ReschemeFor(_handle.Name, TypeUtil<T>.Type, values.Length, unregisterBuffer);
-            int fieldIndex = _handle.EnsureNotDisposed();
-            ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
-            ReadOnlySpan<byte> src = MemoryMarshal.Cast<T, byte>(values);
-            Span<byte> dst = _handle.Container.GetFieldData(in header);
-            src.CopyTo(dst);
-
-            unregisterBuffer.Send();
-            StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
-        }
-
 
 
 
@@ -347,6 +297,61 @@ namespace Minerva.DataStorage
             return i;
         }
 
+        /// <summary>
+        /// Override content by given value
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="values"></param>
+        /// <param name="allowResize">if array length is less than given size, can we resize the array?</param> 
+        public int CopyFrom<T>(ReadOnlySpan<T> values, bool allowResize = true, bool isExplicit = true) where T : unmanaged
+        {
+            int fieldIndex = _handle.EnsureNotDisposed();
+            ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
+            using var unregisterBuffer = Container.UnregisterBuffer.New(_handle.Container);
+
+            int length = header.ElementCount;
+            if (values.Length > length)
+            {
+                if (allowResize)
+                {
+                    _handle.Container.ResizeArrayField(_handle.Index, values.Length);
+                    header = ref _handle.Container.GetFieldHeader(fieldIndex);
+                    length = header.ElementCount;
+                }
+            }
+
+            Span<byte> data = _handle.Container.GetFieldData(in header);
+            ValueType dstType = header.FieldType.Type;
+            ValueType srcType = TypeUtil<T>.ValueType;
+            if (!Migration.MigrateValueFieldBytes(MemoryMarshal.AsBytes(values), data, srcType, dstType, isExplicit, zeroFillRemaining: false))
+                return 0;
+
+            unregisterBuffer.Send();
+            StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+            return Math.Min(values.Length, length);
+        }
+
+        /// <summary>
+        /// Set array content to given values
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="values"></param>
+        public void Override<T>(ReadOnlySpan<T> values) where T : unmanaged
+        {
+            using var unregisterBuffer = Container.UnregisterBuffer.New(_handle.Container);
+
+            _handle.Container.ReschemeFor(_handle.Name, TypeUtil<T>.Type, values.Length, unregisterBuffer);
+            int fieldIndex = _handle.EnsureNotDisposed();
+            ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
+            ReadOnlySpan<byte> src = MemoryMarshal.Cast<T, byte>(values);
+            Span<byte> dst = _handle.Container.GetFieldData(in header);
+            src.CopyTo(dst);
+
+            unregisterBuffer.Send();
+            StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+        }
+
+
 
 
 
@@ -399,6 +404,7 @@ namespace Minerva.DataStorage
             if (newLength == Length)
                 return;
             _handle.Container.ResizeArrayField(_handle.Index, newLength);
+            StorageObject.NotifyFieldWrite(_handle.Container, _handle.Index);
         }
 
         /// <summary>
@@ -407,9 +413,11 @@ namespace Minerva.DataStorage
         /// <param name="length"></param>
         public void EnsureLength(int length)
         {
+            _handle.EnsureNotDisposed();
             if (length <= Length)
                 return;
             _handle.Container.ResizeArrayField(_handle.Index, length);
+            StorageObject.NotifyFieldWrite(_handle.Container, _handle.Index);
         }
 
         /// <summary>
@@ -422,6 +430,7 @@ namespace Minerva.DataStorage
             _handle.EnsureNotDisposed();
             newLength ??= Length;
             _handle.Container.ReschemeFor(_handle.Name, type, newLength);
+            StorageObject.NotifyFieldWrite(_handle.Container, _handle.Index);
         }
 
         /// <summary>
