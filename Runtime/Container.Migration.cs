@@ -392,15 +392,20 @@ namespace Minerva.DataStorage
         {
             ref ContainerHeader oldHeader = ref Header;
             ValueType valueType = type.ValueType;
+            ReadOnlySpan<byte> nameBytes;
             if (oldHeader.FieldCount == 1)
             {
                 ref var oldField = ref GetFieldHeader(0);
+                nameBytes = MemoryMarshal.AsBytes(GetFieldName(in oldField));
                 // already same type and length
                 if (oldField.Type == valueType && oldField.ElementCount == length)
                     return;
             }
+            else
+            {
+                nameBytes = MemoryMarshal.AsBytes(ContainerLayout.ArrayName.AsSpan());
+            }
 
-            var nameBytes = MemoryMarshal.AsBytes(GetFieldName(0));
             int elementSize = type.Size;
             int dataOffset = ContainerHeader.Size
                 + FieldHeader.Size
