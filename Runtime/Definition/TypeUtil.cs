@@ -22,6 +22,7 @@ namespace Minerva.DataStorage
         // Now ValueType can be used directly in the low 5 bits.
         // No shift needed anymore.
         public const byte Ref = (byte)ValueType.Ref;
+        public const byte RefArray = (byte)ValueType.Ref | IS_ARRAY_MASK;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static byte Pack(ValueType valueType, bool isArray) => (byte)(((byte)valueType) | (isArray ? IS_ARRAY_MASK : (byte)0));
@@ -118,21 +119,61 @@ namespace Minerva.DataStorage
 
         public static string ToString(byte s)
         {
-            var baseType = ToString(PrimOf(s));
-            return IsArray(s) ? baseType + "[]" : baseType;
+            return s switch
+            {
+                IS_ARRAY_MASK => "(Missing)[]",
+                (byte)ValueType.Ref => "Object",
+                (byte)ValueType.Ref | IS_ARRAY_MASK => "Object[]",
+                (byte)ValueType.Blob => "Blob",
+                (byte)ValueType.Blob | IS_ARRAY_MASK => "Blob[]",
+                (byte)ValueType.Bool => TypeUtil<bool>.ValueTypeName,
+                (byte)ValueType.Bool | IS_ARRAY_MASK => TypeUtil<bool>.ValueTypeArrayName,
+                (byte)ValueType.Int8 => TypeUtil<sbyte>.ValueTypeName,
+                (byte)ValueType.Int8 | IS_ARRAY_MASK => TypeUtil<sbyte>.ValueTypeArrayName,
+                (byte)ValueType.UInt8 => TypeUtil<byte>.ValueTypeName,
+                (byte)ValueType.UInt8 | IS_ARRAY_MASK => TypeUtil<byte>.ValueTypeArrayName,
+                (byte)ValueType.Char16 => TypeUtil<char>.ValueTypeName,
+                (byte)ValueType.Char16 | IS_ARRAY_MASK => TypeUtil<char>.ValueTypeArrayName,
+                (byte)ValueType.Int16 => TypeUtil<short>.ValueTypeName,
+                (byte)ValueType.Int16 | IS_ARRAY_MASK => TypeUtil<short>.ValueTypeArrayName,
+                (byte)ValueType.UInt16 => TypeUtil<ushort>.ValueTypeName,
+                (byte)ValueType.UInt16 | IS_ARRAY_MASK => TypeUtil<ushort>.ValueTypeArrayName,
+                (byte)ValueType.Int32 => TypeUtil<int>.ValueTypeName,
+                (byte)ValueType.Int32 | IS_ARRAY_MASK => TypeUtil<int>.ValueTypeArrayName,
+                (byte)ValueType.UInt32 => TypeUtil<uint>.ValueTypeName,
+                (byte)ValueType.UInt32 | IS_ARRAY_MASK => TypeUtil<uint>.ValueTypeArrayName,
+                (byte)ValueType.Int64 => TypeUtil<long>.ValueTypeName,
+                (byte)ValueType.Int64 | IS_ARRAY_MASK => TypeUtil<long>.ValueTypeArrayName,
+                (byte)ValueType.UInt64 => TypeUtil<ulong>.ValueTypeName,
+                (byte)ValueType.UInt64 | IS_ARRAY_MASK => TypeUtil<ulong>.ValueTypeArrayName,
+                (byte)ValueType.Float32 => TypeUtil<float>.ValueTypeName,
+                (byte)ValueType.Float32 | IS_ARRAY_MASK => TypeUtil<float>.ValueTypeArrayName,
+                (byte)ValueType.Float64 => TypeUtil<double>.ValueTypeName,
+                (byte)ValueType.Float64 | IS_ARRAY_MASK => TypeUtil<double>.ValueTypeArrayName,
+                _ => "(Missing)",
+            };
         }
 
         public static string ToString(ValueType valueType)
         {
-            switch (valueType)
+            return valueType switch
             {
-                case ValueType.Unknown:
-                    return "(Missing)";
-                case ValueType.Ref:
-                    return "Object";
-                default:
-                    return valueType.ToString();
-            }
+                ValueType.Ref => "Object",
+                ValueType.Blob => "Blob",
+                ValueType.Bool => TypeUtil<bool>.ValueTypeName,
+                ValueType.Int8 => TypeUtil<sbyte>.ValueTypeName,
+                ValueType.UInt8 => TypeUtil<byte>.ValueTypeName,
+                ValueType.Char16 => TypeUtil<char>.ValueTypeName,
+                ValueType.Int16 => TypeUtil<short>.ValueTypeName,
+                ValueType.UInt16 => TypeUtil<ushort>.ValueTypeName,
+                ValueType.Int32 => TypeUtil<int>.ValueTypeName,
+                ValueType.UInt32 => TypeUtil<uint>.ValueTypeName,
+                ValueType.Int64 => TypeUtil<long>.ValueTypeName,
+                ValueType.UInt64 => TypeUtil<ulong>.ValueTypeName,
+                ValueType.Float32 => TypeUtil<float>.ValueTypeName,
+                ValueType.Float64 => TypeUtil<double>.ValueTypeName,
+                _ => "(Missing)",
+            };
         }
     }
 
@@ -153,6 +194,11 @@ namespace Minerva.DataStorage
         public static readonly FieldType ScalarFieldType = Create(false);
         public static readonly FieldType ArrayFieldType = Create(true);
         public static readonly TypeData Type = new(ValueType, (short)Size);
+        public static readonly string TypeName = ComputeTypeName();
+        public static readonly string ValueTypeName = ComputeValueTypeName();
+        public static readonly string ValueTypeArrayName = $"{ValueTypeName}[]";
+
+
 
         public static FieldType Create(bool isArray = false) => new FieldType(ValueType, isArray);
 
@@ -191,6 +237,30 @@ namespace Minerva.DataStorage
             if (typeof(T) == typeof(nuint)) return Unsafe.SizeOf<nuint>() == sizeof(int) ? ValueType.Int32 : ValueType.Int64;
             if (typeof(T) == typeof(ContainerReference)) return ValueType.Ref;
             return ValueType.Blob;
+        }
+
+        private static string ComputeTypeName()
+        {
+            if (typeof(T).IsEnum)
+            {
+                return $"enum({Enum.GetUnderlyingType(typeof(T)).Name})";
+            }
+            return typeof(T).Name;
+        }
+
+        private static string ComputeValueTypeName()
+        {
+            switch (ValueType)
+            {
+                case ValueType.Unknown:
+                    return "(Missing)";
+                case ValueType.Ref:
+                    return "Object";
+                case ValueType.Blob:
+                    return "Blob";
+                default:
+                    return ValueType.ToString();
+            }
         }
     }
 }
