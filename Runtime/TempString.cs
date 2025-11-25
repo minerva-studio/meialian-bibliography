@@ -11,11 +11,13 @@ namespace Minerva.DataStorage
         static ArrayPool<char> Pool = ArrayPool<char>.Create();
 
         char[] chars;
+        string cache;
 
         public TempString(int capacity)
         {
             chars = Pool.Rent(capacity);
             Length = 0;
+            cache = "";
         }
 
         public TempString(string chars) : this(chars.AsSpan()) { }
@@ -42,9 +44,11 @@ namespace Minerva.DataStorage
 
         public void Append(ReadOnlySpan<char> str)
         {
+            if (str.Length == 0) return;
             EnsureFreeSize(str.Length);
             str.CopyTo(chars.AsSpan(Length));
             Length += str.Length;
+            cache = null;
         }
 
         public void Append(char v)
@@ -61,12 +65,14 @@ namespace Minerva.DataStorage
 
         public void Prepend(ReadOnlySpan<char> str)
         {
+            if (str.Length == 0) return;
             EnsureFreeSize(str.Length);
             // shift existing
             chars.AsSpan(0, Length).CopyTo(chars.AsSpan(str.Length, Length));
             // copy new
             str.CopyTo(chars.AsSpan(0, str.Length));
             Length += str.Length;
+            cache = null;
         }
 
         public void Prepend(char v)
@@ -77,6 +83,7 @@ namespace Minerva.DataStorage
             // copy new
             chars[0] = v;
             Length += 1;
+            cache = null;
         }
 
         public readonly int IndexOf(char v) => Array.IndexOf(chars, v);
@@ -108,9 +115,10 @@ namespace Minerva.DataStorage
             Length = 0;
         }
 
-        public readonly override string ToString()
+        public override string ToString()
         {
-            return new string(chars, 0, Length);
+            cache ??= new string(chars, 0, Length);
+            return cache;
         }
 
         public static implicit operator ReadOnlySpan<char>(in TempString tempString)
