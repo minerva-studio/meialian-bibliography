@@ -37,6 +37,19 @@ Unity: `2021.3`+
     - [BinarySerialization](#binaryserialization)
     - [JsonSerialization](#jsonserialization)
     - [(Unity) JSON adapter](#unity-json-adapter)
+  - [StorageQuery DSL](#storagequery-dsl)
+    - [Goals](#goals)
+    - [Core Types](#core-types)
+    - [Path Construction](#path-construction)
+    - [Terminal vs Non-Terminal](#terminal-vs-non-terminal)
+    - [Validation (`Expect`)](#validation-expect)
+    - [Ensure / Make / Exist](#ensure--make--exist)
+    - [Persistent Paths](#persistent-paths)
+    - [Reading / Writing](#reading--writing)
+    - [Subscriptions](#subscriptions)
+    - [Error Handling](#error-handling)
+    - [Best Practices](#best-practices)
+    - [Common Pitfalls](#common-pitfalls)
   - [Performance \& Benchmarks](#performance--benchmarks)
   - [Limitations](#limitations)
   - [Roadmap / TODO](#roadmap--todo)
@@ -631,6 +644,163 @@ The adapter:
   * **Blobs**
 
     * Unknown bytes (`ValueType.Blob`) are emitted as an object with "$blob" property and a base64 string.
+---
+## StorageQuery DSL
+
+The `StorageQuery` API is a zero-allocation, chainable DSL for deferred path construction and controlled data access.
+
+### Goals
+
+- Build deep paths incrementally (`Location()`, `Index()`).
+- Separate structural validation (`Expect`) from creation (`Ensure` / `Make`) and existence checks (`Exist`).
+- Avoid accidental allocations via pooled `TempString`.
+- Provide a persistent view (`Persist()`) for hot loops.
+- Fail gently: validation uses `Result` instead of throwing except for blatant misuse.
+
+### Core Types
+
+| Type                      | Purpose                                                          |
+| ------------------------- | ---------------------------------------------------------------- |
+| `StorageQuery`            | Ephemeral path builder; auto-disposes after terminal operations. |
+| `StorageQuery.Persistent` | Persistent reusable path; must `Dispose()` manually.             |
+| `ExpectStatement<TQuery>` | Chainable light assertions; non-terminal.                        |
+| `EnsureStatement<TQuery>` | Chainable "make" context; non-terminal.                          |
+| `MakeStatement`           | Direct creation/override operations.                             |
+| `ExistStatement`          | Read-only inspection (presence/type).                            |
+| `Result` / `Result<T>`    | Success/failure with error message.                              |
+| `QueryResult<TQuery,T>`   | Combines query and returned value.                               |
+
+### Path Construction
+
+```csharp
+var q = root.Query()
+            .Location("player")
+            .Location("stats")
+            .Location("hp")
+            .Index(2)        // appends [2] to last segment
+            .Location("value");
+
+string full = q.Path; // "player.stats.hp[2].value"
+q = q.Previous();     // "player.stats.hp[2]"
+```
+
+### Terminal vs Non-Terminal
+
+| Operation                  | Creates Data            | Disposes Query | Notes                            |
+| -------------------------- | ----------------------- | -------------- | -------------------------------- |
+| `Expect()` + predicates    | No                      | No             | Validation only.                 |
+| `Exist()`                  | No                      | Yes            | Read-only inspection.            |
+| `Ensure()`                 | Yes                     | No             | Must chain `.Is()` to terminate. |
+| `Make()` / `Ensure().Is()` | Yes                     | Yes            | Direct creation (single step).   |
+| `Read<T>()` / `Write<T>()` | Read = no / Write = yes | Yes            | Convenience wrappers.            |
+| `Persist()`                | No                      | Yes (original) | Returns persistent view.         |
+
+### Validation (`Expect`)
+
+```csharp
+var q = root.Query()
+            .Location("player").Expect().Object()
+            .Location("stats").Expect().Object()
+            .Location("hp").Expect().Scalar<int>();
+
+if (q.Result.Success)
+    q.Write(100);
+else
+    Log(q.Result.ErrorMessage);
+```
+
+Predicates: `Object()`, `ObjectArray()`, `ObjectElement()`, `Scalar<T>()`, `ValueArray<T>()`, `String()`, `Any()`.  
+Strict failures set `Result` and short-circuit subsequent expectations. Pass `strict: false` to ignore a failing check.
+
+### Ensure / Make / Exist
+
+```csharp
+// Ensure + finalize
+root.Query()
+    .Location("config")
+    .Location("version")
+    .Ensure()
+    .Is().Scalar<int>(1);
+
+// Make directly
+root.Query()
+    .Location("stats")
+    .Location("speeds")
+    .Make()
+    .Array<float>(minLength: 4);
+
+// Exist check
+var exist = root.Query()
+                .Location("config")
+                .Location("version")
+                .Exist();
+
+if (exist.Has && exist.As<int>(exact: true)) { /* ... */ }
+```
+
+### Persistent Paths
+
+```csharp
+var p = root.Query()
+            .Location("player")
+            .Location("hp")
+            .Persist();
+
+p.Ensure().Is().Scalar<int>(250);
+int hp = p.Read<int>();
+p.Dispose();
+```
+
+### Reading / Writing
+
+```csharp
+root.Query()
+    .Location("session")
+    .Location("tick")
+    .Write<int>(42);
+
+int tick = root.Query()
+               .Location("session")
+               .Location("tick")
+               .Read<int>();
+```
+
+### Subscriptions
+
+```csharp
+using var sub = root.Query()
+                   .Location("player")
+                   .Location("hp")
+                   .Subscribe((in StorageEventArgs e) =>
+                   {
+                       UnityEngine.Debug.Log($"HP changed at {e.Path}");
+                   });
+
+root.Query().Location("player").Location("hp").Write(300);
+```
+
+### Error Handling
+
+- Check `query.Result.Success`.
+- Inspect `query.Result.ErrorMessage` for first strict failure.
+- Methods only throw for misuse (e.g. `Index()` before any `Location()` or disposed root).
+
+### Best Practices
+
+| Practice                                                    | Reason                                |
+| ----------------------------------------------------------- | ------------------------------------- |
+| Finalize `Ensure()` with `.Is()` method or continue query   | Avoid “dangling ensure” no-op chains. |
+| Use `Persist()` for hot loops.                              | Reduces temp allocations.             |
+| Validate with `Expect()` before mutating critical paths.    | Fail fast without partial writes.     |
+| Use `Previous()` + `Then<T>()` to step back after creation. | Cleaner parent-path reuse.            |
+
+### Common Pitfalls
+
+| Pitfall                                | Outcome            | Fix                                  |
+| -------------------------------------- | ------------------ | ------------------------------------ |
+| Relying on `Expect()` for creation     | Query not disposed | Dispose the query  or call `Make()`. |
+| Forgetting to dispose `Persistent`     | Pool leak          | Wrap in `using` or call `Dispose()`. |
+| Reusing a query after `Make()/Exist()` | Disposed buffer    | Rebuild a new query.                 |
 
 ---
 

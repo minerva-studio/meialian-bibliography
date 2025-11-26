@@ -627,6 +627,9 @@ namespace Minerva.DataStorage
             public override string ToString() => $"Ensure({_query.PathSpan.ToString()})";
         }
 
+        /// <summary>
+        /// Make semantics: terminate the query, create value at given path if missing.
+        /// </summary>
         public readonly ref struct MakeStatement
         {
             private readonly StorageObject _root;
