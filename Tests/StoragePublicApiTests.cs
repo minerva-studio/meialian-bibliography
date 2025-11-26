@@ -136,7 +136,7 @@ namespace Minerva.DataStorage.Tests
             Assert.That(root.GetField("v").Length, Is.EqualTo(1));
 
             bool threw = false;
-            try { root.WriteNoRescheme<int>("v", 1); }
+            try { root.Write<int>("v", 1, allowRescheme: false); }
             catch (ArgumentException) { threw = true; }
             Assert.That(threw, Is.True);
 
@@ -144,7 +144,7 @@ namespace Minerva.DataStorage.Tests
             Assert.That(root.GetField("v").Length, Is.EqualTo(4));
 
             threw = false;
-            try { root.WriteNoRescheme<double>("v", 1000.0); }
+            try { root.Write<double>("v", 1000.0, allowRescheme: false); }
             catch (ArgumentException) { threw = true; }
             Assert.That(threw, Is.True);
         }
@@ -158,7 +158,7 @@ namespace Minerva.DataStorage.Tests
             root.Write<double>("v", 1000.0);
             Assert.That(root.GetField("v").Length, Is.EqualTo(8));
             var threw = false;
-            try { root.WriteNoRescheme<int>("v", 1000); }
+            try { root.Write<int>("v", 1000, allowRescheme: false); }
             catch (ArgumentException) { threw = true; }
             Assert.That(threw, Is.False);
             Assert.That(root.GetField("v").Length, Is.EqualTo(8));
@@ -175,7 +175,7 @@ namespace Minerva.DataStorage.Tests
             Assert.That(root.GetField("v").Length, Is.EqualTo(4));
 
             bool threw = false;
-            try { root.WriteNoRescheme<byte>("v", 1); }
+            try { root.Write<byte>("v", 1, allowRescheme: false); }
             catch (ArgumentException) { threw = true; }
             Assert.That(threw, Is.False);
         }
@@ -2413,13 +2413,6 @@ namespace Minerva.DataStorage.Tests
         }
 
         #endregion
-    }
-
-    public static class StorageApiTestExt
-    {
-        internal static void WriteNoRescheme<T>(this StorageObject obj, string fieldName, in T value) where T : unmanaged
-        {
-            obj.Write(fieldName, value, allowRescheme: false);
-        }
+    
     }
 }

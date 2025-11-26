@@ -537,11 +537,11 @@ namespace Minerva.DataStorage.Tests
             using var storage = new Storage();
             var root = storage.Root;
             // initial array
-            root.Override("arr", new ReadOnlySpan<int>(new int[] { 1, 2, 3 }).AsBytes(), ValueType.Int32, inlineArrayLength: 3);
+            root.Override("arr", MemoryMarshal.AsBytes(new ReadOnlySpan<int>(new int[] { 1, 2, 3 })), ValueType.Int32, inlineArrayLength: 3);
             int count = 0; int lastLen = 0;
             using var sub = root.Subscribe("arr", (in StorageEventArgs e) => { count++; lastLen = root.GetArray("arr").Length; });
             // Resize (different length -> rescheme)
-            root.Override("arr", new ReadOnlySpan<int>(new int[] { 9, 8, 7, 6 }).AsBytes(), ValueType.Int32, inlineArrayLength: 4);
+            root.Override("arr", MemoryMarshal.AsBytes(new ReadOnlySpan<int>(new int[] { 9, 8, 7, 6 })), ValueType.Int32, inlineArrayLength: 4);
             Assert.That(count, Is.EqualTo(1));
             Assert.That(lastLen, Is.EqualTo(4));
         }

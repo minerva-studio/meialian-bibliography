@@ -257,27 +257,6 @@ namespace Minerva.DataStorage
             }
 
 
-
-            /// <summary>Get member view for this path.</summary>
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly StorageMember GetMember(bool createIfMissing = true)
-            {
-                this.EnsureRootValid();
-                var path = PathSpan.ToString();
-                return createIfMissing ? _root.GetMember(path) : (_root.TryGetMember(path, out var m) ? m : default);
-            }
-
-            /// <summary>Try get member view (non-creating).</summary>
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public readonly bool TryGetMember(out StorageMember member)
-            {
-                member = default;
-                this.EnsureRootValid();
-                return this && _root.TryGetMember(PathSpan.ToString(), out member);
-            }
-
-
-
             readonly void IStorageQuery.ImplicitCallFinalizer()
             {
                 // Nothing to do here
@@ -925,6 +904,56 @@ namespace Minerva.DataStorage
             Query = query;
             Result = DataStorage.Result.Failed<TResult>(error);
         }
+
+        /// <summary>
+        /// Retrieves the value from the query result and implicitly finalizes the query when the method returns.
+        /// </summary>
+        /// <param name="suppress">
+        /// If true, do not throw when the underlying result indicates failure; instead return the default value
+        /// for <typeparamref name="TResult"/> or the default contained value from <see cref="Result{TResult}.Value"/>.
+        /// If false (the default), call <see cref="Result{TResult}.GetValueOrThrow"/> to throw an exception on failure.
+        /// </param>
+        /// <returns>
+        /// The contained result value when the query succeeded. When the query failed and <paramref name="suppress"/>
+        /// is true, returns the default value for <typeparamref name="TResult"/>.
+        /// </returns>
+        /// <remarks>
+        /// This method is a finalizing operation: 
+        /// After calling this method the associated query instance is considered finalized and must not be reused.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException"> When <paramref name="suppress"/> is false and the underlying <see cref="Result{TResult}"/> indicates failure, calling <see cref="Result.GetValueOrThrow"/> may throw an exception. The concrete exception type is determined by the implementation of <see cref="Result{T}.GetValueOrThrow"/>.
+        /// </exception>
+        public TResult ExistOrThrow(bool suppress = false)
+        {
+            using QueryContext<TQuery> queryContext = new(Query);
+            return suppress ? Result.Value : Result.GetValueOrThrow();
+        }
+
+        /// <summary>
+        /// Attempt to retrieve the result value associated with this query and implicitly finalize the query.
+        /// </summary>
+        /// <param name="value">
+        /// Output parameter that receives the result value when the query succeeded;
+        /// otherwise it is set to the default value of <typeparamref name="TResult"/>.
+        /// </param>
+        /// <returns>
+        /// <c>true</c> if the underlying <see cref="Result{TResult}"/> indicates success; otherwise <c>false</c>.
+        /// </returns>
+        /// <remarks>
+        /// This method is a finalizing operation: 
+        /// After calling this method the associated query instance is considered finalized and must not be reused.
+        /// </remarks>
+        public bool Exist(out TResult value)
+        {
+            using QueryContext<TQuery> queryContext = new(Query);
+            if (Result.Success)
+            {
+                value = Result.Value;
+                return true;
+            }
+            value = default;
+            return false;
+        }
     }
 
     public static class StorageExtensions
@@ -937,7 +966,7 @@ namespace Minerva.DataStorage
         public static StorageQuery Query(this StorageArray root, int index)
         {
             var handle = root.Handle;
-            return new StorageQuery(new StorageObject(handle.Container)).Location($"{handle.Name.ToString()}{index}");
+            return new StorageQuery(new StorageObject(handle.Container)).Location($"{handle.Name.ToString()}[{index}]");
         }
         public static StorageQuery Index(this StorageArray root, int index) => Query(root, index);
         public static StorageQuery Query(this StorageObject root) => new StorageQuery(root);
@@ -955,6 +984,30 @@ namespace Minerva.DataStorage
         {
             return new QueryResult<TQuery, TValue>(query, value);
         }
+
+        /// <summary>Get member view for this path.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static StorageMember GetMember<TQuery>(this TQuery query, bool createIfMissing = true) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            query.EnsureRootValid();
+            var path = query.PathSpan.ToString();
+            return createIfMissing ? query.Root.GetMember(path) : (query.Root.TryGetMember(path, out var m) ? m : default);
+        }
+
+        /// <summary>Try get member view (non-creating).</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool TryGetMember<TQuery>(this TQuery query, out StorageMember member) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            member = default;
+            query.EnsureRootValid();
+            if (query.Result && query.Root.TryGetMember(query.PathSpan, out member))
+            {
+                member = new StorageMember(member.StorageObject, member.Name.ToArray(), member.ArrayIndex);
+                return true;
+            }
+            else return false;
+        }
+
 
 
 

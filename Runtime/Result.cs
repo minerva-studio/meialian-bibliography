@@ -86,5 +86,11 @@ namespace Minerva.DataStorage
             if (!Success)
                 throw new InvalidOperationException(ErrorMessage ?? "Operation failed.");
         }
+
+        public T GetValueOrThrow()
+        {
+            ThrowIfFailed();
+            return Value;
+        }
     }
 }

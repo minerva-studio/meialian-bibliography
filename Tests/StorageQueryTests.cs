@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using System;
 
 namespace Minerva.DataStorage.Tests
 {
@@ -472,6 +473,210 @@ namespace Minerva.DataStorage.Tests
 
             qParent.Location("name").Ensure().Is().String("v1");
             Assert.That(root.ReadStringPath("cfg.name"), Is.EqualTo("v1"));
+        }
+        [Test]
+        public void Exist_ReturnsValueAndFinalizes_WhenSuccess_FromEnsureScalar()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // create a QueryResult via Ensure().Scalar(...) which returns QueryResult<StorageQuery,int>
+            var qr = root.Query()
+                         .Location("player")
+                         .Location("stats")
+                         .Location("hp")
+                         .Ensure()
+                         .Scalar<int>(123);
+
+            // Act
+            bool ok = qr.Exist(out int value);
+
+            // Assert
+            Assert.IsTrue(ok, "Exist should return true for successful QueryResult.");
+            Assert.AreEqual(123, value, "Exist should return the value contained in the QueryResult.");
+            Assert.IsTrue(qr.Query.IsDisposed, "Query must be finalized (disposed) after Exist is called.");
+        }
+
+        [Test]
+        public void Exist_ReturnsFalseAndFinalizes_WhenFailed_ConstructedWithFailedResult()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Construct a failing QueryResult directly
+            var failingQuery = root.Query().Location("something");
+            var failedResult = Result.Failed<int>("some failure");
+            var qr = new QueryResult<StorageQuery, int>(failingQuery, failedResult);
+
+            // Act
+            bool ok = qr.Exist(out int value);
+
+            // Assert
+            Assert.IsFalse(ok, "Exist should return false for failed QueryResult.");
+            Assert.AreEqual(0, value, "Out value should be default on failure.");
+            Assert.IsTrue(qr.Query.IsDisposed, "Query must be finalized (disposed) after Exist is called even on failure.");
+        }
+
+        [Test]
+        public void ExistOrThrow_SuppressFalse_Throws_OnFailure()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var failingQuery = root.Query().Location("x");
+            var failedResult = Result.Failed<int>("boom");
+            var qr = new QueryResult<StorageQuery, int>(failingQuery, failedResult);
+
+            try
+            {
+                qr.ExistOrThrow(suppress: false);
+                Assert.Fail("ExistOrThrow should have thrown an exception on failure when suppress is false.");
+            }
+            catch (InvalidOperationException) { }
+            Assert.IsTrue(qr.Query.IsDisposed, "Query must be finalized (disposed) after ExistOrThrow even when it throws.");
+        }
+
+        [Test]
+        public void ExistOrThrow_SuppressTrue_ReturnsDefault_AndFinalizes()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var failingQuery = root.Query().Location("x.y");
+            var failedResult = Result.Failed<int>("boom");
+            var qr = new QueryResult<StorageQuery, int>(failingQuery, failedResult);
+
+            int v = qr.ExistOrThrow(suppress: true);
+
+            Assert.AreEqual(0, v, "When suppressed, ExistOrThrow should return default on failure.");
+            Assert.IsTrue(qr.Query.IsDisposed, "Query must be finalized (disposed) after ExistOrThrow even when suppressed.");
+        }
+
+        [Test]
+        public void Location_Throws_OnEmptySegment()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var q = root.Query();
+            Assert.Throws<ArgumentException>(() => q.Location("")); // ReadOnlySpan overload
+        }
+
+        [Test]
+        public void Index_Throws_WhenNoSegmentOrNegative()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var q = root.Query();
+            Assert.Throws<InvalidOperationException>(() => q.Index(1)); // index before any Location
+
+            var q2 = root.Query().Location("a");
+            Assert.Throws<ArgumentOutOfRangeException>(() => q2.Index(-5)); // negative index
+        }
+
+        [Test]
+        public void Persist_Disposes_Original_And_Persistent_Behaviors()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var q = root.Query().Location("player").Location("name");
+            var p = q.Persist();
+
+            // original query should have disposed its internal buffer
+            Assert.That(q.IsDisposed, Is.True);
+
+            // persistent holds path
+            Assert.That(p.IsDisposed, Is.False);
+            Assert.That(p.PathSpan.ToString(), Is.EqualTo("player.name"));
+
+            // Persistent.Location empty throws
+            Assert.Throws<ArgumentException>(() => p.Location(""));
+
+            p.Dispose();
+            Assert.That(p.IsDisposed, Is.True);
+        }
+
+        [Test]
+        public void Make_Array_Throws_WhenMemberExists_And_NoAllowOverride()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // create scalar at "a"
+            root.Write("a", 5);
+
+            // Ensure.Is().Array without allowOverride should throw
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                root.Query().Location("a").Ensure().Is().Array<int>();
+            });
+        }
+
+        [Test]
+        public void TryGetMember_ReturnsMember_ForExistingField()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.Write("score", 123);
+
+            var q = root.Query().Location("score");
+            Assert.IsTrue(q.TryGetMember(out var member));
+            // member should exist and read back correct scalar
+            Assert.IsTrue(member.Exist);
+            Assert.AreEqual(123, member.AsScalar().Read<int>());
+        }
+
+        [Test]
+        public void Subscribe_Throws_OnNullHandler_And_Throws_WhenRootDisposed()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var q = root.Query().Location("hp");
+            Assert.Throws<ArgumentNullException>(() => q.Subscribe(null));
+
+            // dispose storage/root and then try to subscribe -> EnsureRootValid should throw
+            storage.Dispose();
+            Assert.Throws<ObjectDisposedException>(() =>
+            {
+                // provide a no-op handler
+                q.Subscribe((in StorageEventArgs _) => { });
+            });
+        }
+
+        [Test]
+        public void StorageArray_Query_Extensions_Preserve_Path()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.WriteArrayPath("arr", new int[] { 1, 2 });
+
+            var arr = root.GetArray("arr");
+            var qFromArray = arr.Query();
+            Assert.That(qFromArray.Path, Is.EqualTo("arr").Or.EqualTo(ContainerLayout.ArrayName));
+
+            var qIndex = arr.Query(1);
+            // extension builds `${handle.Name.ToString()}[{index}]`
+            Assert.That(qIndex.Path, Is.EqualTo("arr[1]").Or.EqualTo(ContainerLayout.ArrayName + "[1]"));
+        }
+
+        [Test]
+        public void QueryResult_Location_Extension_Chaining_Works()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // create an object at player
+            root.GetObject("player").GetObject("stats");
+            // Expect.Object returns QueryResult<TQuery, StorageObject>
+            var qr = root.Query().Location("player").Expect().Object();
+            // extension: Location on QueryResult<TQuery, StorageObject>
+            var chained = qr.Location("stats");
+            Assert.That(chained.Path, Is.EqualTo("player.stats"));
         }
     }
 }
