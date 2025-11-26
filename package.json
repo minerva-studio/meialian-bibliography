@@ -1,6 +1,6 @@
 {
   "name": "com.minervastudio.meialianbibliography",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "displayName": "Meialian Bibliography",
   "description": "Dynamic Serializable/Deserialzable buffer used for a game scoreboard and stat system.",
   "unity": "2021.3",
