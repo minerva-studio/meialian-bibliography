@@ -1584,6 +1584,17 @@ namespace Minerva.DataStorage
 
 
 
+        /// <summary>
+        /// Force change the field type (override existing data).
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="type"></param>
+        /// <param name="inlineArrayLength"></param> 
+        internal void ChangeFieldType(ReadOnlySpan<char> name, TypeData type, int? inlineArrayLength = null)
+        {
+            _container.ReschemeFor(name, type, inlineArrayLength);
+        }
+
 
 
         /// <summary>

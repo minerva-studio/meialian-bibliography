@@ -93,6 +93,13 @@ namespace Minerva.DataStorage
             get => _handle.Container;
         }
 
+        internal readonly FieldHandle Handle
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _handle;
+        }
+
+
         /// <summary>
         /// Value
         /// </summary>

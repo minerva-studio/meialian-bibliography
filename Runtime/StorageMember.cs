@@ -84,8 +84,19 @@ namespace Minerva.DataStorage
             }
         }
 
+        /// <summary>
+        /// Object that owns this member.
+        /// </summary>
         public StorageObject StorageObject => _storageObject;
+        /// <summary>
+        /// Name of the member.
+        /// </summary>
         public ReadOnlySpan<char> Name => _handle.Name;
+        /// <summary>
+        /// Get a nested member by path.
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
         public StorageMember this[ReadOnlySpan<char> path]
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -146,6 +157,15 @@ namespace Minerva.DataStorage
             if (this._index >= 0) return _storageObject.GetObjectInArray(index, _index).AsArray();
             return _storageObject.GetArray(ref _handle);
         }
+
+
+        public void ChangeFieldType(TypeData type, int? inlineArrayLength)
+        {
+            EnsureNoDispose();
+            _storageObject.ChangeFieldType(Name, type, inlineArrayLength);
+        }
+
+
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetMember(ReadOnlySpan<char> path, out StorageMember member)

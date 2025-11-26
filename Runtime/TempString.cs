@@ -8,7 +8,7 @@ namespace Minerva.DataStorage
     /// </summary>
     public class TempString : IDisposable
     {
-        static ObjectPool<TempString> TempStringPool = new ObjectPool<TempString>(() => new TempString(16), ts => ts.Dispose());
+        static ObjectPool<TempString> TempStringPool = new ObjectPool<TempString>(() => new TempString(16));
         static ArrayPool<char> Pool = ArrayPool<char>.Create();
 
         char[] chars;
@@ -121,6 +121,7 @@ namespace Minerva.DataStorage
 
         public void Dispose()
         {
+            if (chars == null) return;
             Pool.Return(chars);
             TempStringPool.Return(this);
             chars = null;

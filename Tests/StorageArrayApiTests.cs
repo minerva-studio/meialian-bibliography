@@ -312,7 +312,7 @@ namespace Minerva.DataStorage.Tests
             using var s = new Storage(ContainerLayout.Empty);
             var root = s.Root;
 
-            var ensured = root.Ensure("dialog.line").IsArray<char>(minLength: 0, allowOverride: true);
+            var ensured = root.Make("dialog.line").Array<char>(minLength: 0, allowOverride: true);
             Assert.That(ensured.IsString, Is.True);
 
             ensured.Write("First");
