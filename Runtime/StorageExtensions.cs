@@ -277,7 +277,6 @@ namespace Minerva.DataStorage
 
 
 
-
         /// <summary> 
         /// Expect semantics <br/>
         /// What Expect does: <br/>
@@ -450,16 +449,7 @@ namespace Minerva.DataStorage
 
             /// <summary>Expect an object array (ref array).</summary>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public TQuery ObjectArray(bool strict = true)
-            {
-                if (!_query.Result) return _query;
-                if (!TryGetMember(out var m))
-                    return Fail($"Expectation failed: '{Path}' missing.", strict);
-
-                if (!(m.IsArray && m.ValueType == ValueType.Ref))
-                    return Fail($"Expect ObjectArray: '{Path}' not object array.", strict);
-                return Pass();
-            }
+            public TQuery ObjectArray(bool strict = true) => ObjectArray(out _, strict);
 
             /// <summary>Expect an object array (ref array).</summary>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -478,22 +468,7 @@ namespace Minerva.DataStorage
 
             /// <summary>Expect value array of T (including char16 for string).</summary>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public TQuery ValueArray<TValue>(bool strict = true) where TValue : unmanaged
-            {
-                if (!_query.Result) return _query;
-                if (!TryGetMember(out var m))
-                    return Fail($"Expectation failed: '{Path}' missing.", strict);
-
-                // value array: is array && not ref
-                if (!m.IsArray || m.ValueType == ValueType.Ref)
-                    return Fail($"Expect ValueArray<{typeof(TValue).Name}>: '{Path}' not value array.", strict);
-
-                var expected = TypeData.Of<TValue>().ValueType;
-                if (m.ValueType != expected)
-                    return Fail($"Expect ValueArray<{expected}>: actual {m.ValueType}.", strict);
-
-                return Pass();
-            }
+            public TQuery ValueArray<TValue>(bool strict = true) where TValue : unmanaged => ValueArray<TValue>(out _, strict);
 
             /// <summary>Expect value array of T (including char16 for string).</summary>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -504,15 +479,19 @@ namespace Minerva.DataStorage
                 if (!TryGetMember(out var m))
                     return Fail($"Expectation failed: '{Path}' missing.", strict);
 
-                // value array: is array && not ref
-                if (!m.IsArray || m.ValueType == ValueType.Ref)
+                // is array
+                if (!m.IsArray)
                     return Fail($"Expect ValueArray<{typeof(TValue).Name}>: '{Path}' not value array.", strict);
 
-                var expected = TypeData.Of<TValue>().ValueType;
-                if (m.ValueType != expected)
-                    return Fail($"Expect ValueArray<{expected}>: actual {m.ValueType}.", strict);
+                var arr = m.AsArray();
+                // not ref
+                if (arr.Type == ValueType.Ref)
+                    return Fail($"Expect ValueArray<{typeof(TValue).Name}>: '{Path}' is object array.", strict);
 
-                storageArray = m.AsArray();
+                if (!arr.IsConvertibleTo<TValue>())
+                    return Fail($"Expect ValueArray<{typeof(TValue).Name}>: actual {m.ValueType}.", strict);
+
+                storageArray = arr;
                 return Pass();
             }
 
@@ -565,6 +544,13 @@ namespace Minerva.DataStorage
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public QueryResult<TQuery, string> String(bool allowOverride = false)
+            {
+                var s = MakeNew().String(allowOverride);
+                return _query.CreateResult(s);
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public QueryResult<TQuery, string> String(string value, bool allowOverride = false)
             {
                 MakeNew().String(value, allowOverride);
@@ -572,9 +558,16 @@ namespace Minerva.DataStorage
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public TQuery Object(bool allowOverride = false)
+            public QueryResult<TQuery, StorageObject> Object(bool allowOverride = false)
             {
-                MakeNew().Object(allowOverride);
+                var value = MakeNew().Object(allowOverride);
+                return new QueryResult<TQuery, StorageObject>(_query, value);
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public TQuery Object(out StorageObject storageObject, bool allowOverride = false)
+            {
+                storageObject = MakeNew().Object(allowOverride);
                 return _query;
             }
 
@@ -586,9 +579,23 @@ namespace Minerva.DataStorage
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public TQuery Array<T>(out StorageArray array, int minLength = 0, bool allowOverride = false) where T : unmanaged
+            {
+                array = MakeNew().Array<T>(minLength, allowOverride);
+                return _query;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public TQuery ObjectArray(int minLength = 0, bool allowOverride = false)
             {
                 MakeNew().ObjectArray(minLength, allowOverride);
+                return _query;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public TQuery ObjectArray(out StorageArray array, int minLength = 0, bool allowOverride = false)
+            {
+                array = MakeNew().ObjectArray(minLength, allowOverride);
                 return _query;
             }
 
@@ -629,21 +636,15 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public T Scalar<T>(bool allowOverride = false) where T : unmanaged
             {
-                if (_root.TryReadPath<T>(_path, out var v))
-                    return v;
-
                 if (_root.TryGetMember(_path, out var member))
                 {
                     var targetType = TypeData.Of<T>();
-                    if (!member.Type.CanCastTo(targetType, true))
-                    {
-                        if (!allowOverride)
-                            throw new InvalidOperationException($"Ensure.Is<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible type '{member.Type}'.");
-                        _root.WritePath(_path, default(T));
-                        return default;
-                    }
-                    if (allowOverride)
-                        _root.WritePath(_path, default(T));
+                    // exact match
+                    if (targetType == member.Type)
+                        return member.AsScalar().Read<T>();
+                    if (!allowOverride)
+                        throw new InvalidOperationException($"Ensure.Is<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible type '{member.Type}'.");
+                    _root.WritePath(_path, default(T));
                     return default;
                 }
 
@@ -657,19 +658,22 @@ namespace Minerva.DataStorage
                 if (_root.TryGetMember(_path, out var member))
                 {
                     var targetType = TypeData.Of<T>();
-                    if (!member.Type.CanCastTo(targetType, true))
+                    // exact match
+                    if (targetType == member.Type)
                     {
-                        if (!allowOverride)
-                            throw new InvalidOperationException($"Ensure.Is<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible type '{member.Type}'.");
-                        _root.WritePath(_path, value);
+                        member.Write(value);
                         return;
                     }
-                    if (allowOverride)
-                        _root.WritePath(_path, value);
+                    if (!allowOverride)
+                        throw new InvalidOperationException($"Ensure.Is<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible type '{member.Type}'.");
+                    _root.WritePath(_path, value);
                     return;
                 }
                 _root.WritePath(_path, value);
             }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public string String(bool allowOverride = false) => Array<char>(0, allowOverride).AsString();
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public void String(string value, bool allowOverride = false) => Array<char>(value.Length, allowOverride).Write(value);
@@ -788,18 +792,31 @@ namespace Minerva.DataStorage
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool Scalar<T>(bool exact) where T : unmanaged =>
+            public bool Scalar<T>(bool exact = false) where T : unmanaged =>
                 !Failed && _root.TryGetMember(_path, out var m) && m.Type.CanCastTo(TypeUtil<T>.Type, exact);
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool Scalar<T>(out T value) where T : unmanaged
+            public bool Scalar<T>(out T value, bool exact = false) where T : unmanaged
             {
+                value = default;
                 if (Failed)
-                {
-                    value = default;
                     return false;
-                }
-                return _root.TryReadPath<T>(_path, out value);
+                if (!_root.TryGetMember(_path, out var m))
+                    return false;
+                if (!m.Type.CanCastTo(TypeUtil<T>.Type, exact))
+                    return false;
+                value = m.Read<T>();
+                return true;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public bool String(out string value)
+            {
+                value = default;
+                if (!ArrayOf<char>(out var arr))
+                    return false;
+                value = arr.AsString();
+                return true;
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -865,16 +882,17 @@ namespace Minerva.DataStorage
     /// Query context, used for implicit finalization of queries in using blocks.
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public readonly struct QueryContext<T> : IDisposable where T : struct, IStorageQuery
+    internal readonly struct QueryImplicitDisposeContext<T> : IDisposable where T : struct, IStorageQuery
     {
         public readonly T Query;
-        public QueryContext(T query)
+        public QueryImplicitDisposeContext(T query)
         {
             Query = query;
         }
 
         public readonly void Dispose() => Query.ImplicitCallFinalizer();
     }
+
 
     /// <summary>
     /// A result tied to a specific query.
@@ -925,7 +943,7 @@ namespace Minerva.DataStorage
         /// </exception>
         public TResult ExistOrThrow(bool suppress = false)
         {
-            using QueryContext<TQuery> queryContext = new(Query);
+            using QueryImplicitDisposeContext<TQuery> queryContext = new(Query);
             return suppress ? Result.Value : Result.GetValueOrThrow();
         }
 
@@ -945,7 +963,7 @@ namespace Minerva.DataStorage
         /// </remarks>
         public bool Exist(out TResult value)
         {
-            using QueryContext<TQuery> queryContext = new(Query);
+            using QueryImplicitDisposeContext<TQuery> queryContext = new(Query);
             if (Result.Success)
             {
                 value = Result.Value;
@@ -1027,7 +1045,7 @@ namespace Minerva.DataStorage
             {
                 return default;
             }
-            using QueryContext<T> queryContext = new(query);
+            using QueryImplicitDisposeContext<T> queryContext = new(query);
             var e = new ExistStatement(query.Root, query.PathSpan.ToString());
             return e;
         }
@@ -1048,7 +1066,7 @@ namespace Minerva.DataStorage
                 query.Result.ThrowIfFailed();
             }
 
-            using QueryContext<T> queryContext = new(query);
+            using QueryImplicitDisposeContext<T> queryContext = new(query);
             var e = new MakeStatement(query.Root, query.PathSpan.ToString());
             return e;
         }
@@ -1097,7 +1115,7 @@ namespace Minerva.DataStorage
             if (handler == null) throw new ArgumentNullException(nameof(handler));
             query.EnsureRootValid();
 
-            using QueryContext<T> queryContext = new(query);
+            using QueryImplicitDisposeContext<T> queryContext = new(query);
             var sub = query.Root.Subscribe(query.PathSpan.ToString(), handler);
             return sub;
         }

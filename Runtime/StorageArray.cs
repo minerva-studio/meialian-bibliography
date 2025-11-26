@@ -77,6 +77,16 @@ namespace Minerva.DataStorage
             }
         }
 
+        public readonly TypeData ElementType
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                _handle.EnsureNotDisposed();
+                return Header.ElementType;
+            }
+        }
+
         public readonly FieldType FieldType
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]

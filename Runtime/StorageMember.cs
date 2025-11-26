@@ -179,7 +179,7 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T Read<T>(bool isExplicit = false) where T : unmanaged => AsScalar().Read<T>(isExplicit);
+        public T Read<T>(bool isExplicit = true) where T : unmanaged => AsScalar().Read<T>(isExplicit);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write<T>(T value) where T : unmanaged

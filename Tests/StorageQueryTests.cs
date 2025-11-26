@@ -678,5 +678,257 @@ namespace Minerva.DataStorage.Tests
             var chained = qr.Location("stats");
             Assert.That(chained.Path, Is.EqualTo("player.stats"));
         }
+
+
+
+
+
+        // ---------------------------
+        // Expect statement tests
+        // ---------------------------
+
+        [Test]
+        public void Expect_Scalar_Object_Array_and_String_Success()
+        {
+            // Arrange: create storage and populate values
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Create nested object and values
+            root.Query().Location("player").Location("stats").Ensure().Is().Object();
+            root.WritePath("player.stats.hp", 100);
+            root.WritePath("player.meta.title", "GameTitle");
+            root.WriteArrayPath("player.speeds", new float[] { 1f, 2f, 3f });
+
+            // Act & Assert: scalar expectation returns QueryResult with value
+            var qrHp = root.Query().Location("player").Location("stats").Location("hp").Expect().Scalar<int>();
+            Assert.That(qrHp.Result.Success, Is.True);
+            Assert.That(qrHp.Result.Value, Is.EqualTo(100));
+
+            // Act & Assert: string expectation
+            var qrTitle = root.Query().Location("player").Location("meta").Location("title").Expect().String();
+            Assert.That(qrTitle.Result.Success, Is.True);
+
+            // Act & Assert: value array expectation and out storageArray
+            var q = root.Query().Location("player").Location("speeds").Expect();
+            Assert.DoesNotThrow(() => q.ValueArray<float>());
+            Assert.DoesNotThrow(() => q.ValueArray<float>().Result.ThrowIfFailed());
+            Assert.DoesNotThrow(() =>
+            {
+                q.ValueArray<float>(out StorageArray arr);
+                Assert.That(arr.Length, Is.EqualTo(3));
+            });
+        }
+
+        [Test]
+        public void Expect_ObjectArray_ObjectElement_FailurePaths()
+        {
+            // Arrange
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Create a scalar at "scores" to provoke failure
+            root.Write("scores", 5);
+
+            // Act: Expect.ObjectArray should fail on scalar
+            var fail = root.Query().Location("scores").Expect().ObjectArray();
+            Assert.That(fail.Result.Success, Is.False);
+            Assert.That(fail.Result.ErrorMessage, Does.Contain("not object array"));
+
+            // Act: object element expects index; missing index should error
+            var qNoIndex = root.Query().Location("scores").Expect();
+            Assert.Throws<InvalidOperationException>(() => qNoIndex.ObjectElement().ExistOrThrow());
+
+            // Create an object array with limited length and test out-of-range
+            root.Query().Location("world").Location("entities").Make().ObjectArray(1);
+            var qOut = root.Query().Location("world").Location("entities").Index(5).Expect().ObjectElement();
+            Assert.That(qOut.Result.Success, Is.False);
+            Assert.That(qOut.Result.ErrorMessage, Does.Contain("out of range"));
+        }
+
+        [Test]
+        public void Expect_SoftCheck_DoesNotRecordFailure()
+        {
+            // Arrange
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("x", 42);
+
+            // Act: soft object check should not set Result.Failed
+            var q = root.Query()
+                        .Location("x").Expect().Object(strict: false)
+                        .Then()
+                        .Location("x").Expect().Scalar<int>();
+
+            // Assert
+            Assert.That(q.Result.Success, Is.True);
+            Assert.That(q.Result.Value, Is.EqualTo(42));
+        }
+
+        // ---------------------------
+        // Ensure statement tests
+        // ---------------------------
+
+        [Test]
+        public void Ensure_Scalar_And_String_And_Array_CreateAndReturnResults()
+        {
+            // Arrange
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Act: ensure scalar with explicit value
+            var qr = root.Query().Location("cfg").Location("max").Ensure().Scalar<int>(99);
+            Assert.That(qr.Result.Success, Is.True);
+
+            // Ensure default create (no value provided)
+            Assert.DoesNotThrow(() =>
+            {
+                int i = root.Query().Location("cfg").Location("min").Ensure().Is().Scalar<int>();
+                Assert.That(i, Is.EqualTo(0)); // default int
+            });
+
+            // Ensure string creation
+            var qrStr = root.Query().Location("meta").Location("title").Ensure().String("Hello");
+            Assert.That(qrStr.Result.Success, Is.True);
+            Assert.That(root.ReadStringPath("meta.title"), Is.EqualTo("Hello"));
+
+            // Ensure array creation (value array)
+            var qra = root.Query().Location("data").Location("values").Ensure().Array<int>(out var arr, minLength: 3);
+            Assert.That(arr.Length, Is.GreaterThanOrEqualTo(3));
+        }
+
+        [Test]
+        public void Ensure_Object_And_ObjectArray_WithAllowOverride()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Create scalar at path then override to object with allowOverride=false -> should throw
+            root.WritePath("node", 1);
+            Assert.Throws<InvalidOperationException>(() =>
+                root.Query().Location("node").Ensure().Is().Object(allowOverride: false));
+
+            // Now allow override -> should succeed
+            var obj = root.Query().Location("node").Ensure().Is().Object(allowOverride: true);
+            Assert.That(obj.IsNull, Is.False);
+
+            // ObjectArray override
+            root.WritePath("list", 1); // scalar
+            Assert.Throws<InvalidOperationException>(() =>
+                root.Query().Location("list").Ensure().Is().ObjectArray(allowOverride: false));
+
+            var arr = root.Query().Location("list").Ensure().Is().ObjectArray(minLength: 2, allowOverride: true);
+            Assert.That(arr.Length, Is.GreaterThanOrEqualTo(2));
+        }
+
+        // ---------------------------
+        // Make statement tests
+        // ---------------------------
+
+        [Test]
+        public void Make_Scalar_Writes_And_Reads_And_Finalizes()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Make() finalizes the query; write scalar using Make().Scalar(value)
+            root.Query().Location("player").Location("hp").Make().Scalar<int>(77);
+
+            // Read via path
+            Assert.That(root.ReadPath<int>("player.hp"), Is.EqualTo(77));
+
+            // Make().Scalar when member exists but incompatible without allowOverride -> throws
+            root.WritePath("conflict", 1);
+            Assert.Throws<InvalidOperationException>(() =>
+                root.Query().Location("conflict").Make().Scalar<double>(allowOverride: false));
+        }
+
+        [Test]
+        public void Make_ObjectArray_CreateAndManipulateElements()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Create an object array and ensure length
+            var objArr = root.Query().Location("world").Location("ents").Make().ObjectArray(2);
+            Assert.That(objArr.Length, Is.GreaterThanOrEqualTo(2));
+
+            // Write to element
+            root.WritePath("world.ents[1].hp", 11);
+            Assert.That(root.ReadPath<int>("world.ents[1].hp"), Is.EqualTo(11));
+        }
+
+        // ---------------------------
+        // Exist statement tests
+        // ---------------------------
+
+        [Test]
+        public void Exist_Has_Object_Scalar_Array_Checks()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // prepare fields
+            root.WritePath("player.stats.hp", 10);
+            root.Query().Location("player").Location("inventory").Make().Array<int>(minLength: 2);
+
+            // Has & As checks
+            var existHp = root.Query().Location("player").Location("stats").Location("hp").Exist();
+            Assert.That(existHp.Has, Is.True);
+            Assert.That(existHp.As<int>(exact: true), Is.True);
+            Assert.That(existHp.As<float>(exact: false), Is.True);
+
+            // Array checks
+            var existArr = root.Query().Location("player").Location("inventory").Exist();
+            Assert.That(existArr.ArrayOf<int>(out var arr), Is.True);
+            Assert.That(arr.Length, Is.GreaterThanOrEqualTo(2));
+
+            // Object(out) when missing returns false and out default
+            Assert.That(root.Query().Location("missing").Exist().Object(out StorageObject so), Is.False);
+            Assert.That(so.IsNull, Is.True);
+        }
+
+        [Test]
+        public void Exist_Finalizer_Disposes_Query()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var q = root.Query().Location("a").Location("b");
+            // Exist returns ExistStatement and implicitly finalizes underlying query
+            var exist = q.Exist();
+            // After exist statement created, original query's buffer should be disposed (finalized)
+            Assert.That(q.IsDisposed, Is.True);
+            // Using the ExistStatement still works for presence check
+            Assert.That(exist.Has, Is.False);
+        }
+
+        // ---------------------------
+        // Persistent/Previous/Then tests (supporting APIs)
+        // ---------------------------
+
+        [Test]
+        public void Persist_Previous_Then_Chaining_Behavior()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var q = root.Query().Location("a").Location("b").Location("c").Index(2).Location("val");
+            // Persist creates Persistent that keeps path and finalizes original query
+            var p = q.Persist();
+            Assert.That(q.IsDisposed, Is.True);
+            Assert.That(p.PathSpan.ToString(), Is.EqualTo("a.b.c[2].val"));
+
+            // Previous on persistent should walk back
+            var pPrev = p.Previous();
+            Assert.That(pPrev.PathSpan.ToString(), Is.EqualTo("a.b.c[2]"));
+
+            // Ensure using Then() on a QueryResult goes back to parent
+            var created = root.Query().Location("cfg").Location("ver").Ensure().Scalar<int>(1);
+            var parent = created.Then();
+            Assert.That(parent.Path, Is.EqualTo("cfg"));
+
+            p.Dispose();
+        }
     }
 }
