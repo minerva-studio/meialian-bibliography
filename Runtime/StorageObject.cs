@@ -327,7 +327,6 @@ namespace Minerva.DataStorage
         /// Read the field
         /// </summary>
         /// <remarks>
-        /// - If field does not exist, read <typeparamref name="T"/> default value and create the field
         /// - Always return explicit conversion result, unless conversion is not supported, then exception will throw
         /// </remarks>
         /// <typeparam name="T"></typeparam>
@@ -337,13 +336,33 @@ namespace Minerva.DataStorage
         public T Read<T>(string fieldName) where T : unmanaged
         {
             ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            return Read<T>(fieldName.AsSpan());
+            return Read<T>(fieldName.AsSpan(), false);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <remarks>
+        /// - If field does not exist: if <paramref name="createIfMissing"/> is set, read <typeparamref name="T"/> default value and create the field
+        /// else throw exception
+        /// - Always return explicit conversion result, unless conversion is not supported, then exception will throw
+        /// </remarks>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <param name="createIfMissing"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T Read<T>(string fieldName, bool createIfMissing = false) where T : unmanaged
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            return Read<T>(fieldName.AsSpan(), createIfMissing);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T Read<T>(ReadOnlySpan<char> fieldName) where T : unmanaged
+        public T Read<T>(ReadOnlySpan<char> fieldName, bool createIfMissing = false) where T : unmanaged
         {
-            if (_container.TryReadScalarExplicit(ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, true), out T result))
+            ref var header = ref _container.EnsureNotDisposed(_generation).GetFieldHeader<T>(fieldName, createIfMissing);
+            if (_container.TryReadScalarExplicit(ref header, out T result))
                 return result;
 
             ThrowHelper.ThrowInvalidOperation();
@@ -395,6 +414,33 @@ namespace Minerva.DataStorage
             return _container.EnsureNotDisposed(_generation).TryGetFieldHeader(fieldName, out var outHeader) && _container.TryReadScalarExplicit(ref outHeader[0], out value);
         }
 
+        /// <summary>
+        /// Read the field, or create it with default value if not exist
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="fieldName"></param>
+        /// <param name="defaultValue"></param>
+        /// <returns></returns> 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T ReadOrCreate<T>(string fieldName, T defaultValue = default) where T : unmanaged
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            return ReadOrCreate(fieldName.AsSpan(), defaultValue);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public T ReadOrCreate<T>(ReadOnlySpan<char> fieldName, T defaultValue = default) where T : unmanaged
+        {
+            _container.EnsureNotDisposed(_generation);
+            int index = _container.IndexOf(fieldName);
+            if (index < 0)
+            {
+                Write(fieldName, defaultValue);
+                return defaultValue;
+            }
+            return Read<T>(index);
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T ReadOrDefault<T>(string fieldName) where T : unmanaged
         {
@@ -403,9 +449,9 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T ReadOrDefault<T>(ReadOnlySpan<char> fieldName1) where T : unmanaged
+        public T ReadOrDefault<T>(ReadOnlySpan<char> fieldName) where T : unmanaged
         {
-            return _container.EnsureNotDisposed(_generation).TryRead(fieldName1, out T value) ? value : default;
+            return _container.EnsureNotDisposed(_generation).TryRead(fieldName, out T value) ? value : default;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -443,6 +489,9 @@ namespace Minerva.DataStorage
         #endregion
 
         #endregion
+
+
+
 
         #region Read/Write by Path
 
@@ -1102,7 +1151,7 @@ namespace Minerva.DataStorage
             if (!container.HasField(fieldSegment))
                 throw new ArgumentException($"Path segment '{fieldSegment.ToString()}' does not exist on the current object.", nameof(path));
 
-            var child = container.GetObject(fieldSegment, reschemeOnMissing: false, layout: null);
+            var child = container.GetObject(fieldSegment, reschemeIfMissing: false, layout: null);
             if (child.IsNull)
                 throw new InvalidOperationException($"Path segment '{fieldSegment.ToString()}' refers to a null child object.");
 
@@ -1135,7 +1184,7 @@ namespace Minerva.DataStorage
             if (!container.HasField(fieldSegment))
                 throw new ArgumentException($"Path segment '{fieldSegment.ToString()}' does not exist on the current object.", nameof(path));
 
-            var child = container.GetObject(fieldSegment, reschemeOnMissing: false, layout: null);
+            var child = container.GetObject(fieldSegment, reschemeIfMissing: false, layout: null);
             if (child.IsNull)
                 throw new InvalidOperationException($"Path segment '{fieldSegment.ToString()}' refers to a null child object.");
 
@@ -1196,7 +1245,7 @@ namespace Minerva.DataStorage
             ref var header = ref headerSpan[0];
             if (header.IsRef)
             {
-                var child = GetObject(name, reschemeOnMissing: false, layout: null);
+                var child = GetObject(name, reschemeIfMissing: false, layout: null);
                 if (child.IsNull)
                     throw new ArgumentException($"Container '{name.ToString()}' is null or missing.", nameof(name));
                 return child.Subscribe(handler);
@@ -1332,20 +1381,20 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageObject GetObject(int index) => GetObject(index, reschemeOnMissing: true, layout: ContainerLayout.Empty);
+        public StorageObject GetObject(int index) => GetObject(index, reschemeIfMissing: true, layout: ContainerLayout.Empty);
 
         /// <summary>
         /// Get child object with layout
         /// </summary>
         /// <param name="fieldName"></param>
-        /// <param name="reschemeOnMissing"></param>
+        /// <param name="reschemeIfMissing"></param>
         /// <param name="layout"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageObject GetObject(int index, bool reschemeOnMissing, ContainerLayout layout)
+        public StorageObject GetObject(int index, bool reschemeIfMissing, ContainerLayout layout)
         {
             _container.EnsureNotDisposed(_generation);
-            ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(index) : ref _container.GetRefNoRescheme(index);
+            ref ContainerReference idRef = ref reschemeIfMissing ? ref _container.GetRef(index) : ref _container.GetRefNoRescheme(index);
             var obj = layout == null
                 ? StorageObjectFactory.GetNoAllocate(idRef)
                 : (idRef.TryGet(out var existingObj)
@@ -1365,7 +1414,7 @@ namespace Minerva.DataStorage
         public StorageObject GetObject(string fieldName)
         {
             ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            return GetObject(fieldName, reschemeOnMissing: true, layout: ContainerLayout.Empty);
+            return GetObject(fieldName, reschemeIfMissing: true, layout: ContainerLayout.Empty);
         }
 
         /// <summary>
@@ -1374,23 +1423,23 @@ namespace Minerva.DataStorage
         /// <param name="fieldName"></param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageObject GetObject(ReadOnlySpan<char> fieldName) => GetObject(fieldName, reschemeOnMissing: true, layout: ContainerLayout.Empty);
+        public StorageObject GetObject(ReadOnlySpan<char> fieldName) => GetObject(fieldName, reschemeIfMissing: true, layout: ContainerLayout.Empty);
 
         /// <summary>
         /// Get child object with layout
         /// </summary>
         /// <param name="fieldName"></param>
-        /// <param name="reschemeOnMissing"></param>
+        /// <param name="reschemeIfMissing"></param>
         /// <param name="layout"></param>
         /// <returns>storage object, null storage object if object does not exist </returns>
         /// <exception cref="ObjectDisposedException">If container is disposed</exception>
         /// <exception cref="InvalidOperationException">If field is not a reference field</exception>"
-        /// <exception cref="ArgumentException">If field does not exist and reschemeOnMissing is false</exception>"
+        /// <exception cref="ArgumentException">If field does not exist and reschemeIfMissing is false</exception>"
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public StorageObject GetObject(ReadOnlySpan<char> fieldName, bool reschemeOnMissing = true, ContainerLayout layout = null)
+        public StorageObject GetObject(ReadOnlySpan<char> fieldName, bool reschemeIfMissing = true, ContainerLayout layout = null)
         {
             _container.EnsureNotDisposed(_generation);
-            ref ContainerReference idRef = ref reschemeOnMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
+            ref ContainerReference idRef = ref reschemeIfMissing ? ref _container.GetRef(fieldName) : ref _container.GetRefNoRescheme(fieldName);
 
             var obj = layout == null
                 ? StorageObjectFactory.GetNoAllocate(idRef)
@@ -1470,7 +1519,7 @@ namespace Minerva.DataStorage
 
             var parent = NavigateToObject(path, separator, createIfMissing, out var fieldName, out var index);
             return index < 0
-                ? parent.GetObject(fieldName, reschemeOnMissing: createIfMissing, layout: ContainerLayout.Empty)
+                ? parent.GetObject(fieldName, reschemeIfMissing: createIfMissing, layout: ContainerLayout.Empty)
                 : parent.GetObjectInArray(fieldName, index, createIfMissing, createIfMissing);
         }
 

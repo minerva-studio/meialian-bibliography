@@ -168,7 +168,7 @@ namespace Minerva.DataStorage.Tests
 
             // Old name should be missing; new name retains data
             Assert.That(root.TryGetObject("player", out _), Is.False);
-            var entity = root.GetObject("entity", reschemeOnMissing: false, layout: null);
+            var entity = root.GetObject("entity", reschemeIfMissing: false, layout: null);
             Assert.That(entity.Read<int>("hp"), Is.EqualTo(100));
             Assert.That(entity.ReadString("name"), Is.EqualTo("Alice"));
 

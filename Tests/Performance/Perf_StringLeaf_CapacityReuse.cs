@@ -66,7 +66,7 @@ namespace Minerva.DataStorage.Tests
                 }
                 else if (p < wWriteNum + wReadNum)
                 {
-                    _ = r.Read<double>("n");
+                    _ = r.Read<double>("n", true);
                     tRead++;
                 }
                 else if (p < wWriteNum + wReadNum + wStr)
