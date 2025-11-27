@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using static Minerva.DataStorage.StorageQuery;
 
@@ -352,7 +352,7 @@ namespace Minerva.DataStorage
                         next = Fail($"Expect Scalar<{expected}>: actual {m.ValueType}.", strict);
                     else
                     {
-                        value = m.AsScalar().Read<TValue>();
+                        value = m.AsScalar<TValue>();
                         next = Pass();
                     }
                 }
@@ -641,7 +641,7 @@ namespace Minerva.DataStorage
                     var targetType = TypeData.Of<T>();
                     // exact match
                     if (targetType == member.Type)
-                        return member.AsScalar().Read<T>();
+                        return member.AsScalar<T>();
                     if (!allowOverride)
                         throw new InvalidOperationException($"Ensure.Is<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible type '{member.Type}'.");
                     _root.WritePath(_path, default(T));
@@ -772,7 +772,7 @@ namespace Minerva.DataStorage
             internal ExistStatement(StorageObject root, string path)
             {
                 _root = root;
-                _path = path;
+                _path = path ?? string.Empty;
             }
 
             public bool Has => !Failed && _root.TryGetMember(_path, out _);
@@ -994,30 +994,39 @@ namespace Minerva.DataStorage
         public static TQuery Then<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery> => query.Previous();
         public static TQuery Then<TQuery, TValue>(this QueryResult<TQuery, TValue> result) where TQuery : struct, IStorageQuery<TQuery> => result.Query.Previous();
         public static MakeStatement Make(this StorageObject root, string path) => new MakeStatement(root, path);
-        public static ExistStatement Exist(this StorageObject root, string path) => new ExistStatement(root, path);
+        public static ExistStatement Exist(this StorageObject root, string path = null) => new ExistStatement(root, path);
 
         public static EnsureStatement<StorageQuery> Ensure(this StorageObject root, string path) => new StorageQuery(root, path).Ensure();
         public static ExpectStatement<StorageQuery> Expect(this StorageObject root, string path) => new StorageQuery(root, path).Expect();
-        public static QueryResult<TQuery, TValue> CreateResult<TQuery, TValue>(this TQuery query, TValue value) where TQuery : struct, IStorageQuery<TQuery>
+
+
+        internal static QueryResult<TQuery, TValue> CreateResult<TQuery, TValue>(this TQuery query, TValue value) where TQuery : struct, IStorageQuery<TQuery>
         {
             return new QueryResult<TQuery, TValue>(query, value);
         }
 
+
+
         /// <summary>Get member view for this path.</summary>
+        /// <remarks>A finalizer</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static StorageMember GetMember<TQuery>(this TQuery query, bool createIfMissing = true) where TQuery : struct, IStorageQuery<TQuery>
         {
             query.EnsureRootValid();
-            var path = query.PathSpan.ToString();
-            return createIfMissing ? query.Root.GetMember(path) : (query.Root.TryGetMember(path, out var m) ? m : default);
+            var path = query.PathSpan;
+            using var context = new QueryImplicitDisposeContext<TQuery>(query);
+            var reslut = createIfMissing ? query.Root.GetMember(path) : (query.Root.TryGetMember(path, out var m) ? m : default);
+            return new StorageMember(reslut.StorageObject, reslut.Name.ToArray(), reslut.ArrayIndex);
         }
 
         /// <summary>Try get member view (non-creating).</summary>
+        /// <remarks>A finalizer</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool TryGetMember<TQuery>(this TQuery query, out StorageMember member) where TQuery : struct, IStorageQuery<TQuery>
         {
             member = default;
             query.EnsureRootValid();
+            using var context = new QueryImplicitDisposeContext<TQuery>(query);
             if (query.Result && query.Root.TryGetMember(query.PathSpan, out member))
             {
                 member = new StorageMember(member.StorageObject, member.Name.ToArray(), member.ArrayIndex);

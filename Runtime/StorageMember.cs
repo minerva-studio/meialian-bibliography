@@ -104,6 +104,47 @@ namespace Minerva.DataStorage
         }
 
 
+        public int Int
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Read<int>();
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => Write(value);
+        }
+
+        public float Float
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Read<float>();
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => Write(value);
+        }
+
+        public double Double
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Read<double>();
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => Write(value);
+        }
+
+        public long Long
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Read<long>();
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => Write(value);
+        }
+
+        public string String
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => AsObject().ReadString();
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => AsObject().WriteString(value);
+        }
+
+
 
 
         public StorageMember(StorageObject storageObject, ReadOnlySpan<char> fieldName)
@@ -141,13 +182,10 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ReadOnlyValueView AsScalar()
-        {
-            EnsureNoDispose();
-            int index = EnsureFieldIndex();
-            if (this._index >= 0) return _storageObject.GetArray(ref _handle)[_index];
-            return _storageObject.GetValueView(index);
-        }
+        public readonly StorageScalar AsScalar() => new StorageScalar(_handle, _index);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly StorageScalar<T> AsScalar<T>() where T : unmanaged => new StorageScalar<T>(_handle, _index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public StorageArray AsArray()
@@ -179,15 +217,9 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T Read<T>(bool isExplicit = true) where T : unmanaged => AsScalar().Read<T>(isExplicit);
+        public readonly T Read<T>(bool isExplicit = true) where T : unmanaged => AsScalar().Read<T>(isExplicit);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write<T>(T value) where T : unmanaged
-        {
-            EnsureNoDispose();
-            int index = EnsureFieldIndex();
-            if (this._index >= 0) _storageObject.GetArray(ref _handle).Write(_index, value);
-            else _storageObject.Write(index, value);
-        }
+        public readonly void Write<T>(T value) where T : unmanaged => AsScalar().Write(value);
     }
 }

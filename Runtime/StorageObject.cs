@@ -87,6 +87,46 @@ namespace Minerva.DataStorage
             get => GetMember(path);
         }
 
+        /// <summary>
+        /// a convenience accessor for int fields
+        /// <code>
+        /// obj.Int["fieldName"] = 1;
+        /// int value = obj.Int["fieldName"];
+        /// </code> 
+        /// </summary> 
+        public Accessor<int> Int => new Accessor<int>(this);
+        /// <summary>
+        /// a convenience accessor for long fields
+        /// <code>
+        /// obj.Long["fieldName"] = 1;
+        /// long value = obj.Long["fieldName"];
+        /// </code> 
+        /// </summary> 
+        public Accessor<long> Long => new Accessor<long>(this);
+        /// <summary>
+        /// a convenience accessor for float fields
+        /// <code>
+        /// obj.Float["fieldName"] = 1;
+        /// float value = obj.Float["fieldName"];
+        /// </code> 
+        /// </summary> 
+        public Accessor<float> Float => new Accessor<float>(this);
+        /// <summary>
+        /// a convenience accessor for double fields
+        /// <code>
+        /// obj.Double["fieldName"] = 1d;
+        /// double value = obj.Double["fieldName"];
+        /// </code> 
+        /// </summary> 
+        public Accessor<double> Double => new Accessor<double>(this);
+        /// <summary>
+        /// a convenience accessor for double fields
+        /// <code>
+        /// obj.String["fieldName"] = 1d;
+        /// string value = obj.String["fieldName"];
+        /// </code> 
+        /// </summary> 
+        public StringAccessor String => new StringAccessor(this);
 
 
 
@@ -1941,6 +1981,41 @@ namespace Minerva.DataStorage
 
             StorageEventRegistry.NotifyFieldDelete(container, fieldName, fieldType);
             StorageEventRegistry.RemoveFieldSubscriptions(container, fieldName);
+        }
+
+
+
+
+        public readonly struct Accessor<T> where T : unmanaged
+        {
+            private readonly StorageObject _obj;
+
+            public Accessor(StorageObject member)
+            {
+                _obj = member;
+            }
+
+            public T this[string key]
+            {
+                get => _obj.Read<T>(key);
+                set => _obj.Write<T>(key, value);
+            }
+        }
+
+        public readonly struct StringAccessor
+        {
+            private readonly StorageObject _obj;
+
+            public StringAccessor(StorageObject member)
+            {
+                _obj = member;
+            }
+
+            public string this[string key]
+            {
+                get => _obj.ReadString(key);
+                set => _obj.Write(key, value);
+            }
         }
     }
 }

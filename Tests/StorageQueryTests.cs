@@ -626,7 +626,7 @@ namespace Minerva.DataStorage.Tests
             Assert.IsTrue(q.TryGetMember(out var member));
             // member should exist and read back correct scalar
             Assert.IsTrue(member.Exist);
-            Assert.AreEqual(123, member.AsScalar().Read<int>());
+            Assert.AreEqual(123, member.AsScalar<int>().Value);
         }
 
         [Test]
