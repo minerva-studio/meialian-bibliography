@@ -2,25 +2,24 @@
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
 		<TargetFramework>net6.0</TargetFramework>
-		<ImplicitUsings>enable</ImplicitUsings>
 		<LangVersion>9.0</LangVersion>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<Platforms>AnyCPU;x64</Platforms>
-		<ImplicitUsings>false</ImplicitUsings>
 		<GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
 		<GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
 		<ProjectGuid>{327C8C8E-FAA6-9438-810A-6E5BF27CE2F7}</ProjectGuid>
+		<ImplicitUsings>false</ImplicitUsings>
+		<GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
+		<GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
+		<EnableDefaultItems>false</EnableDefaultItems>
 	</PropertyGroup>
-	<PropertyGroup Condition="'$(Configuration)' == 'Debug'">
-		<CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-	</PropertyGroup>
-	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
-		<CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-	</PropertyGroup>
+	<ItemGroup>
+		<Compile Include="Tests\**\*.cs" />
+	</ItemGroup>
 	<ItemGroup>
 		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
 		<PackageReference Include="NUnit" Version="3.14.0" />
 		<PackageReference Include="NUnit3TestAdapter" Version="5.2.0" />
-		<ProjectReference Include="..\Minerva.DataStorage.csproj" />
+		<ProjectReference Include="Minerva.DataStorage.csproj" />
 	</ItemGroup>
 </Project>
