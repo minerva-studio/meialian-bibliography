@@ -86,6 +86,8 @@ namespace Minerva.DataStorage
         /// <summary> Result of query. </summary>
         public readonly Result Result => _result;
 
+        public readonly StorageQuery this[int index] => Index(index);
+
 
 
         readonly ReadOnlySpan<char> IStorageQuery.PathSpan => _segments.Span;
@@ -215,6 +217,8 @@ namespace Minerva.DataStorage
 
             /// <summary> Result of query. </summary>
             public readonly Result Result => _result;
+
+            public readonly Persistent this[int index] => Index(index);
 
 
 

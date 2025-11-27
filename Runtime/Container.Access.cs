@@ -9,22 +9,22 @@ namespace Minerva.DataStorage
     {
         int IAccessor<int>.this[string key]
         {
-            get => new StorageObject(this).Read<int>(key);
-            set => new StorageObject(this).Write<int>(key, value);
+            get => new StorageObject(this).Read<int>(key, true);
+            set => new StorageObject(this).Write<int>(key, value, true);
         }
         long IAccessor<long>.this[string key]
         {
-            get => new StorageObject(this).Read<long>(key);
+            get => new StorageObject(this).Read<long>(key, true);
             set => new StorageObject(this).Write<long>(key, value);
         }
         float IAccessor<float>.this[string key]
         {
-            get => new StorageObject(this).Read<float>(key);
+            get => new StorageObject(this).Read<float>(key, true);
             set => new StorageObject(this).Write<float>(key, value);
         }
         double IAccessor<double>.this[string key]
         {
-            get => new StorageObject(this).Read<double>(key);
+            get => new StorageObject(this).Read<double>(key, true);
             set => new StorageObject(this).Write<double>(key, value);
         }
         string IStringAccessor.this[string key]
