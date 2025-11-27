@@ -750,6 +750,24 @@ namespace Minerva.DataStorage
             return StorageArray.AsString(in container.GetFieldHeader(0), container);
         }
 
+        public bool TryReadString(string fieldName, out string value)
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            return TryReadString(fieldName.AsSpan(), out value);
+        }
+
+        public bool TryReadString(ReadOnlySpan<char> fieldName, out string value)
+        {
+            value = null;
+            if (!IsArray(fieldName))
+                return false;
+            StorageArray storageArray = GetArray(fieldName);
+            if (!storageArray.IsString)
+                return false;
+            value = storageArray.AsString();
+            return true;
+        }
+
         #endregion
         #endregion
 
