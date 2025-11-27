@@ -52,10 +52,19 @@ namespace Minerva.DataStorage
             get => _container.IsDisposed(_generation);
         }
 
+        /// <summary>Gets the number of fields contained in the current data record.</summary>
         public int FieldCount
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => Container.FieldCount;
+        }
+
+        /// <summary>Version of the object. (User defined)</summary>
+        public int Version
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Container.Version;
+            set => Container.Version = value;
         }
 
         /// <summary>
@@ -94,15 +103,6 @@ namespace Minerva.DataStorage
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void EnsureNotDisposed() => _container.EnsureNotDisposed(_generation);
-
-
-
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal FieldView GetFieldView(ReadOnlySpan<char> fieldName) => _container.View[fieldName];
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal FieldView GetFieldView(int index) => _container.View[index];
 
 
 
@@ -1608,6 +1608,8 @@ namespace Minerva.DataStorage
             ThrowHelper.ThrowIfNull(destFieldName, nameof(destFieldName));
 
             _container.EnsureNotDisposed(_generation);
+            // allow no-op move
+            if (sourceFieldName == destFieldName) return;
             _container.Move(sourceFieldName, destFieldName);
             NotifyFieldMove(_container, sourceFieldName, destFieldName);
         }
@@ -1619,6 +1621,8 @@ namespace Minerva.DataStorage
             _container.EnsureNotDisposed(_generation);
             if (_container.IndexOf(sourceFieldName) < 0) // source field exist
                 return false;
+            // allow no-op move
+            if (sourceFieldName == destFieldName) return true;
             if (_container.IndexOf(destFieldName) >= 0) // dest field exist
                 return false;
             _container.Move(sourceFieldName, destFieldName);

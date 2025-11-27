@@ -21,16 +21,15 @@ namespace Minerva.DataStorage.Tests
             ob.SetScalar<long>("id");
 
             var c = ob.BuildContainer();
-            var v = c.View;
 
             // Check total length is header + field headers + names + data (not strictly needed, but sanity)
-            int n = v.FieldCount;
+            int n = c.FieldCount;
             int namesBytes = CharBytes("hp".Length + "spd".Length + "id".Length);
             int expectedMinTotal = ContainerHeader.Size + n * FieldHeader.Size + namesBytes;
             Assert.GreaterOrEqual(c.Length, expectedMinTotal);
 
             // All data bytes should be zero
-            var data = v.DataSegment;
+            var data = c.DataSegment;
             Assert.IsTrue(data.ToArray().All(b => b == 0), "All uninitialized payload bytes should be zero.");
         }
 
@@ -146,42 +145,6 @@ namespace Minerva.DataStorage.Tests
 
             int val = c.Read<int>("word");
             Assert.AreEqual(0x000000CD, val); // shrink to CD
-        }
-
-        [Test]
-        public void Clone_ProducesIndependentCopy()
-        {
-            var ob = new ObjectBuilder();
-            ob.SetScalar<int>("hp");
-            ob.SetScalar<int>("mp");
-            var c1 = ob.BuildContainer();
-
-            c1.Write<int>("hp", 10, allowRescheme: false);
-            c1.Write<int>("mp", 5, allowRescheme: false);
-
-            var c2 = c1.Clone();
-            Assert.AreEqual(10, c2.Read<int>("hp"));
-            Assert.AreEqual(5, c2.Read<int>("mp"));
-
-            c1.Write<int>("hp", 77, allowRescheme: false);
-            Assert.AreEqual(77, c1.Read<int>("hp"));
-            Assert.AreEqual(10, c2.Read<int>("hp")); // independent
-        }
-
-        [Test]
-        public void CopyFrom_DifferentTotalLengths_Throws()
-        {
-            // Build two containers of different total byte sizes
-            var ob1 = new ObjectBuilder();
-            ob1.SetScalar<int>("a");
-            var c1 = ob1.BuildContainer();
-
-            var ob2 = new ObjectBuilder();
-            ob2.SetScalar<long>("a"); // bigger payload -> larger total
-            var c2 = ob2.BuildContainer();
-
-            Assert.That(() => c1.CopyFrom(c2),
-                Throws.TypeOf<ArgumentException>().With.Message.Contains("Destination length"));
         }
 
         [Test]
@@ -323,37 +286,6 @@ namespace Minerva.DataStorage.Tests
             Assert.AreEqual(101UL, BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(0, 8)));
             Assert.AreEqual(202UL, BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(8, 8)));
             Assert.AreEqual(303UL, BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(16, 8)));
-        }
-
-        [Test]
-        public void Clone_CopyTo_CopyFrom_BasicSanity()
-        {
-            var ob = new ObjectBuilder();
-            ob.SetScalar<int>("a");
-            ob.SetScalar<int>("b");
-            var c = ob.BuildContainer();
-
-            var view = c.View;
-            BinaryPrimitives.WriteInt32LittleEndian(view.GetFieldBytes(0), 7);
-            BinaryPrimitives.WriteInt32LittleEndian(view.GetFieldBytes(1), 9);
-
-            var clone = c.Clone();
-            var cv = clone.View;
-            Assert.AreEqual(7, BitConverter.ToInt32(cv.GetFieldBytes(0)));
-            Assert.AreEqual(9, BitConverter.ToInt32(cv.GetFieldBytes(1)));
-
-            // CopyTo
-            Assert.AreEqual(c.Length, c.Memory.Buffer.Length);
-            var dst = new byte[c.Length];
-            c.CopyTo(dst);
-            var c2 = Container.Registry.Shared.CreateWild(dst.Length);
-            dst.AsSpan().CopyTo(c2.Span);
-
-            // CopyFrom
-            var c3 = Container.Registry.Shared.CreateWild(c.Length);
-            c3.CopyFrom(c);
-            Assert.AreEqual(c.Length, c3.Length);
-            Assert.AreEqual(BitConverter.ToInt32(c.View.GetFieldBytes(0)), BitConverter.ToInt32(c3.View.GetFieldBytes(0)));
         }
 
         [Test]

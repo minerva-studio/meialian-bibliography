@@ -67,7 +67,7 @@ namespace Minerva.DataStorage
         private ReadOnlyMemory<char> _name;
         private readonly SortedList<ReadOnlyMemory<char>, Entry> _map = new(ReadOnlyMemoryComparer.Default);
 
-        int Version { get; set; } = Container.Version;
+        int Version { get; set; } = 0;
 
 
         // --------------------------
@@ -512,6 +512,7 @@ namespace Minerva.DataStorage
         {
             var builder = new ObjectBuilder();
             builder.SetName(container.NameSpan);
+            builder.Version = container.Version;
             for (int i = 0; i < container.FieldCount; i++)
             {
                 ref var header = ref container.GetFieldHeader(i);

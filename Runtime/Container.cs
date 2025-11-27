@@ -11,8 +11,6 @@ namespace Minerva.DataStorage
     /// </summary>
     internal sealed partial class Container : IDisposable
     {
-        public const int Version = 0;
-
         private ulong _id;              // assigned by registry 
         private AllocatedMemory _memory;
         private int _generation;
@@ -23,7 +21,7 @@ namespace Minerva.DataStorage
         public ulong ID => _id;
         /// <summary> Generation </summary>
         public int Generation => _generation;
-        /// <summary> Version </summary>
+        /// <summary> Schema Version, changed when rescheme </summary>
         public int SchemaVersion => _schemaVersion;
 
 
@@ -57,9 +55,15 @@ namespace Minerva.DataStorage
             }
         }
 
+        /// <summary>True if this container represents an array (single field which is an inline array). </summary>
         public bool IsArray => FieldCount == 1 && GetFieldHeader(0).IsInlineArray;
 
-        public ContainerView View => new ContainerView(Span);
+        /// <summary> For internal testing and debugging only. </summary>
+        public ContainerView View
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => new ContainerView(Span);
+        }
 
         /// <summary>Logical memory slice [0..length).</summary>
         public Span<byte> Span
@@ -112,6 +116,16 @@ namespace Minerva.DataStorage
         }
 
         public string Name => NameSpan.ToString();
+
+        /// <summary>
+        /// Version of the container. (User defined version)
+        /// </summary>
+        public int Version
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Header.Version;
+            set => Header.Version = value;
+        }
 
         public ref AllocatedMemory Memory => ref _memory;
 
@@ -589,29 +603,6 @@ namespace Minerva.DataStorage
         {
             EnsureNotDisposed();
             Span.Clear();
-        }
-
-        public Container Clone()
-        {
-            EnsureNotDisposed();
-            return Registry.Shared.CreateWild(_memory.Buffer.Span);
-        }
-
-        public void CopyFrom(Container other)
-        {
-            EnsureNotDisposed();
-            if (other is null) throw new ArgumentNullException(nameof(other));
-            if (Length < other.Length)
-                throw new ArgumentException($"Destination length {Length} is smaller than source length {other.Length}.", nameof(other));
-            other.Span.CopyTo(Span);
-        }
-
-        public void CopyTo(Span<byte> destination)
-        {
-            EnsureNotDisposed();
-            if (destination.Length != Length)
-                throw new ArgumentException($"Destination length {destination.Length} must equal {Length}.", nameof(destination));
-            Span.CopyTo(destination);
         }
 
         #endregion

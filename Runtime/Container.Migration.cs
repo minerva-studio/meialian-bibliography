@@ -48,15 +48,15 @@ namespace Minerva.DataStorage
 
         public void Move(ReadOnlySpan<char> oldFieldName, ReadOnlySpan<char> newFieldName)
         {
-            int index = IndexOf(oldFieldName);
-            if (index < 0)
+            int fieldIndex = IndexOf(oldFieldName);
+            if (fieldIndex < 0)
                 ThrowHelper.ArgumentException("Field not found.", nameof(oldFieldName));
             // no change
             if (oldFieldName.SequenceEqual(newFieldName))
                 return;
 
             ref var containerHeader = ref this.Header;
-            ref var fieldHeader = ref GetFieldHeader(index);
+            ref var fieldHeader = ref GetFieldHeader(fieldIndex);
             var oldNameBytes = MemoryMarshal.AsBytes(oldFieldName);
             var newNameBytes = MemoryMarshal.AsBytes(newFieldName);
             Span<byte> oldSpan = _memory.Buffer.Span;
@@ -64,100 +64,103 @@ namespace Minerva.DataStorage
             ThrowHelper.ThrowIfOverlap(oldSpan, newNameBytes);
 
             int nameLengthByteDelta = newNameBytes.Length - oldNameBytes.Length;
-            var newSize = _memory.Buffer.Length + nameLengthByteDelta;
+            int fieldCount = FieldCount;
+            int newSize = _memory.Buffer.Length + nameLengthByteDelta;
+
             var newMemory = AllocatedMemory.Create(newSize);
             var oldMemory = _memory;
+
             Span<byte> newSpan = newMemory.Buffer.Span;
+
             try
             {
-                // Copy old data
-                // headers
-                int preFieldName = ContainerHeader.Size + FieldHeader.Size * containerHeader.FieldCount + containerHeader.ContainerNameLength;
-                //  copy up to container name
-                oldSpan[..preFieldName].CopyTo(newSpan);
+                // 1) Copy container header ONLY, and adjust its fields
                 ref var newContainerHeader = ref Unsafe.As<byte, ContainerHeader>(ref newSpan[0]);
-                newContainerHeader = containerHeader; // header info would almost be the same
-                newContainerHeader.DataOffset += nameLengthByteDelta; // except data offset
+                newContainerHeader = containerHeader;
+                newContainerHeader.Length = newSize;
+                newContainerHeader.DataOffset += nameLengthByteDelta;
 
-                // copy field headers
-                // need to re-sort the fields due to name change, luckly since the names are already in order, we can do it in one pass
-                // find out the new index of this field
-                int fieldCount = FieldCount;
-                int newIndex = 0;
+                // 2) Copy container name straight from old buffer
+                // Container name sits immediately after the field headers
+                int containerNameSrcOffset = ContainerHeader.Size + FieldHeader.Size * containerHeader.FieldCount;
+                oldSpan.Slice(containerNameSrcOffset, containerHeader.ContainerNameLength).CopyTo(
+                    newSpan.Slice(containerNameSrcOffset, containerHeader.ContainerNameLength));
+
+                // 3) Compute new order for the moved field
+                int targetIndex = 0;
                 for (int i = 0; i < fieldCount; i++)
                 {
-                    if (i == index)
-                        continue;
+                    if (i == fieldIndex) continue;
+
                     var otherName = GetFieldName(i);
                     int comp = otherName.CompareTo(newFieldName, StringComparison.Ordinal);
                     if (comp < 0)
-                        newIndex++;
+                        targetIndex++;
                     else if (comp == 0)
                         ThrowHelper.ThrowInvalidOperation("Field with the new name already exists.");
-                    else break;
+                    else
+                        break;
                 }
-                var oldHeadersSpan = oldSpan.Slice(ContainerHeader.Size, FieldHeader.Size * fieldCount);
+
+                // 4) Rebuild field headers entirely in destination buffer to avoid overlapping copy errors
                 var newHeadersSpan = newSpan.Slice(ContainerHeader.Size, FieldHeader.Size * fieldCount);
-                int minIndex = Math.Min(index, newIndex);
-                int maxIndex = Math.Max(index, newIndex);
-                // copy headers before moved field
-                oldHeadersSpan[..(minIndex * FieldHeader.Size)].CopyTo(newHeadersSpan[..(minIndex * FieldHeader.Size)]);
-                // copy moved field header
-                ref var oldFieldHeader = ref FieldHeader.FromSpanAndFieldIndex(oldSpan, index);
-                ref var newFieldHeader = ref FieldHeader.FromSpanAndFieldIndex(newHeadersSpan, 0, newIndex);
-                newFieldHeader = oldFieldHeader;
-                newFieldHeader.NameLength = (short)newFieldName.Length;
-
-                if (index < newIndex)
-                    // shift left
-                    oldHeadersSpan[((index + 1) * FieldHeader.Size)..((newIndex + 1) * FieldHeader.Size)].CopyTo(newHeadersSpan[(index * FieldHeader.Size)..(newIndex * FieldHeader.Size)]);
-                else
-                    // shift right
-                    oldHeadersSpan[(newIndex * FieldHeader.Size)..(index * FieldHeader.Size)].CopyTo(newHeadersSpan[((newIndex + 1) * FieldHeader.Size)..((index + 1) * FieldHeader.Size)]);
-
-                // copy header after moved field
-                oldHeadersSpan[((maxIndex + 1) * FieldHeader.Size)..].CopyTo(newHeadersSpan[((maxIndex + 1) * FieldHeader.Size)..]);
-
-
-                // copy names and data
-                int nameOffset = preFieldName;
+                int nameOffset = ContainerHeader.Size + FieldHeader.Size * fieldCount + containerHeader.ContainerNameLength;
                 int dataOffset = newContainerHeader.DataOffset;
+
+                // Prepare a temporary array of headers in new order
                 for (int i = 0; i < fieldCount; i++)
                 {
                     ref var newFh = ref FieldHeader.FromSpanAndFieldIndex(newSpan, i);
-                    Span<byte> oldData;
-                    newFh.NameOffset = nameOffset;
-                    newFh.DataOffset += nameLengthByteDelta;
-                    if (i < minIndex || i > maxIndex)
+
+                    if (i == targetIndex)
                     {
-                        ref var oldFh = ref GetFieldHeader(i);
-                        // copy old name
-                        var oldName = GetFieldName(in oldFh);
-                        MemoryMarshal.AsBytes(oldName).CopyTo(newMemory.AsSpan(nameOffset, oldName.Length * sizeof(char)));
-                        // copy old data
-                        oldData = GetFieldData(in oldFh);
-                    }
-                    // middle section
-                    else if (i == newIndex)
-                    {
-                        // copy new name
-                        newNameBytes.CopyTo(newMemory.AsSpan(nameOffset, newNameBytes.Length));
-                        // copy old data
-                        oldData = GetFieldData(in oldFieldHeader);
+                        // Moved field goes here with new name length
+                        ref var srcMoved = ref FieldHeader.FromSpanAndFieldIndex(oldSpan, fieldIndex);
+                        newFh = srcMoved;
+                        newFh.NameLength = (short)newFieldName.Length;
                     }
                     else
                     {
-                        // shifted field
-                        int srcIndex = i < index ? i : i - 1;
-                        var oldName = GetFieldName(srcIndex);
-                        MemoryMarshal.AsBytes(oldName).CopyTo(newMemory.AsSpan(nameOffset, oldName.Length * sizeof(char)));
-                        // copy old data
-                        ref var oldFh = ref GetFieldHeader(srcIndex);
-                        oldData = GetFieldData(in oldFh);
+                        int srcIndex = ReverseTranslate(i, fieldIndex, targetIndex);
+                        ref var srcFh = ref FieldHeader.FromSpanAndFieldIndex(oldSpan, srcIndex);
+                        newFh = srcFh;
                     }
-                    oldData.CopyTo(newMemory.AsSpan(dataOffset, newFh.Length));
+
+                    // Adjust offsets for the new layout
+                    newFh.NameOffset = nameOffset;
+                    newFh.DataOffset += nameLengthByteDelta;
+
                     nameOffset += newFh.NameLength * sizeof(char);
                     dataOffset += newFh.Length;
+                }
+
+                // 5) Write names and data according to new headers 
+                for (int i = 0; i < fieldCount; i++)
+                {
+                    ref var newFh = ref FieldHeader.FromSpanAndFieldIndex(newSpan, i);
+                    Span<byte> dstName = newMemory.AsSpan(newFh.NameOffset, newFh.NameLength * sizeof(char));
+                    Span<byte> dstData = newMemory.AsSpan(newFh.DataOffset, newFh.Length);
+
+                    if (i == targetIndex)
+                    {
+                        // new name bytes
+                        newNameBytes.CopyTo(dstName);
+                        // data from the originally moved field
+                        var srcData = GetFieldData(in fieldHeader);
+                        srcData.CopyTo(dstData);
+                    }
+                    else
+                    {
+                        // Determine source header index mapping
+                        int srcIndex = ReverseTranslate(i, fieldIndex, targetIndex);
+
+                        ref var srcFh = ref GetFieldHeader(srcIndex);
+                        var srcName = GetFieldName(in srcFh);
+                        MemoryMarshal.AsBytes(srcName).CopyTo(dstName);
+
+                        var srcData = GetFieldData(in srcFh);
+                        srcData.CopyTo(dstData);
+                    }
                 }
                 ChangeContent(newMemory);
             }
@@ -167,6 +170,34 @@ namespace Minerva.DataStorage
                 throw;
             }
             oldMemory.Dispose();
+
+            static int Translate(int old, int src, int dst)
+            {
+                int min = Math.Min(src, dst);
+                int max = Math.Max(src, dst);
+                if (old == src)
+                    return dst;
+                if (old < min || old > max)
+                    return old;
+                else if (src < dst)
+                    return old - 1; // shift left
+                else
+                    return old + 1; // shift right
+            }
+
+            static int ReverseTranslate(int n, int src, int dst)
+            {
+                int min = Math.Min(src, dst);
+                int max = Math.Max(src, dst);
+                if (n == dst)
+                    return src;
+                if (n < min || n > max)
+                    return n;
+                else if (src < dst)
+                    return n + 1; // shift right
+                else
+                    return n - 1; // shift left
+            }
         }
 
 
@@ -183,7 +214,8 @@ namespace Minerva.DataStorage
         public void Rescheme(Action<ObjectBuilder> edit)
         {
             EnsureNotDisposed();
-            Rescheme(ObjectBuilder.FromContainer(this).Variate(edit).BuildLayout());  // zero-init by default
+            ContainerLayout newLayout = ObjectBuilder.FromContainer(this).Variate(edit).BuildLayout();
+            Rescheme(newLayout);  // zero-init by default
         }
 
         /// <summary>
@@ -209,89 +241,97 @@ namespace Minerva.DataStorage
             ref ContainerHeader header = ref Header;
             int newLength = newLayout.TotalLength + header.ContainerNameLength;
             AllocatedMemory dstBuf = AllocatedMemory.Create(newLength);
-            var dst = dstBuf.Buffer.Span;
-            dst.Clear();
-
-            newLayout.WriteTo(dst, _memory.AsSpan(header.ContainerNameOffset, header.ContainerNameLength));
-
-            // Prepare new header hints (migrate by name)            
-            ContainerView newView = new ContainerView(dst);
-
-            int fieldCount = FieldCount;
-            // ---- Migrate each old field into new layout ----
-            for (int oldIdx = 0; oldIdx < fieldCount; oldIdx++)
+            try
             {
-                ref var oldField = ref GetFieldHeader(oldIdx);
-                var name = GetFieldName(in oldField);
+                var dst = dstBuf.Buffer.Span;
+                dst.Clear();
 
-                var newIdx = newView.IndexOf(name);
-                if (newIdx < 0)
+                newLayout.WriteTo(dst, _memory.AsSpan(header.ContainerNameOffset, header.ContainerNameLength));
+                ref ContainerHeader newContainerHeader = ref Unsafe.As<byte, ContainerHeader>(ref dst[0]);
+                newContainerHeader.Version = header.Version; // preserve version
+                // Prepare new header hints (migrate by name)            
+                ContainerView newView = new ContainerView(dst);
+
+                int fieldCount = FieldCount;
+                // ---- Migrate each old field into new layout ----
+                for (int oldIdx = 0; oldIdx < fieldCount; oldIdx++)
                 {
-                    // Removed: if ref, unregister all non-zero children
-                    if (oldField.IsRef)
+                    ref var oldField = ref GetFieldHeader(oldIdx);
+                    var name = GetFieldName(in oldField);
+
+                    var newIdx = newView.IndexOf(name);
+                    if (newIdx < 0)
                     {
-                        var oldIds = GetFieldData<ContainerReference>(in oldField);
-                        unregister.Add(oldIds, oldField.IsInlineArray, !quiet);
+                        // Removed: if ref, unregister all non-zero children
+                        if (oldField.IsRef)
+                        {
+                            var oldIds = GetFieldData<ContainerReference>(in oldField);
+                            unregister.Add(oldIds, oldField.IsInlineArray, !quiet);
+                        }
+                        else
+                        {
+                            delete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
+                        }
+                        continue;
+                    }
+
+                    ref var newField = ref newView.GetFieldHeader(newIdx);
+                    var dstBytes = newView.GetFieldBytes(newIdx); // NEW buffer slice
+
+
+                    // diff in ref/non-ref
+                    if (oldField.IsRef != newField.IsRef)
+                    {
+                        // Removed: if ref, unregister all non-zero children
+                        if (oldField.IsRef)
+                        {
+                            var oldIds = GetFieldData<ContainerReference>(in oldField);
+                            unregister.Add(oldIds, oldField.IsInlineArray, !quiet);
+                        }
+                        else
+                        {
+                            delete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
+                        }
+                        dstBytes.Clear();
+                        continue;
+                    }
+                    if (!oldField.IsRef)
+                    {
+                        // truely same type
+                        // value type the same, but is array/non array, only diff in length (arr or non arr)
+                        if (oldField.Type == newField.Type)
+                        {
+                            var srcBytes = GetFieldData(in oldField);           // OLD buffer read-only
+                                                                                // copy as much as possible
+                            int min = Math.Min(srcBytes.Length, dstBytes.Length);
+                            srcBytes[..min].CopyTo(dstBytes[..min]);
+                            continue;
+                        }
+                        // implicit conversion needed
+                        else if (oldField.Type != ValueType.Blob && newField.Type != ValueType.Blob && newField.Type != ValueType.Ref)
+                        {
+                            var srcBytes = GetFieldData(in oldField);           // OLD buffer read-only
+                            Migration.MigrateValueFieldBytes(srcBytes, dstBytes, oldField.Type, newField.Type, true);
+                            continue;
+                        }
                     }
                     else
                     {
-                        delete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
-                    }
-                    continue;
-                }
-
-                ref var newField = ref newView.GetFieldHeader(newIdx);
-                var dstBytes = newView.GetFieldBytes(newIdx); // NEW buffer slice
-
-
-                // diff in ref/non-ref
-                if (oldField.IsRef != newField.IsRef)
-                {
-                    // Removed: if ref, unregister all non-zero children
-                    if (oldField.IsRef)
-                    {
+                        // Ref-to-Ref migration unchanged (copy ids, unregister tails)
                         var oldIds = GetFieldData<ContainerReference>(in oldField);
-                        unregister.Add(oldIds, oldField.IsInlineArray, !quiet);
-                    }
-                    else
-                    {
-                        delete.Add(GetFieldName(in oldField).ToString(), oldField.FieldType);
-                    }
-                    dstBytes.Clear();
-                    continue;
-                }
-                if (!oldField.IsRef)
-                {
-                    // truely same type
-                    // value type the same, but is array/non array, only diff in length (arr or non arr)
-                    if (oldField.Type == newField.Type)
-                    {
-                        var srcBytes = GetFieldData(in oldField);           // OLD buffer read-only
-                        // copy as much as possible
-                        int min = Math.Min(srcBytes.Length, dstBytes.Length);
-                        srcBytes[..min].CopyTo(dstBytes[..min]);
-                        continue;
-                    }
-                    // implicit conversion needed
-                    else if (oldField.Type != ValueType.Blob && newField.Type != ValueType.Blob && newField.Type != ValueType.Ref)
-                    {
-                        var srcBytes = GetFieldData(in oldField);           // OLD buffer read-only
-                        Migration.MigrateValueFieldBytes(srcBytes, dstBytes, oldField.Type, newField.Type, true);
-                        continue;
-                    }
-                }
-                else
-                {
-                    // Ref-to-Ref migration unchanged (copy ids, unregister tails)
-                    var oldIds = GetFieldData<ContainerReference>(in oldField);
-                    var newIds = MemoryMarshal.Cast<byte, ContainerReference>(dstBytes);
+                        var newIds = MemoryMarshal.Cast<byte, ContainerReference>(dstBytes);
 
-                    int min = Math.Min(oldIds.Length, newIds.Length);
-                    for (int i = 0; i < min; i++) newIds[i] = oldIds[i];
-                    unregister.Add(oldIds[min..], oldField.IsInlineArray);
+                        int min = Math.Min(oldIds.Length, newIds.Length);
+                        for (int i = 0; i < min; i++) newIds[i] = oldIds[i];
+                        unregister.Add(oldIds[min..], oldField.IsInlineArray);
+                    }
                 }
             }
-
+            catch (Exception)
+            {
+                dstBuf.Dispose();
+                throw;
+            }
             // ---- Swap schema & buffers ----
             var oldBuf = _memory;
             ChangeContent(dstBuf);
@@ -469,61 +509,7 @@ namespace Minerva.DataStorage
             return targetIndex;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        [Obsolete]
-        public int ReschemeFor_Old<T>(ReadOnlySpan<char> fieldName, int? inlineArrayLength = null) where T : unmanaged => ReschemeForField_Internal_Old(fieldName, TypeUtil<T>.ValueType, inlineArrayLength);
-        [Obsolete]
-        private int ReschemeForField_Internal_Old(ReadOnlySpan<char> fieldName, ValueType valueType, int? inlineArrayLength = null)
-        {
-            var objectBuilder = new ObjectBuilder();
-            ref var containerHeader = ref this.Header;
-            int minimumLength = containerHeader.DataOffset - containerHeader.NameOffset;
 
-            char[] fieldNameBuffer = ArrayPool<char>.Shared.Rent(fieldName.Length);
-            char[] nameBuffer = ArrayPool<char>.Shared.Rent(minimumLength / sizeof(char));
-            try
-            {
-                NameSegment.CopyTo(MemoryMarshal.AsBytes(nameBuffer.AsSpan()));
-                fieldName.CopyTo(fieldNameBuffer);
-                Memory<char> tempName = fieldNameBuffer.AsMemory(0, fieldName.Length);
-                if (inlineArrayLength.HasValue)
-                {
-                    objectBuilder.SetArray(tempName, valueType, inlineArrayLength.Value);
-                }
-                else objectBuilder.SetScalar(tempName, valueType);
-
-                int baseOffset = containerHeader.NameOffset;
-                for (int i = 0; i < FieldCount; i++)
-                {
-                    FieldView fieldView = View[i];
-                    ReadOnlyMemory<char> name;
-
-                    // todo: get name from name buffer
-                    int fixedOffset = ((int)fieldView.Header.NameOffset - baseOffset) / sizeof(char);
-                    name = nameBuffer.AsMemory(fixedOffset, fieldView.Name.Length);
-
-                    // field to rescheme
-                    if (!name.Span.SequenceEqual(fieldName))
-                        objectBuilder.SetScalar(name, fieldView.FieldType, fieldView.Data);
-                }
-
-                int newSize = objectBuilder.CountByte();
-                AllocatedMemory newBuffer = AllocatedMemory.Create(newSize);
-                objectBuilder.WriteTo(ref newBuffer);
-
-                // switch buffer now
-                var oldBuffer = this._memory;
-                try { ChangeContent(newBuffer); }
-                finally { oldBuffer.Dispose(); }
-
-                return IndexOf(tempName.Span);
-            }
-            finally
-            {
-                ArrayPool<char>.Shared.Return(fieldNameBuffer);
-                ArrayPool<char>.Shared.Return(nameBuffer);
-            }
-        }
 
 
 

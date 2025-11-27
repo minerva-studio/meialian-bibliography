@@ -28,7 +28,7 @@ namespace Minerva.DataStorage.Tests
             var view = c.View;
 
             Assert.AreEqual(2, view.FieldCount, "Should have 2 fields.");
-            Assert.AreEqual(Container.Version, view.Header.Version);
+            Assert.AreEqual(0, view.Header.Version);
 
             // Names are stored as UTF-16 and field headers are sorted by name (ordinal)
             Assert.That("a".AsSpan().SequenceEqual(view.GetFieldName(0)), Is.True);

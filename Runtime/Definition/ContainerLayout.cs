@@ -66,7 +66,7 @@ namespace Minerva.DataStorage
 
         public void WriteTo(Span<byte> dst, Span<byte> nameByte)
         {
-            Write(this.Span, nameByte, dst);
+            Write(this.Span, dst, nameByte);
         }
 
         public bool MatchesHeader(Span<byte> headersSegment)
@@ -94,7 +94,7 @@ namespace Minerva.DataStorage
         {
             // container with only header bytes
             byte[] emptyHeader = new byte[ContainerHeader.Size];
-            ContainerHeader.WriteEmptyHeader(emptyHeader, Container.Version);
+            ContainerHeader.WriteEmptyHeader(emptyHeader, 0);
             return new ContainerLayout(emptyHeader);
         }
 
@@ -175,19 +175,20 @@ namespace Minerva.DataStorage
             return sb.ToString();
         }
 
-        public static void Write(ReadOnlySpan<byte> layout, Span<byte> nameByte, Span<byte> dst)
+        public static void Write(ReadOnlySpan<byte> layout, Span<byte> dst, Span<byte> nameByte)
         {
             ref readonly ContainerHeader referenceHeader = ref Unsafe.As<byte, ContainerHeader>(ref MemoryMarshal.GetReference(layout));
             // copy container headers and field headers
+            ref ContainerHeader newHeader = ref Unsafe.As<byte, ContainerHeader>(ref dst[0]);
             int newContainerNameOffset = referenceHeader.ContainerNameOffset;
             layout[..newContainerNameOffset].CopyTo(dst);
-            ref ContainerHeader newHeader = ref Unsafe.As<byte, ContainerHeader>(ref dst[0]);
-            newHeader.Length = dst.Length;
-            newHeader.ContainerNameLength = checked((short)nameByte.Length); // preserve old name length
             // copy container name
             nameByte.CopyTo(dst.Slice(newContainerNameOffset, nameByte.Length));
             // copy field names
             layout[referenceHeader.NameOffset..referenceHeader.DataOffset].CopyTo(dst[(newContainerNameOffset + nameByte.Length)..]);
+
+            newHeader.Length = dst.Length;  // believe new length is dst length
+            newHeader.ContainerNameLength = checked((short)nameByte.Length); // preserve old name length
             // fix offset
             for (int i = 0; i < referenceHeader.FieldCount; i++)
             {
