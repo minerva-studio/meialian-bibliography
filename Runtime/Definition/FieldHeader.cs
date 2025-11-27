@@ -84,7 +84,13 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ref FieldHeader FromSpanAndFieldIndex(Span<byte> span, int i)
         {
-            int offset = ContainerHeader.Size + FieldHeader.Size * i;
+            return ref FromSpanAndFieldIndex(span, ContainerHeader.Size, i);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ref FieldHeader FromSpanAndFieldIndex(Span<byte> span, int baseOffset, int i)
+        {
+            int offset = baseOffset + FieldHeader.Size * i;
             return ref MemoryMarshal.Cast<byte, FieldHeader>(span.Slice(offset, Size))[0];
         }
     }

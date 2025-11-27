@@ -184,8 +184,10 @@ namespace Minerva.DataStorage
         public void Write<T>(ReadOnlySpan<char> fieldName, T value, bool allowRescheme = true) where T : unmanaged
         {
             var container = _container.EnsureNotDisposed(_generation);
-            container.Write_Internal(ref container.GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme);
-            NotifyFieldWrite(container, fieldName);
+            ref var fieldHeader = ref container.GetFieldHeader<T>(fieldName, allowRescheme);
+            int index = container.IndexOf(ref fieldHeader);
+            container.Write_Internal(ref fieldHeader, value, allowRescheme);
+            NotifyFieldWrite(container, index);
         }
 
         /// <summary>
@@ -211,9 +213,11 @@ namespace Minerva.DataStorage
         public bool TryWrite<T>(ReadOnlySpan<char> fieldName, T value, bool allowRescheme = true) where T : unmanaged
         {
             var container = _container.EnsureNotDisposed(_generation);
-            if (container.TryWrite_Internal(ref container.GetFieldHeader<T>(fieldName, allowRescheme), value, allowRescheme) == 0)
+            ref var fieldHeader = ref container.GetFieldHeader<T>(fieldName, allowRescheme);
+            int index = container.IndexOf(ref fieldHeader);
+            if (container.TryWrite_Internal(ref fieldHeader, value, allowRescheme) == 0)
             {
-                NotifyFieldWrite(container, fieldName);
+                NotifyFieldWrite(container, index);
                 return true;
             }
             return false;
@@ -310,8 +314,8 @@ namespace Minerva.DataStorage
                 ThrowHelper.ArgumentException(nameof(value));
 
             var container = _container.EnsureNotDisposed(_generation);
-            _container.Override(fieldName, value, valueType, inlineArrayLength);
-            NotifyFieldWrite(container, fieldName);
+            int index = _container.Override(fieldName, value, valueType, inlineArrayLength);
+            NotifyFieldWrite(container, index);
         }
 
         #endregion
@@ -647,7 +651,7 @@ namespace Minerva.DataStorage
             MakeArray<T>(value.Length);
             ref FieldHeader header = ref _container.GetFieldHeader(0);
             MemoryMarshal.AsBytes(value).CopyTo(_container.GetFieldData(in header));
-            NotifyFieldWrite(_container, _container.GetFieldName(in header));
+            NotifyFieldWrite(_container, 0);
         }
 
         /// <summary>
@@ -1597,6 +1601,31 @@ namespace Minerva.DataStorage
 
 
 
+
+        public void Move(string sourceFieldName, string destFieldName)
+        {
+            ThrowHelper.ThrowIfNull(sourceFieldName, nameof(sourceFieldName));
+            ThrowHelper.ThrowIfNull(destFieldName, nameof(destFieldName));
+
+            _container.EnsureNotDisposed(_generation);
+            _container.Move(sourceFieldName, destFieldName);
+            NotifyFieldMove(_container, sourceFieldName, destFieldName);
+        }
+
+        public bool TryMove(string sourceFieldName, string destFieldName)
+        {
+            ThrowHelper.ThrowIfNull(sourceFieldName, nameof(sourceFieldName));
+            ThrowHelper.ThrowIfNull(destFieldName, nameof(destFieldName));
+            _container.EnsureNotDisposed(_generation);
+            if (_container.IndexOf(sourceFieldName) < 0) // source field exist
+                return false;
+            if (_container.IndexOf(destFieldName) >= 0) // dest field exist
+                return false;
+            _container.Move(sourceFieldName, destFieldName);
+            NotifyFieldMove(_container, sourceFieldName, destFieldName);
+            return true;
+        }
+
         /// <summary>
         /// Delete a field from this object. Returns true if the field was found and deleted, false otherwise.
         /// </summary>
@@ -1841,21 +1870,14 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void NotifyFieldWrite(Container container, ReadOnlySpan<char> fieldName)
+        internal static void NotifyFieldMove(Container container, string fieldName, string newFieldName)
         {
             if (!StorageEventRegistry.HasSubscribers(container))
                 return;
-            var type = container.GetFieldHeader(fieldName).FieldType;
-            StorageEventRegistry.NotifyFieldWrite(container, fieldName.ToString(), type);
-        }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void NotifyFieldWrite(Container container, string fieldName)
-        {
-            if (!StorageEventRegistry.HasSubscribers(container))
-                return;
-            var type = container.GetFieldHeader(fieldName).FieldType;
-            StorageEventRegistry.NotifyFieldWrite(container, fieldName, type);
+            ref var header = ref container.GetFieldHeader(newFieldName);
+            var type = header.FieldType;
+            StorageEventRegistry.NotifyFieldRename(container, fieldName, newFieldName, type);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

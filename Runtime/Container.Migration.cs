@@ -46,6 +46,129 @@ namespace Minerva.DataStorage
             ChangeContent(newMemory);
         }
 
+        public void Move(ReadOnlySpan<char> oldFieldName, ReadOnlySpan<char> newFieldName)
+        {
+            int index = IndexOf(oldFieldName);
+            if (index < 0)
+                ThrowHelper.ArgumentException("Field not found.", nameof(oldFieldName));
+            // no change
+            if (oldFieldName.SequenceEqual(newFieldName))
+                return;
+
+            ref var containerHeader = ref this.Header;
+            ref var fieldHeader = ref GetFieldHeader(index);
+            var oldNameBytes = MemoryMarshal.AsBytes(oldFieldName);
+            var newNameBytes = MemoryMarshal.AsBytes(newFieldName);
+            Span<byte> oldSpan = _memory.Buffer.Span;
+            ThrowHelper.ThrowIfOverlap(oldSpan, oldNameBytes);
+            ThrowHelper.ThrowIfOverlap(oldSpan, newNameBytes);
+
+            int nameLengthByteDelta = newNameBytes.Length - oldNameBytes.Length;
+            var newSize = _memory.Buffer.Length + nameLengthByteDelta;
+            var newMemory = AllocatedMemory.Create(newSize);
+            var oldMemory = _memory;
+            Span<byte> newSpan = newMemory.Buffer.Span;
+            try
+            {
+                // Copy old data
+                // headers
+                int preFieldName = ContainerHeader.Size + FieldHeader.Size * containerHeader.FieldCount + containerHeader.ContainerNameLength;
+                //  copy up to container name
+                oldSpan[..preFieldName].CopyTo(newSpan);
+                ref var newContainerHeader = ref Unsafe.As<byte, ContainerHeader>(ref newSpan[0]);
+                newContainerHeader = containerHeader; // header info would almost be the same
+                newContainerHeader.DataOffset += nameLengthByteDelta; // except data offset
+
+                // copy field headers
+                // need to re-sort the fields due to name change, luckly since the names are already in order, we can do it in one pass
+                // find out the new index of this field
+                int fieldCount = FieldCount;
+                int newIndex = 0;
+                for (int i = 0; i < fieldCount; i++)
+                {
+                    if (i == index)
+                        continue;
+                    var otherName = GetFieldName(i);
+                    int comp = otherName.CompareTo(newFieldName, StringComparison.Ordinal);
+                    if (comp < 0)
+                        newIndex++;
+                    else if (comp == 0)
+                        ThrowHelper.ThrowInvalidOperation("Field with the new name already exists.");
+                    else break;
+                }
+                var oldHeadersSpan = oldSpan.Slice(ContainerHeader.Size, FieldHeader.Size * fieldCount);
+                var newHeadersSpan = newSpan.Slice(ContainerHeader.Size, FieldHeader.Size * fieldCount);
+                int minIndex = Math.Min(index, newIndex);
+                int maxIndex = Math.Max(index, newIndex);
+                // copy headers before moved field
+                oldHeadersSpan[..(minIndex * FieldHeader.Size)].CopyTo(newHeadersSpan[..(minIndex * FieldHeader.Size)]);
+                // copy moved field header
+                ref var oldFieldHeader = ref FieldHeader.FromSpanAndFieldIndex(oldSpan, index);
+                ref var newFieldHeader = ref FieldHeader.FromSpanAndFieldIndex(newHeadersSpan, 0, newIndex);
+                newFieldHeader = oldFieldHeader;
+                newFieldHeader.NameLength = (short)newFieldName.Length;
+
+                if (index < newIndex)
+                    // shift left
+                    oldHeadersSpan[((index + 1) * FieldHeader.Size)..((newIndex + 1) * FieldHeader.Size)].CopyTo(newHeadersSpan[(index * FieldHeader.Size)..(newIndex * FieldHeader.Size)]);
+                else
+                    // shift right
+                    oldHeadersSpan[(newIndex * FieldHeader.Size)..(index * FieldHeader.Size)].CopyTo(newHeadersSpan[((newIndex + 1) * FieldHeader.Size)..((index + 1) * FieldHeader.Size)]);
+
+                // copy header after moved field
+                oldHeadersSpan[((maxIndex + 1) * FieldHeader.Size)..].CopyTo(newHeadersSpan[((maxIndex + 1) * FieldHeader.Size)..]);
+
+
+                // copy names and data
+                int nameOffset = preFieldName;
+                int dataOffset = newContainerHeader.DataOffset;
+                for (int i = 0; i < fieldCount; i++)
+                {
+                    ref var newFh = ref FieldHeader.FromSpanAndFieldIndex(newSpan, i);
+                    Span<byte> oldData;
+                    newFh.NameOffset = nameOffset;
+                    newFh.DataOffset += nameLengthByteDelta;
+                    if (i < minIndex || i > maxIndex)
+                    {
+                        ref var oldFh = ref GetFieldHeader(i);
+                        // copy old name
+                        var oldName = GetFieldName(in oldFh);
+                        MemoryMarshal.AsBytes(oldName).CopyTo(newMemory.AsSpan(nameOffset, oldName.Length * sizeof(char)));
+                        // copy old data
+                        oldData = GetFieldData(in oldFh);
+                    }
+                    // middle section
+                    else if (i == newIndex)
+                    {
+                        // copy new name
+                        newNameBytes.CopyTo(newMemory.AsSpan(nameOffset, newNameBytes.Length));
+                        // copy old data
+                        oldData = GetFieldData(in oldFieldHeader);
+                    }
+                    else
+                    {
+                        // shifted field
+                        int srcIndex = i < index ? i : i - 1;
+                        var oldName = GetFieldName(srcIndex);
+                        MemoryMarshal.AsBytes(oldName).CopyTo(newMemory.AsSpan(nameOffset, oldName.Length * sizeof(char)));
+                        // copy old data
+                        ref var oldFh = ref GetFieldHeader(srcIndex);
+                        oldData = GetFieldData(in oldFh);
+                    }
+                    oldData.CopyTo(newMemory.AsSpan(dataOffset, newFh.Length));
+                    nameOffset += newFh.NameLength * sizeof(char);
+                    dataOffset += newFh.Length;
+                }
+                ChangeContent(newMemory);
+            }
+            catch (Exception)
+            {
+                newMemory.Dispose();
+                throw;
+            }
+            oldMemory.Dispose();
+        }
+
 
 
 

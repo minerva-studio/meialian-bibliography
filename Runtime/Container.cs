@@ -196,6 +196,24 @@ namespace Minerva.DataStorage
 
 
 
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int IndexOf(ref FieldHeader f)
+        {
+            ref byte origin = ref _memory[0];
+            ref byte target = ref Unsafe.As<FieldHeader, byte>(ref f);
+            nint byteOffset = Unsafe.ByteOffset(ref origin, ref target);
+            if (byteOffset < ContainerHeader.Size)
+                ThrowHelper.ArgumentException(nameof(f), "FieldHeader does not belong to this Container.");
+            if (byteOffset >= ContainerHeader.Size + FieldCount * FieldHeader.Size)
+                ThrowHelper.ArgumentException(nameof(f), "FieldHeader does not belong to this Container.");
+            // misaligned, skip for now
+            //if ((byteOffset - ContainerHeader.Size) % FieldHeader.Size != 0)
+            //    return;
+            int index = ((int)byteOffset - ContainerHeader.Size) / FieldHeader.Size;
+            return index;
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int IndexOf(ReadOnlySpan<char> fieldName)
         {
@@ -372,6 +390,9 @@ namespace Minerva.DataStorage
             return TryWrite_Internal(ref headerSpan[0], value, allowRescheme) == 0;
         }
 
+        /// <remarks>
+        /// On rescheme for larger size, field header reference becomes invalid.
+        /// </remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Write_Internal<T>(ref FieldHeader header, T value, bool allowResize = true) where T : unmanaged
         {
@@ -380,6 +401,17 @@ namespace Minerva.DataStorage
             ThrowHelper.ThrowWriteError(v, typeof(T), this, header.FieldType, allowResize);
         }
 
+        /// <summary>
+        /// Write unmanaged scalar value to field.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="f"></param>
+        /// <param name="value"></param>
+        /// <param name="allowResize"></param>
+        /// <returns></returns>
+        /// <remarks>
+        /// On rescheme for larger size, field header reference becomes invalid.
+        /// </remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int TryWrite_Internal<T>(ref FieldHeader f, T value, bool allowResize) where T : unmanaged
         {
@@ -410,13 +442,14 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Override(ReadOnlySpan<char> fieldName, ReadOnlySpan<byte> value, ValueType valueType, int? inlineArrayLength = null)
+        public int Override(ReadOnlySpan<char> fieldName, ReadOnlySpan<byte> value, ValueType valueType, int? inlineArrayLength = null)
         {
             int elementCount = inlineArrayLength ?? 1;
             int elemSize = valueType == ValueType.Blob ? value.Length / elementCount : TypeUtil.SizeOf(valueType);
             int index = ReschemeFor(fieldName, new TypeData(valueType, (short)elemSize), inlineArrayLength);
             ref var header = ref GetFieldHeader(index);
             value.CopyTo(GetFieldData(in header));
+            return index;
         }
 
 

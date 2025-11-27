@@ -14,6 +14,13 @@ namespace Minerva.DataStorage
 
         public StorageObject Root => new StorageObject(_root);
 
+        public string Name
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Root.Container.Name;
+            set => Root.Container.Rename(value);
+        }
+
         public StorageMember this[ReadOnlySpan<char> path]
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -9,7 +9,7 @@ namespace Minerva.DataStorage
     {
         None = 0,
         Write = 1,
-        Rename = 2, // placeholder
+        Rename = 2,
         Delete = 3,
         Dispose = 4,
     }
@@ -19,13 +19,12 @@ namespace Minerva.DataStorage
     /// </summary>
     public readonly struct StorageEventArgs
     {
+        /// <summary>Event type.</summary>
         public StorageEvent Event { get; }
-        /// <summary>The container receiving this invocation (default if deleted).</summary>
+        /// <summary>The object receiving this invocation (default if deleted).</summary>
         public StorageObject Target { get; }
-
-        /// <summary>Path of the written or deleted field relative to <see cref="Target"/>.</summary>
+        /// <summary>Path of the written or deleted field relative to <see cref="Target"/>. Will be the new name on the rename event</summary>
         public string Path { get; }
-
         /// <summary>Value type recorded for the field after the write.</summary>
         public FieldType FieldType { get; }
 
@@ -147,6 +146,15 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void NotifyFieldDelete(Container container, string fieldName, FieldType fieldType)
             => NotifyField(container, fieldName, fieldType, StorageEvent.Delete);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void NotifyFieldRename(Container source, string fieldName, string newName, FieldType fieldType)
+        {
+            if (_table.TryGetValue(source, out var slot) && slot.TryPrepareGeneration(source.Generation))
+                slot.Rename(fieldName, newName);
+
+            NotifyField(source, newName, fieldType, StorageEvent.Rename);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void NotifyField(Container source, string fieldName, FieldType fieldType, StorageEvent type)
@@ -344,6 +352,18 @@ namespace Minerva.DataStorage
             ResetForGeneration(generation + 1);
         }
 
+        public void Rename(string oldName, string newName)
+        {
+            lock (_gate)
+            {
+                if (_byField.TryGetValue(oldName, out var list))
+                {
+                    _byField.Remove(oldName);
+                    _byField[newName] = list;
+                }
+            }
+        }
+
         public void Notify(in StorageEventArgs baseArgs, string path)
         {
             Subscriber[] fieldSnapshot;
@@ -354,15 +374,8 @@ namespace Minerva.DataStorage
             Notify(in baseArgs, fieldSnapshot);
         }
 
-        private static void Notify(in StorageEventArgs baseArgs, Subscriber[] fieldSnapshot)
-        {
-            // Fire specific field subscribers
-            if (fieldSnapshot.Length > 0)
-            {
-                for (int i = 0; i < fieldSnapshot.Length; i++)
-                    fieldSnapshot[i].Handler(in baseArgs);
-            }
-        }
+
+
 
         private Subscriber[] CollectEvents_NoLock(string fieldName)
         {
@@ -416,6 +429,18 @@ namespace Minerva.DataStorage
 
             return result;
         }
+
+        private static void Notify(in StorageEventArgs baseArgs, Subscriber[] fieldSnapshot)
+        {
+            // Fire specific field subscribers
+            if (fieldSnapshot.Length > 0)
+            {
+                for (int i = 0; i < fieldSnapshot.Length; i++)
+                    fieldSnapshot[i].Handler(in baseArgs);
+            }
+        }
+
+
 
         private readonly struct Subscriber
         {
