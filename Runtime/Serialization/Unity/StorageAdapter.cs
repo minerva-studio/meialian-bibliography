@@ -36,7 +36,7 @@ namespace Minerva.DataStorage.Serialization
 
         /// <summary>
         /// Serialization is intentionally not handled through Unity.Json.
-        /// Use JsonSerialization.ToJson instead when you need Storage ¡ú JSON.
+        /// Use JsonSerialization.ToJson instead when you need Storage â†’ JSON.
         /// </summary> 
         public void Serialize(in JsonSerializationContext<Storage> context, Storage value)
         {
@@ -124,7 +124,7 @@ namespace Minerva.DataStorage.Serialization
 
                         if (prim.IsNull())
                         {
-                            // Null ¡ú interpreted as missing field; do not write anything.
+                            // Null â†’ interpreted as missing field; do not write anything.
                             return;
                         }
 
@@ -239,7 +239,7 @@ namespace Minerva.DataStorage.Serialization
             if (depth <= 0)
                 throw new InvalidOperationException("Max depth exceeded while reading array.");
 
-            // Empty array ¡ú encode as an empty byte[] (or other convention as needed).
+            // Empty array â†’ encode as an empty byte[] (or other convention as needed).
             if (arrayView.Count() == 0)
             {
                 target.WriteArray<byte>(Array.Empty<byte>());
@@ -408,7 +408,7 @@ namespace Minerva.DataStorage.Serialization
                     return;
                 }
 
-                // Fallback: unsupported types ¡ú encode as empty array.
+                // Fallback: unsupported types â†’ encode as empty array.
                 target.WriteArray<byte>(Array.Empty<byte>());
             }
             catch
@@ -451,7 +451,7 @@ namespace Minerva.DataStorage.Serialization
 
         /// <summary>
         /// Merges the incoming element type into the current arrayType,
-        /// applying promotion rules (e.g., Int64 + Float64 ¡ú Float64)
+        /// applying promotion rules (e.g., Int64 + Float64 â†’ Float64)
         /// and rejecting incompatible mixes.
         /// </summary>
         private static void SetArrayType(ref ValueType current, ValueType incoming, string fieldName)
@@ -465,7 +465,7 @@ namespace Minerva.DataStorage.Serialization
             if (current == incoming)
                 return;
 
-            // Allow Int64 + Float64 ¡ú Float64 promotion.
+            // Allow Int64 + Float64 â†’ Float64 promotion.
             if ((current == ValueType.Int64 && incoming == ValueType.Float64) ||
                 (current == ValueType.Float64 && incoming == ValueType.Int64))
             {

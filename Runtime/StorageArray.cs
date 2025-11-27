@@ -132,7 +132,7 @@ namespace Minerva.DataStorage
                 var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
                 value.TryWriteTo(span, header.Type);
 
-                StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+                StorageEventRegistry.NotifyFieldWrite(_handle.Container, fieldIndex);
             }
         }
 
@@ -169,7 +169,7 @@ namespace Minerva.DataStorage
             var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
             bool result = Migration.TryWriteTo(src, valueType, span, header.Type, true);
             if (result)
-                StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+                StorageEventRegistry.NotifyFieldWrite(_handle.Container, fieldIndex);
             return result;
         }
 
@@ -203,7 +203,7 @@ namespace Minerva.DataStorage
             var span = _handle.Container.GetFieldData(in header);
             MemoryMarshal.AsBytes(valueSpan).CopyTo(span);
 
-            StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, fieldIndex);
         }
 
         public bool TryWrite<T>(int index, T value, bool isExplicit = true) where T : unmanaged
@@ -224,7 +224,7 @@ namespace Minerva.DataStorage
             var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
             bool result = Migration.TryWriteTo(src, valueType, span, header.Type, isExplicit);
             if (result)
-                StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+                StorageEventRegistry.NotifyFieldWrite(_handle.Container, fieldIndex);
             return result;
         }
 
@@ -324,7 +324,7 @@ namespace Minerva.DataStorage
         {
             int fieldIndex = _handle.EnsureNotDisposed();
             ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
-            using var unregisterBuffer = Container.UnregisterBuffer.New(_handle.Container);
+            using var unregisterBuffer = UnregisterBuffer.New(_handle.Container);
 
             int length = header.ElementCount;
             if (values.Length > length)
@@ -344,7 +344,7 @@ namespace Minerva.DataStorage
                 return 0;
 
             unregisterBuffer.Send();
-            StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, fieldIndex);
             return Math.Min(values.Length, length);
         }
 
@@ -355,7 +355,7 @@ namespace Minerva.DataStorage
         /// <param name="values"></param>
         public void Override<T>(ReadOnlySpan<T> values) where T : unmanaged
         {
-            using var unregisterBuffer = Container.UnregisterBuffer.New(_handle.Container);
+            using var unregisterBuffer = UnregisterBuffer.New(_handle.Container);
 
             _handle.Container.ReschemeFor(_handle.Name, TypeUtil<T>.Type, values.Length, unregisterBuffer);
             int fieldIndex = _handle.EnsureNotDisposed();
@@ -365,7 +365,7 @@ namespace Minerva.DataStorage
             src.CopyTo(dst);
 
             unregisterBuffer.Send();
-            StorageObject.NotifyFieldWrite(_handle.Container, fieldIndex);
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, fieldIndex);
         }
 
 
@@ -399,7 +399,7 @@ namespace Minerva.DataStorage
             if (header.IsRef)
             {
                 Span<ContainerReference> ids = _handle.Container.GetFieldData<ContainerReference>(in header);
-                using Container.UnregisterBuffer buffer = Container.UnregisterBuffer.New(_handle.Container);
+                using UnregisterBuffer buffer = UnregisterBuffer.New(_handle.Container);
                 buffer.AddArray(ids);
                 ids.Clear();
                 buffer.Send();
@@ -421,7 +421,7 @@ namespace Minerva.DataStorage
             if (newLength == Length)
                 return;
             _handle.Container.ResizeArrayField(_handle.Index, newLength);
-            StorageObject.NotifyFieldWrite(_handle.Container, _handle.Index);
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Index);
         }
 
         /// <summary>
@@ -434,7 +434,7 @@ namespace Minerva.DataStorage
             if (length <= Length)
                 return;
             _handle.Container.ResizeArrayField(_handle.Index, length);
-            StorageObject.NotifyFieldWrite(_handle.Container, _handle.Index);
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Index);
         }
 
         /// <summary>
@@ -447,7 +447,7 @@ namespace Minerva.DataStorage
             _handle.EnsureNotDisposed();
             newLength ??= Length;
             _handle.Container.ReschemeFor(_handle.Name, type, newLength);
-            StorageObject.NotifyFieldWrite(_handle.Container, _handle.Index);
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Index);
         }
 
         /// <summary>

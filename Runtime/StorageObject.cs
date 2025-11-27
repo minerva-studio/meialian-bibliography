@@ -94,7 +94,16 @@ namespace Minerva.DataStorage
         /// int value = obj.Int["fieldName"];
         /// </code> 
         /// </summary> 
-        public Accessor<int> Int => new Accessor<int>(this);
+        public IAccessor<int> Int
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                _container.EnsureNotDisposed(_generation);
+                return _container;
+            }
+        }
+
         /// <summary>
         /// a convenience accessor for long fields
         /// <code>
@@ -102,7 +111,15 @@ namespace Minerva.DataStorage
         /// long value = obj.Long["fieldName"];
         /// </code> 
         /// </summary> 
-        public Accessor<long> Long => new Accessor<long>(this);
+        public readonly IAccessor<long> Long
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                _container.EnsureNotDisposed(_generation);
+                return _container;
+            }
+        }
         /// <summary>
         /// a convenience accessor for float fields
         /// <code>
@@ -110,7 +127,15 @@ namespace Minerva.DataStorage
         /// float value = obj.Float["fieldName"];
         /// </code> 
         /// </summary> 
-        public Accessor<float> Float => new Accessor<float>(this);
+        public readonly IAccessor<float> Float
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                _container.EnsureNotDisposed(_generation);
+                return _container;
+            }
+        }
         /// <summary>
         /// a convenience accessor for double fields
         /// <code>
@@ -118,7 +143,15 @@ namespace Minerva.DataStorage
         /// double value = obj.Double["fieldName"];
         /// </code> 
         /// </summary> 
-        public Accessor<double> Double => new Accessor<double>(this);
+        public readonly IAccessor<double> Double
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                _container.EnsureNotDisposed(_generation);
+                return _container;
+            }
+        }
         /// <summary>
         /// a convenience accessor for double fields
         /// <code>
@@ -126,7 +159,15 @@ namespace Minerva.DataStorage
         /// string value = obj.String["fieldName"];
         /// </code> 
         /// </summary> 
-        public StringAccessor String => new StringAccessor(this);
+        public readonly IStringAccessor String
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                _container.EnsureNotDisposed(_generation);
+                return _container;
+            }
+        }
 
 
 
@@ -959,20 +1000,14 @@ namespace Minerva.DataStorage
                 if (!overrideExisting)
                     ThrowHelper.ArgumentException("Field exists but is not an array.");
 
-                FieldHeader fieldHeader = outHeader[0];
+                ref FieldHeader fieldHeader = ref outHeader[0];
+                int fieldIndex = _container.IndexOf(ref fieldHeader);
                 StorageObject holder;
-                bool reschemeForField = !fieldHeader.IsRef;
-                if (reschemeForField)
-                {
-                    _container.ReschemeFor(fieldSegment, TypeData.Ref, null);
-                }
+                _container.ReschemeFor(fieldSegment, TypeData.Ref, null);
                 holder = GetObject(fieldSegment);
                 holder.MakeArray(type.Value, 0);
                 StorageArray storageArr = holder.AsArray();
-                if (reschemeForField)
-                {
-                    NotifyFieldDelete(_container, fieldSegment.ToString(), fieldHeader.FieldType);
-                }
+                NotifyFieldWrite(_container, fieldIndex);
                 return storageArr;
             }
         }
@@ -1953,17 +1988,18 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void NotifyFieldWrite(Container container, int fieldIndex)
+        private static void NotifyFieldWrite(Container container, int fieldIndex)
         {
             if (!StorageEventRegistry.HasSubscribers(container))
                 return;
+
             ref var header = ref container.GetFieldHeader(fieldIndex);
             var fieldName = container.GetFieldName(in header).ToString();
             StorageEventRegistry.NotifyFieldWrite(container, fieldName, header.FieldType);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void NotifyFieldMove(Container container, string fieldName, string newFieldName)
+        private static void NotifyFieldMove(Container container, string fieldName, string newFieldName)
         {
             if (!StorageEventRegistry.HasSubscribers(container))
                 return;
@@ -1971,51 +2007,6 @@ namespace Minerva.DataStorage
             ref var header = ref container.GetFieldHeader(newFieldName);
             var type = header.FieldType;
             StorageEventRegistry.NotifyFieldRename(container, fieldName, newFieldName, type);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static void NotifyFieldDelete(Container container, string fieldName, FieldType fieldType)
-        {
-            if (!StorageEventRegistry.HasSubscribers(container))
-                return;
-
-            StorageEventRegistry.NotifyFieldDelete(container, fieldName, fieldType);
-            StorageEventRegistry.RemoveFieldSubscriptions(container, fieldName);
-        }
-
-
-
-
-        public readonly struct Accessor<T> where T : unmanaged
-        {
-            private readonly StorageObject _obj;
-
-            public Accessor(StorageObject member)
-            {
-                _obj = member;
-            }
-
-            public T this[string key]
-            {
-                get => _obj.Read<T>(key);
-                set => _obj.Write<T>(key, value);
-            }
-        }
-
-        public readonly struct StringAccessor
-        {
-            private readonly StorageObject _obj;
-
-            public StringAccessor(StorageObject member)
-            {
-                _obj = member;
-            }
-
-            public string this[string key]
-            {
-                get => _obj.ReadString(key);
-                set => _obj.Write(key, value);
-            }
         }
     }
 }

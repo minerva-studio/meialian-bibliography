@@ -1,6 +1,6 @@
+using NUnit.Framework;
 using System;
 using System.Runtime.InteropServices;
-using NUnit.Framework;
 
 namespace Minerva.DataStorage.Tests
 {

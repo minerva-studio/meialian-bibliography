@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -140,12 +141,28 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void NotifyFieldWrite(Container container, int fieldIndex)
+        {
+            if (!HasSubscribers(container))
+                return;
+            ref var header = ref container.GetFieldHeader(fieldIndex);
+            var fieldName = container.GetFieldName(in header).ToString();
+            NotifyFieldWrite(container, fieldName, header.FieldType);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void NotifyFieldWrite(Container container, string fieldName, FieldType fieldType)
             => NotifyField(container, fieldName, fieldType, StorageEvent.Write);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void NotifyFieldDelete(Container container, string fieldName, FieldType fieldType)
-            => NotifyField(container, fieldName, fieldType, StorageEvent.Delete);
+        {
+            if (!HasSubscribers(container))
+                return;
+
+            NotifyField(container, fieldName, fieldType, StorageEvent.Delete);
+            RemoveFieldSubscriptions(container, fieldName);
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void NotifyFieldRename(Container source, string fieldName, string newName, FieldType fieldType)
@@ -157,7 +174,7 @@ namespace Minerva.DataStorage
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void NotifyField(Container source, string fieldName, FieldType fieldType, StorageEvent type)
+        private static void NotifyField(Container source, string fieldName, FieldType fieldType, StorageEvent type)
         {
             if (source == null)
                 return;
@@ -238,7 +255,7 @@ namespace Minerva.DataStorage
 
         private void ResetForGeneration(int generation)
         {
-            Subscriber[] fieldSnapshot = null;
+            Subscriber[]? fieldSnapshot = null;
             lock (_gate)
             {
                 if (_generation == generation)
@@ -381,7 +398,7 @@ namespace Minerva.DataStorage
         {
             int length = 0;
             Subscriber[] result;
-            List<Subscriber> list = null;
+            List<Subscriber>? list = null;
             bool broadcast = false;
             // 1. Specific field subscribers
             if (!string.IsNullOrEmpty(fieldName))
@@ -454,4 +471,161 @@ namespace Minerva.DataStorage
             }
         }
     }
+
+    /// <summary>
+    /// A buffer for recording delete/write event
+    /// </summary>
+    internal struct UnregisterBuffer : IDisposable
+    {
+        private static readonly ObjectPool<List<Entry>> pool = new ObjectPool<List<Entry>>(() => new List<Entry>());
+
+        struct Entry
+        {
+            public FieldType FieldType;
+            public ContainerReference Reference;
+            public bool IsDeleted;
+
+            public Entry(ContainerReference r, FieldType fieldType, bool isFieldDeleted) : this()
+            {
+                this.Reference = r;
+                this.FieldType = fieldType;
+                this.IsDeleted = isFieldDeleted;
+            }
+        }
+
+        readonly Container parent;
+        List<Entry>? buffer;
+
+        public readonly bool IsDisposed => buffer != null;
+
+        private UnregisterBuffer(Container parent, List<Entry> entries)
+        {
+            this.parent = parent;
+            this.buffer = entries;
+            this.buffer.Clear();
+        }
+
+        public void Dispose()
+        {
+            if (buffer != null)
+            {
+                pool.Return(buffer!);
+                buffer = null;
+            }
+        }
+
+
+        public readonly void Add(ContainerReference r, FieldType fieldType, bool isFieldDlete = false)
+        {
+            buffer!.Add(new Entry(r, fieldType, isFieldDlete));
+        }
+
+        public readonly void Add(ReadOnlySpan<ContainerReference> rs, bool isArray, bool isFieldDlete = false)
+        {
+            for (int i = 0; i < rs.Length; i++)
+            {
+                if (rs[i] == Container.Registry.ID.Empty) continue;
+                buffer!.Add(new Entry(rs[i], isArray ? TypeUtil<ContainerReference>.ArrayFieldType : TypeUtil<ContainerReference>.ScalarFieldType, isFieldDlete));
+            }
+        }
+
+        public readonly void AddArray(ReadOnlySpan<ContainerReference> rs, bool isFieldDlete = false)
+        {
+            for (int i = 0; i < rs.Length; i++)
+            {
+                if (rs[i] == Container.Registry.ID.Empty) continue;
+                buffer!.Add(new Entry(rs[i], TypeUtil<ContainerReference>.ArrayFieldType, isFieldDlete));
+            }
+        }
+
+        public readonly void Send(bool quiet = false)
+        {
+            foreach (var item in buffer!)
+            {
+                string? fieldName = null;
+                ContainerReference reference = item.Reference;
+                if (reference == 0)
+                    continue;
+                Container? container = Container.Registry.Shared.GetContainer(reference);
+                if (container == null)
+                    continue;
+
+                if (item.IsDeleted)
+                    fieldName = container.NameSpan.ToString();
+                Container.Registry.Shared.Unregister(container);
+
+                if (!quiet && fieldName != null)
+                    StorageEventRegistry.NotifyFieldDelete(parent, fieldName!, item.FieldType);
+            }
+            buffer.Clear();
+        }
+
+        public static UnregisterBuffer New(Container parent)
+        {
+            return new UnregisterBuffer(parent, pool.Rent());
+        }
+    }
+
+    internal struct FieldDeleteEventBuffer : IDisposable
+    {
+        private static readonly ObjectPool<List<Entry>> pool = new ObjectPool<List<Entry>>(() => new List<Entry>());
+
+        struct Entry
+        {
+            public string? FieldName;
+            public FieldType FieldType;
+
+            public Entry(string name, FieldType fieldType) : this()
+            {
+                this.FieldName = name;
+                this.FieldType = fieldType;
+            }
+        }
+
+        readonly Container parent;
+        List<Entry>? buffer;
+
+        public readonly bool IsDisposed => buffer != null;
+
+        private FieldDeleteEventBuffer(Container parent, List<Entry> entries)
+        {
+            this.parent = parent;
+            this.buffer = entries;
+            this.buffer.Clear();
+        }
+
+        public void Dispose()
+        {
+            if (buffer != null)
+            {
+                pool.Return(buffer!);
+                buffer = null;
+            }
+        }
+
+
+        public readonly void Add(string fieldName, FieldType fieldType)
+        {
+            buffer!.Add(new Entry(fieldName, fieldType));
+        }
+
+        public readonly void Send(bool quiet = false)
+        {
+            if (!quiet)
+            {
+                foreach (var item in buffer!)
+                {
+                    string? fieldName = item.FieldName;
+                    StorageEventRegistry.NotifyFieldDelete(parent, fieldName!, item.FieldType);
+                }
+            }
+            buffer!.Clear();
+        }
+
+        public static FieldDeleteEventBuffer New(Container parent)
+        {
+            return new FieldDeleteEventBuffer(parent, pool.Rent());
+        }
+    }
+
 }

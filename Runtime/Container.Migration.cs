@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -171,19 +170,19 @@ namespace Minerva.DataStorage
             }
             oldMemory.Dispose();
 
-            static int Translate(int old, int src, int dst)
-            {
-                int min = Math.Min(src, dst);
-                int max = Math.Max(src, dst);
-                if (old == src)
-                    return dst;
-                if (old < min || old > max)
-                    return old;
-                else if (src < dst)
-                    return old - 1; // shift left
-                else
-                    return old + 1; // shift right
-            }
+            //static int Translate(int old, int src, int dst)
+            //{
+            //    int min = Math.Min(src, dst);
+            //    int max = Math.Max(src, dst);
+            //    if (old == src)
+            //        return dst;
+            //    if (old < min || old > max)
+            //        return old;
+            //    else if (src < dst)
+            //        return old - 1; // shift left
+            //    else
+            //        return old + 1; // shift right
+            //}
 
             static int ReverseTranslate(int n, int src, int dst)
             {

@@ -1,6 +1,6 @@
 using NUnit.Framework;
 using System;
-using System.Runtime.InteropServices;
+using System.Collections.Generic;
 
 namespace Minerva.DataStorage.Tests
 {
@@ -743,6 +743,183 @@ namespace Minerva.DataStorage.Tests
             Assert.IsFalse(s.TryGetMember("missing", out _));
         }
 
+        [Test]
+        public void IntAccessor_ReadWrite_Scalar_Field()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Write via accessor
+            root.Int["score"] = 123;
+
+            // Read via accessor
+            int v = root.Int["score"];
+            Assert.That(v, Is.EqualTo(123));
+
+            // Read via generic API
+            Assert.That(root.Read<int>("score"), Is.EqualTo(123));
+        }
+
+        [Test]
+        public void LongAccessor_ReadWrite_Scalar_Field_And_Implicit_From_Int()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Write int then read long (implicit conversion at read time)
+            root.Int["counter"] = 42;
+            long lv = root.Long["counter"];
+            Assert.That(lv, Is.EqualTo(42L));
+
+            // Overwrite via long accessor
+            root.Long["counter"] = 1234567890123L;
+            Assert.That(root.Long["counter"], Is.EqualTo(1234567890123L));
+        }
+
+        [Test]
+        public void FloatAccessor_ReadWrite_Scalar_Field_And_Conversion_From_Double()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Write double then read float (explicit read conversion)
+            root.Double["speed"] = 3.5d;
+            float f = root.Float["speed"];
+            Assert.That(f, Is.InRange(3.4999f, 3.5001f));
+
+            // Overwrite via float accessor
+            root.Float["speed"] = 1.25f;
+            Assert.That(root.Double["speed"], Is.InRange(1.2499d, 1.2501d));
+        }
+
+        [Test]
+        public void DoubleAccessor_ReadWrite_Scalar_Field()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.Double["ratio"] = 0.75;
+            Assert.That(root.Double["ratio"], Is.InRange(0.7499d, 0.7501d));
+
+            // Read via generic API
+            Assert.That(root.Read<double>("ratio"), Is.InRange(0.7499d, 0.7501d));
+        }
+
+        [Test]
+        public void StringAccessor_ReadWrite_String_Field()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Write via string accessor
+            root.String["title"] = "Hello";
+            Assert.That(root.String["title"], Is.EqualTo("Hello"));
+
+            // Overwrite and read via ReadString API
+            root.String["title"] = "World";
+            Assert.That(root.ReadString("title"), Is.EqualTo("World"));
+        }
+
+        [Test]
+        public void Accessors_Work_With_Path_WriteRead()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Use generic WritePath then access via accessors
+            root.WritePath("stats.hp", 100);
+            Assert.That(root.GetObject("stats").Int["hp"], Is.EqualTo(100)); // path-based read via Read<T>(string)
+
+            // Update via accessor and read via ReadPath
+            root.GetObject("stats").Int["hp"] = 250;
+            Assert.That(root.ReadPath<int>("stats.hp"), Is.EqualTo(250));
+
+            // String path
+            root.GetObject("profile").String["name"] = "Alice";
+            Assert.That(root.ReadStringPath("profile.name"), Is.EqualTo("Alice"));
+        }
+
+        [Test]
+        public void Accessors_Work_With_Chain()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            using var storage2 = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            var root2 = storage2.Root;
+
+            root.WritePath("stats.a", 100);
+            root.WritePath("stats.b", 200);
+            root.WritePath("stats.c", 300);
+            root2.WritePath("stats.c", 300);
+            var stats = root.GetObject("stats");
+            var stats2 = root2.GetObject("stats");
+            stats.Int["a"] = stats.Int["b"] + 50;
+
+            Assert.That(stats.Int["b"], Is.EqualTo(200));
+            Assert.That(root.ReadPath<int>("stats.a"), Is.EqualTo(250));
+
+            stats.Int["a"] = stats.Int["b"] + stats.Int["c"];
+
+            Assert.That(stats.Int["c"], Is.EqualTo(300));
+            Assert.That(stats.Int["b"], Is.EqualTo(200));
+            Assert.That(root.ReadPath<int>("stats.a"), Is.EqualTo(500));
+
+            stats.Int["a"] += stats.Int["b"] + stats.Int["c"];
+
+            Assert.That(stats.Int["c"], Is.EqualTo(300));
+            Assert.That(stats.Int["b"], Is.EqualTo(200));
+            Assert.That(root.ReadPath<int>("stats.a"), Is.EqualTo(1000));
+
+
+
+            stats.Int["a"] += stats.Int["b"] + stats2.Int["c"];
+
+            Assert.That(stats.Int["c"], Is.EqualTo(300));
+            Assert.That(stats.Int["b"], Is.EqualTo(200));
+            Assert.That(root.ReadPath<int>("stats.a"), Is.EqualTo(1500));
+        }
+
+        [Test]
+        public void Accessors_Raise_Write_Events_On_Update()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var events = new List<StorageEventArgs>();
+            using var sub = root.Subscribe((in StorageEventArgs a) => events.Add(a));
+
+            // Int write
+            root.Int["points"] = 7;
+            // Double write
+            root.Double["ratio"] = 0.5;
+            // String write
+            root.String["desc"] = "ok";
+
+            Assert.That(events.Count, Is.GreaterThanOrEqualTo(3));
+            // Check last event path consistency
+            Assert.That(events[^1].Event, Is.EqualTo(StorageEvent.Write));
+            Assert.That(events[^1].Path, Is.EqualTo("desc"));
+        }
+
+        [Test]
+        public void Accessors_TryRead_Default_Behavior_When_Missing()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Using TryRead<T> directly to verify default behavior when missing
+            Assert.That(root.TryRead<int>("missing_int", out var iv), Is.False);
+            Assert.That(iv, Is.EqualTo(default(int)));
+
+            Assert.That(root.TryRead<long>("missing_long", out var lv), Is.False);
+            Assert.That(lv, Is.EqualTo(default(long)));
+
+            Assert.That(root.TryRead<float>("missing_float", out var fv), Is.False);
+            Assert.That(fv, Is.EqualTo(default(float)));
+
+            Assert.That(root.TryRead<double>("missing_double", out var dv), Is.False);
+            Assert.That(dv, Is.EqualTo(default(double)));
+        }
         #endregion
 
         #region StorageMember direct properties / metadata

@@ -87,11 +87,11 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Object that owns this member.
         /// </summary>
-        public StorageObject StorageObject => _storageObject;
+        public readonly StorageObject StorageObject => _storageObject;
         /// <summary>
         /// Name of the member.
         /// </summary>
-        public ReadOnlySpan<char> Name => _handle.Name;
+        public readonly ReadOnlySpan<char> Name => _handle.Name;
         /// <summary>
         /// Get a nested member by path.
         /// </summary>
@@ -104,7 +104,7 @@ namespace Minerva.DataStorage
         }
 
 
-        public int Int
+        public readonly int Int
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => Read<int>();
@@ -112,7 +112,7 @@ namespace Minerva.DataStorage
             set => Write(value);
         }
 
-        public float Float
+        public readonly float Float
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => Read<float>();
@@ -120,7 +120,7 @@ namespace Minerva.DataStorage
             set => Write(value);
         }
 
-        public double Double
+        public readonly double Double
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => Read<double>();
@@ -128,7 +128,7 @@ namespace Minerva.DataStorage
             set => Write(value);
         }
 
-        public long Long
+        public readonly long Long
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => Read<long>();
@@ -136,12 +136,14 @@ namespace Minerva.DataStorage
             set => Write(value);
         }
 
-        public string String
+        public readonly string String
         {
+#pragma warning disable CS8656 // allow duplicate struct for chained calls
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => AsObject().ReadString();
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             set => AsObject().WriteString(value);
+#pragma warning restore CS8656
         }
 
 

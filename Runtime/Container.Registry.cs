@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Minerva.DataStorage
 {
@@ -29,7 +30,7 @@ namespace Minerva.DataStorage
             private readonly Dictionary<ulong, ulong> _parentMap = new();
 
 
-            internal bool TryGetParent(Container child, out Container? parent)
+            internal bool TryGetParent(Container child, [NotNullWhen(true)] out Container? parent)
             {
                 parent = null;
                 if (child == null) return false;
@@ -355,165 +356,6 @@ namespace Minerva.DataStorage
             }
 #endif
         }
-
-
-        /// <summary>
-        /// A buffer for recording delete/write event
-        /// </summary>
-        public struct UnregisterBuffer : IDisposable
-        {
-            private static readonly ObjectPool<List<Entry>> pool = new ObjectPool<List<Entry>>(() => new List<Entry>());
-
-            struct Entry
-            {
-                public FieldType FieldType;
-                public ContainerReference Reference;
-                public bool IsDeleted;
-
-                public Entry(ContainerReference r, FieldType fieldType, bool isFieldDeleted) : this()
-                {
-                    this.Reference = r;
-                    this.FieldType = fieldType;
-                    this.IsDeleted = isFieldDeleted;
-                }
-            }
-
-            readonly Container parent;
-            List<Entry>? buffer;
-
-            public readonly bool IsDisposed => buffer != null;
-
-            private UnregisterBuffer(Container parent, List<Entry> entries)
-            {
-                this.parent = parent;
-                this.buffer = entries;
-                this.buffer.Clear();
-            }
-
-            public void Dispose()
-            {
-                if (buffer != null)
-                {
-                    pool.Return(buffer!);
-                    buffer = null;
-                }
-            }
-
-
-            public readonly void Add(ContainerReference r, FieldType fieldType, bool isFieldDlete = false)
-            {
-                buffer!.Add(new Entry(r, fieldType, isFieldDlete));
-            }
-
-            public readonly void Add(ReadOnlySpan<ContainerReference> rs, bool isArray, bool isFieldDlete = false)
-            {
-                for (int i = 0; i < rs.Length; i++)
-                {
-                    if (rs[i] == Container.Registry.ID.Empty) continue;
-                    buffer!.Add(new Entry(rs[i], isArray ? TypeUtil<ContainerReference>.ArrayFieldType : TypeUtil<ContainerReference>.ScalarFieldType, isFieldDlete));
-                }
-            }
-
-            public readonly void AddArray(ReadOnlySpan<ContainerReference> rs, bool isFieldDlete = false)
-            {
-                for (int i = 0; i < rs.Length; i++)
-                {
-                    if (rs[i] == Container.Registry.ID.Empty) continue;
-                    buffer!.Add(new Entry(rs[i], TypeUtil<ContainerReference>.ArrayFieldType, isFieldDlete));
-                }
-            }
-
-            public readonly void Send(bool quiet = false)
-            {
-                foreach (var item in buffer!)
-                {
-                    string? fieldName = null;
-                    ContainerReference reference = item.Reference;
-                    if (reference == 0)
-                        continue;
-                    Container? container = Registry.Shared.GetContainer(reference);
-                    if (container == null)
-                        continue;
-
-                    if (item.IsDeleted)
-                        fieldName = container.NameSpan.ToString();
-                    Registry.Shared.Unregister(container);
-
-                    if (!quiet && fieldName != null)
-                        StorageObject.NotifyFieldDelete(parent, fieldName!, item.FieldType);
-                }
-                buffer.Clear();
-            }
-
-            public static UnregisterBuffer New(Container parent)
-            {
-                return new UnregisterBuffer(parent, pool.Rent());
-            }
-        }
-
-        public struct FieldDeleteEventBuffer : IDisposable
-        {
-            private static readonly ObjectPool<List<Entry>> pool = new ObjectPool<List<Entry>>(() => new List<Entry>());
-
-            struct Entry
-            {
-                public string? FieldName;
-                public FieldType FieldType;
-
-                public Entry(string name, FieldType fieldType) : this()
-                {
-                    this.FieldName = name;
-                    this.FieldType = fieldType;
-                }
-            }
-
-            readonly Container parent;
-            List<Entry>? buffer;
-
-            public readonly bool IsDisposed => buffer != null;
-
-            private FieldDeleteEventBuffer(Container parent, List<Entry> entries)
-            {
-                this.parent = parent;
-                this.buffer = entries;
-                this.buffer.Clear();
-            }
-
-            public void Dispose()
-            {
-                if (buffer != null)
-                {
-                    pool.Return(buffer!);
-                    buffer = null;
-                }
-            }
-
-
-            public readonly void Add(string fieldName, FieldType fieldType)
-            {
-                buffer!.Add(new Entry(fieldName, fieldType));
-            }
-
-            public readonly void Send(bool quiet = false)
-            {
-                if (!quiet)
-                {
-                    foreach (var item in buffer!)
-                    {
-                        string? fieldName = item.FieldName;
-                        StorageObject.NotifyFieldDelete(parent, fieldName!, item.FieldType);
-                    }
-                }
-                buffer!.Clear();
-            }
-
-            public static FieldDeleteEventBuffer New(Container parent)
-            {
-                return new FieldDeleteEventBuffer(parent, pool.Rent());
-            }
-        }
-
-
     }
 
     /// <summary>
