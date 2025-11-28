@@ -1,6 +1,9 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using static Minerva.DataStorage.StorageArrayExtension;
 
 namespace Minerva.DataStorage
 {
@@ -36,22 +39,50 @@ namespace Minerva.DataStorage
             this._handle = fieldIndex;
         }
 
-        public readonly bool IsDisposed => _handle.Container == null || _handle.IsDisposed;
+        public readonly bool IsDisposed
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _handle.Container == null || _handle.IsDisposed || _handle.Index < 0;
+        }
 
         /// <summary>
         /// Is an external array? (not inline to the parent object)
         /// </summary>
-        public readonly bool IsExternalArray => _handle.Container.IsArray;
+        public readonly bool IsExternalArray
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                _handle.EnsureNotDisposed();
+                return _handle.Container.IsArray;
+            }
+        }
 
         /// <summary>
         /// Is an object array? (a ref array)
         /// </summary>
-        public readonly bool IsObjectArray => Type == ValueType.Ref;
+        public readonly bool IsObjectArray
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                _handle.EnsureNotDisposed();
+                return Header.Type == ValueType.Ref;
+            }
+        }
 
         /// <summary>
         /// Is a string? (a ref array of char16)
         /// </summary>
-        public readonly bool IsString => Type == ValueType.Char16;
+        public readonly bool IsString
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                _handle.EnsureNotDisposed();
+                return Header.Type == ValueType.Char16;
+            }
+        }
 
         /// <summary>
         /// Array Length
@@ -63,7 +94,7 @@ namespace Minerva.DataStorage
             {
                 _handle.EnsureNotDisposed();
                 ref var header = ref Header;
-                return header.Length / header.ElemSize;
+                return header.ElementCount;
             }
         }
 
@@ -97,17 +128,21 @@ namespace Minerva.DataStorage
             }
         }
 
-        internal readonly Container Container
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _handle.Container;
-        }
-
         internal readonly FieldHandle Handle
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => _handle;
         }
+
+        internal readonly ref FieldHeader Header
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => ref _handle.Container.GetFieldHeader(_handle.Index);
+        }
+
+        internal WriteView Raw => new(ref this);
+
+
 
 
         /// <summary>
@@ -135,14 +170,6 @@ namespace Minerva.DataStorage
                 StorageEventRegistry.NotifyFieldWrite(_handle.Container, fieldIndex);
             }
         }
-
-        private readonly ref FieldHeader Header
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => ref _handle.Container.GetFieldHeader(_handle.Index);
-        }
-
-        internal WriteView Raw => new(ref this);
 
         /// <summary>Direct access to the underlying ID span (use with care).</summary>
         internal Span<ContainerReference> References
@@ -182,17 +209,17 @@ namespace Minerva.DataStorage
 
         public void Write(ReadOnlySpan<char> valueSpan)
         {
-            if (!IsString)
+            int fieldIndex = _handle.EnsureNotDisposed();
+            if (Header.Type != ValueType.Char16)
                 ThrowHelper.ArgumentException("Cannot write string to non-string array.");
 
             // just call write array on object
-            if (this.IsExternalArray)
+            if (this._handle.Container.IsArray)
             {
                 new StorageObject(_handle.Container).WriteArray(valueSpan);
                 return;
             }
 
-            int fieldIndex = _handle.EnsureNotDisposed();
             ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
             int length = valueSpan.Length;
 
@@ -214,27 +241,28 @@ namespace Minerva.DataStorage
 
         public bool TryWrite(int index, Span<byte> src, ValueType valueType, bool isExplicit = true)
         {
-            if (index < 0 || index > Length)
+            if (IsDisposed)
                 return false;
-            if (_handle.IsDisposed)
+            ref FieldHeader header = ref _handle.Header;
+            if (index < 0 || index > header.ElementCount)
                 return false;
-            int fieldIndex = _handle.Index;
-            ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
             int elementSize = header.ElemSize;
             var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
             bool result = Migration.TryWriteTo(src, valueType, span, header.Type, isExplicit);
             if (result)
-                StorageEventRegistry.NotifyFieldWrite(_handle.Container, fieldIndex);
+                StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Index);
             return result;
         }
 
 
         public readonly T Read<T>(int index) where T : unmanaged => this[index].Read<T>();
 
-        public bool TryRead<T>(int index, out T value) where T : unmanaged
+        public readonly bool TryRead<T>(int index, out T value) where T : unmanaged
         {
             value = default;
-            if (index < 0 || index > Length)
+            if (IsDisposed)
+                return false;
+            if (index < 0 || index > Header.ElementCount)
                 return false;
             return this[index].TryRead(out value, true);
         }
@@ -290,6 +318,16 @@ namespace Minerva.DataStorage
             ContainerReference containerReference = references[index];
             return containerReference.TryGet(out child);
         }
+
+        /// <summary>
+        /// Get a member view of the array element
+        /// </summary>
+        /// <param name="array"></param>
+        /// <param name="index"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly StorageMember GetMember(int index) => new(_handle, index);
+
 
 
 
@@ -418,10 +456,11 @@ namespace Minerva.DataStorage
         public void Resize(int newLength)
         {
             _handle.EnsureNotDisposed();
-            if (newLength == Length)
+            if (newLength == _handle.Header.ElementCount)
                 return;
-            _handle.Container.ResizeArrayField(_handle.Index, newLength);
-            StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Index);
+            int index = _handle.Index;
+            _handle.Container.ResizeArrayField(index, newLength);
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, index);
         }
 
         /// <summary>
@@ -431,7 +470,7 @@ namespace Minerva.DataStorage
         public void EnsureLength(int length)
         {
             _handle.EnsureNotDisposed();
-            if (length <= Length)
+            if (length <= _handle.Header.ElementCount)
                 return;
             _handle.Container.ResizeArrayField(_handle.Index, length);
             StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Index);
@@ -445,7 +484,7 @@ namespace Minerva.DataStorage
         public void Rescheme(TypeData type, int? newLength = null)
         {
             _handle.EnsureNotDisposed();
-            newLength ??= Length;
+            newLength ??= Header.ElementCount;
             _handle.Container.ReschemeFor(_handle.Name, type, newLength);
             StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Index);
         }
@@ -455,9 +494,12 @@ namespace Minerva.DataStorage
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>
-        public bool IsConvertibleTo<T>() where T : unmanaged => AcceptTypeConversion<T>(in Header);
-        public bool IsConvertibleTo(TypeData type) => AcceptTypeConversion(in Header, type);
-        public bool IsConvertibleTo(ValueType valueType, int? elementSize = null) => AcceptTypeConversion(in Header, valueType, elementSize);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool IsConvertibleTo<T>() where T : unmanaged => AcceptTypeConversion<T>(in Header);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool IsConvertibleTo(TypeData type) => AcceptTypeConversion(in Header, type);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool IsConvertibleTo(ValueType valueType, int? elementSize = null) => AcceptTypeConversion(in Header, valueType, elementSize);
 
 
 
@@ -469,7 +511,7 @@ namespace Minerva.DataStorage
             if (header.IsRef)
                 throw new InvalidOperationException("Cannot call ToArray<T>() on a ref field. Use object accessors instead.");
 
-            return ToArray<T>(in header, _handle.Container);
+            return StorageArrayExtension.ToArray<T>(in header, _handle.Container);
         }
 
         public string AsString()
@@ -477,8 +519,17 @@ namespace Minerva.DataStorage
             // 1) Disallow ref fields for value extraction.
             ref var header = ref Header;
             Container container = _handle.Container;
-            return AsString(header, container);
+            return StorageArrayExtension.AsString(header, container);
         }
+
+        /// <summary>
+        /// Convert to persistent representation
+        /// </summary>
+        /// <param name="array"></param>
+        /// <param name="index"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly Persistent ToPersistent() => new(this);
 
         /// <summary>
         /// Convert to string for display
@@ -489,16 +540,160 @@ namespace Minerva.DataStorage
         /// <returns></returns>
         public override string ToString()
         {
-            if (Type == ValueType.Char16)
+            _handle.EnsureNotDisposed();
+            ref var header = ref _handle.Header;
+            if (header.Type == ValueType.Char16)
             {
                 return AsString();
             }
-            return $"{TypeUtil.ToString(Type)}[{Length}]";
+            return $"{TypeUtil.ToString(header.Type)}[{header.ElementCount}]";
         }
 
 
+        public static explicit operator Persistent(StorageArray arr) => new Persistent(arr);
 
 
+
+        public Enumerator GetEnumerator() => new(ref this);
+
+        public ref struct Enumerator
+        {
+            private readonly StorageArray _array;
+            private readonly int _schemaVersion;
+            private int _index;
+
+            public Enumerator(ref StorageArray array)
+            {
+                _array = array;
+                _schemaVersion = array._handle.Container.SchemaVersion;
+                _index = -1;
+            }
+
+            public bool MoveNext()
+            {
+                if (_schemaVersion != _array._handle.Container.SchemaVersion)
+                    ThrowHelper.ThrowInvalidOperation("Collection was modified; enumeration operation may not execute.");
+                if (_array.IsDisposed)
+                    ThrowHelper.ThrowDisposed("The collection has been disposed.");
+                _index++;
+                return _index < _array.Header.ElementCount;
+            }
+
+            public readonly StorageMember Current => _array.GetMember(_index);
+        }
+
+        public struct Persistent : IEnumerable<StorageMember.Persistent>
+        {
+            internal FieldHandle.Persistent _handle;
+
+            public Persistent(FieldHandle.Persistent handle) => _handle = handle;
+            public Persistent(StorageArray member) => _handle = new FieldHandle.Persistent(member._handle);
+
+            public readonly StorageArray Array
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => new(_handle);
+            }
+
+            public readonly bool IsDisposed
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => _handle.Container == null || _handle.IsDisposed || _handle.Index < 0;
+            }
+            public int Length
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get
+                {
+                    _handle.EnsureNotDisposed();
+                    return _handle.Header.ElementCount;
+                }
+            }
+
+            public readonly StorageMember.Persistent this[int index]
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => new(_handle, index);
+            }
+
+            public readonly Enumerator GetEnumerator() => new(this);
+            readonly IEnumerator<StorageMember.Persistent> IEnumerable<StorageMember.Persistent>.GetEnumerator() => new Enumerator(this);
+            readonly IEnumerator IEnumerable.GetEnumerator() => new Enumerator(this);
+
+
+            public static implicit operator StorageArray(Persistent member) => new(member._handle);
+
+            public struct Enumerator : IEnumerator<StorageMember.Persistent>, IEnumerator
+            {
+                private readonly Persistent _array;
+                private readonly int _schemaVersion;
+                private int _index;
+
+                public Enumerator(Persistent array)
+                {
+                    _array = array;
+                    _schemaVersion = array._handle.Container.SchemaVersion;
+                    _index = -1;
+                }
+
+                public bool MoveNext()
+                {
+                    if (_schemaVersion != _array._handle.Container.SchemaVersion)
+                        ThrowHelper.ThrowInvalidOperation("Collection was modified; enumeration operation may not execute.");
+                    if (_array.IsDisposed)
+                        ThrowHelper.ThrowDisposed("The collection has been disposed.");
+                    _index++;
+                    return _index < _array._handle.Header.ElementCount;
+                }
+
+                public readonly StorageMember Current => new(_array._handle, _index);
+                readonly StorageMember.Persistent IEnumerator<StorageMember.Persistent>.Current => new(_array._handle, _index);
+                readonly object IEnumerator.Current => new StorageMember.Persistent(_array._handle, _index);
+
+                public readonly void Dispose() { }
+
+                public void Reset()
+                {
+                    _index = -1;
+                }
+            }
+        }
+
+
+        /// <summary>
+        /// No notification on write access
+        /// </summary>
+        internal readonly ref struct WriteView
+        {
+            private readonly StorageArray _arr;
+            public ValueView this[int index]
+            {
+                readonly get
+                {
+                    ref FieldHeader header = ref _arr.Header;
+                    int elementSize = header.ElemSize;
+                    var span = _arr._handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                    return new ValueView(span, header.Type);
+                }
+                set
+                {
+                    ref FieldHeader header = ref _arr.Header;
+                    int elementSize = header.ElemSize;
+                    var span = _arr._handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                    value.TryWriteTo(span, header.Type);
+                }
+            }
+
+            public WriteView(ref StorageArray arr)
+            {
+                _arr = arr;
+            }
+        }
+    }
+
+
+    public static class StorageArrayExtension
+    {
         internal static T[] ToArray<T>(in FieldHeader header, Container container) where T : unmanaged
         {
             int length = header.Length / header.ElemSize;
@@ -552,40 +747,6 @@ namespace Minerva.DataStorage
         {
             if (toType.ValueType == ValueType.Blob) return fieldHeader.ElemSize == toType.Size;
             return TypeUtil.IsImplicitlyConvertible(fieldHeader.Type, toType.ValueType);
-        }
-
-
-
-
-
-        /// <summary>
-        /// No notification on write access
-        /// </summary>
-        internal readonly ref struct WriteView
-        {
-            private readonly StorageArray _arr;
-            public ValueView this[int index]
-            {
-                readonly get
-                {
-                    ref FieldHeader header = ref _arr.Header;
-                    int elementSize = header.ElemSize;
-                    var span = _arr._handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
-                    return new ValueView(span, header.Type);
-                }
-                set
-                {
-                    ref FieldHeader header = ref _arr.Header;
-                    int elementSize = header.ElemSize;
-                    var span = _arr._handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
-                    value.TryWriteTo(span, header.Type);
-                }
-            }
-
-            public WriteView(ref StorageArray arr)
-            {
-                _arr = arr;
-            }
         }
     }
 }

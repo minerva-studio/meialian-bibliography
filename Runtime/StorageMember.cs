@@ -9,16 +9,16 @@ namespace Minerva.DataStorage
     /// </summary>
     public ref struct StorageMember
     {
+        private FieldHandle _handle;
         /// <summary>
         /// storage object
         /// </summary>
-        private readonly StorageObject _storageObject;
+        private readonly StorageObject _storageObject => new StorageObject(_handle.Container);
         /// <summary>
         /// Array index, -1 if not an array element.
         /// </summary>
         private readonly int _index;
 
-        private FieldHandle _handle;
 
         /// <summary>
         /// Whether the member exists.
@@ -45,13 +45,13 @@ namespace Minerva.DataStorage
         public TypeData Type
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _storageObject.Container.GetFieldHeader(EnsureFieldIndex()).ElementType;
+            get => _handle.Container.GetFieldHeader(EnsureFieldIndex()).ElementType;
         }
 
         public ValueType ValueType
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _storageObject.Container.GetFieldHeader(EnsureFieldIndex()).Type;
+            get => _handle.Container.GetFieldHeader(EnsureFieldIndex()).Type;
         }
 
         public bool IsArray
@@ -154,13 +154,18 @@ namespace Minerva.DataStorage
             // Determine if we might lose the name when schema changed.
             ThrowHelper.ThrowIfOverlap(storageObject._container.Span, MemoryMarshal.AsBytes(fieldName));
 
-            this._storageObject = storageObject;
             this._index = -1;
             this._handle = storageObject.GetFieldHandle(fieldName);
         }
 
         public StorageMember(StorageObject storageObject, ReadOnlySpan<char> fieldName, int index) : this(storageObject, fieldName)
         {
+            this._index = index;
+        }
+
+        public StorageMember(FieldHandle handle, int index)
+        {
+            this._handle = handle;
             this._index = index;
         }
 
@@ -223,5 +228,42 @@ namespace Minerva.DataStorage
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public readonly void Write<T>(T value) where T : unmanaged => AsScalar().Write(value);
+
+
+
+        public static explicit operator StorageObject(StorageMember member) => member.AsObject();
+        public static explicit operator StorageScalar(StorageMember member) => member.AsScalar();
+        public static explicit operator StorageArray(StorageMember member) => member.AsArray();
+        public static explicit operator Persistent(StorageMember member) => new Persistent(member);
+
+
+
+        public struct Persistent
+        {
+            private FieldHandle.Persistent _handle;
+            private readonly int _index;
+            public Persistent(FieldHandle.Persistent handle, int index)
+            {
+                _handle = handle;
+                _index = index;
+            }
+
+            public Persistent(StorageMember member) : this(new(member._handle), member._index) { }
+
+
+            public readonly bool IsDisposed
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => _handle.Container == null || _handle.IsDisposed || _handle.Index < 0;
+            }
+
+            public readonly StorageMember Member
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => new(_handle, _index);
+            }
+
+            public static implicit operator StorageMember(Persistent member) => new StorageMember(member._handle, member._index);
+        }
     }
 }

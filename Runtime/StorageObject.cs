@@ -747,7 +747,7 @@ namespace Minerva.DataStorage
                 throw new InvalidOperationException($"This StorageObject does not represent a single string field because the field count is {FieldCount}.");
             }
 
-            return StorageArray.AsString(in container.GetFieldHeader(0), container);
+            return StorageArrayExtension.AsString(in container.GetFieldHeader(0), container);
         }
 
         public bool TryReadString(string fieldName, out string value)
@@ -825,7 +825,7 @@ namespace Minerva.DataStorage
             if (!IsArray())
                 throw new InvalidOperationException("This StorageObject does not represent an array.");
 
-            return StorageArray.ToArray<T>(in _container.GetFieldHeader(0), _container);
+            return StorageArrayExtension.ToArray<T>(in _container.GetFieldHeader(0), _container);
         }
 
 
@@ -1905,10 +1905,10 @@ namespace Minerva.DataStorage
             return new FieldHandle(_container, fieldName);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal FieldHandle GetFieldHandle(string fieldName)
+        internal FieldHandle.Persistent GetFieldHandle(string fieldName)
         {
             ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            return new FieldHandle(_container, fieldName);
+            return new FieldHandle.Persistent(_container, fieldName);
         }
 
 

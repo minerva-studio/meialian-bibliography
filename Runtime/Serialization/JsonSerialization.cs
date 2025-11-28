@@ -243,6 +243,7 @@ namespace Minerva.DataStorage.Serialization
         // Handles: quotes, backslashes, control chars, and common escapes.
         private static void WriteJsonString(ref IBufferWriter<char> writer, ReadOnlySpan<char> value)
         {
+            Span<char> buf = stackalloc char[6];
             // Opening quote
             writer.Write("\"");
 
@@ -275,8 +276,7 @@ namespace Minerva.DataStorage.Serialization
                     default:
                         if (c < ' ')
                         {
-                            // Control chars 0x00¨C0x1F must be escaped as \u00XX
-                            Span<char> buf = stackalloc char[6];
+                            // Control chars 0x00â€“0x1F must be escaped as \u00XX
                             buf[0] = '\\';
                             buf[1] = 'u';
                             buf[2] = ToHexChar((c >> 12) & 0xF);
