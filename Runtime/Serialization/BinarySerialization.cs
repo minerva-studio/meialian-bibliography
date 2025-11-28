@@ -57,15 +57,7 @@ namespace Minerva.DataStorage.Serialization
         /// A Base64-encoded string representing the full container tree rooted at
         /// <see cref="Storage.Root"/>.
         /// </returns>
-        public static string ToBase64(this Storage storage)
-        {
-            if (storage == null)
-                throw new ArgumentNullException(nameof(storage));
-
-            var writer = new ArrayBufferWriter<byte>();
-            storage.Root.WriteBinaryTo(writer);
-            return Convert.ToBase64String(writer.WrittenMemory.Span);
-        }
+        public static string ToBase64(this Storage storage) => Convert.ToBase64String(ToBinary(storage));
 
         /// <summary>
         /// Serializes the entire <see cref="Storage"/> tree rooted at <see cref="Storage.Root"/>
@@ -85,8 +77,14 @@ namespace Minerva.DataStorage.Serialization
             if (storage == null)
                 throw new ArgumentNullException(nameof(storage));
 
+            StorageObject root = storage.Root;
+            return ToBinary(root);
+        }
+
+        public static ReadOnlySpan<byte> ToBinary(StorageObject root)
+        {
             var writer = new ArrayBufferWriter<byte>();
-            storage.Root.WriteBinaryTo(writer);
+            root.WriteBinaryTo(writer);
             return writer.WrittenSpan;
         }
 

@@ -51,7 +51,7 @@ namespace Minerva.DataStorage
 
         [DoesNotReturn]
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void ArgumentNull(string v) => throw new NotImplementedException(v);
+        public static void ThrowArgumentNull(string v) => throw new NotImplementedException(v);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ThrowIfNull(object obj, string name)

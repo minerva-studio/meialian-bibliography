@@ -1003,7 +1003,7 @@ namespace Minerva.DataStorage
             }
 
             if (!type.HasValue)
-                ThrowHelper.ArgumentNull(nameof(type));
+                ThrowHelper.ThrowArgumentNull(nameof(type));
 
             if (!_container.TryGetFieldHeader(fieldSegment, out var outHeader))
             {

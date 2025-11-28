@@ -817,14 +817,14 @@ namespace Minerva.DataStorage
             public bool String(out string value)
             {
                 value = default;
-                if (!ArrayOf<char>(out var arr))
+                if (!Array<char>(out var arr))
                     return false;
                 value = arr.AsString();
                 return true;
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool ArrayOf<T>(out StorageArray array) where T : unmanaged
+            public bool Array<T>(out StorageArray array) where T : unmanaged
             {
                 if (Failed)
                 {
@@ -835,7 +835,7 @@ namespace Minerva.DataStorage
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool ArrayOf(TypeData? type, out StorageArray array)
+            public bool Array(TypeData? type, out StorageArray array)
             {
                 if (Failed)
                 {
@@ -846,7 +846,7 @@ namespace Minerva.DataStorage
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool ArrayOfObject(out StorageArray array)
+            public bool ObjectArray(out StorageArray array)
             {
                 if (Failed)
                 {
@@ -857,7 +857,7 @@ namespace Minerva.DataStorage
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool ArrayOfAny(out StorageArray storageArray)
+            public bool Array(out StorageArray storageArray)
             {
                 if (Failed)
                 {

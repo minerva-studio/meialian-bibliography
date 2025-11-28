@@ -1,3 +1,4 @@
+using Minerva.DataStorage.Serialization;
 using System;
 using System.Runtime.CompilerServices;
 
@@ -83,5 +84,31 @@ namespace Minerva.DataStorage
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetMember(ReadOnlySpan<char> path, out StorageMember member) => Root.TryGetMember(path, out member);
+
+        /// <summary>
+        /// Deep clone a storage instance.
+        /// </summary>
+        /// <param name="source"></param>
+        /// <returns></returns>
+        public static Storage Clone(Storage source)
+        {
+            if (source == null)
+                ThrowHelper.ThrowArgumentNull(nameof(source));
+            return Clone(source.Root);
+        }
+
+        /// <summary>
+        /// Create a deep clone of a storage object and its children.
+        /// </summary>
+        /// <param name="storageObject"></param>
+        /// <returns></returns>
+        public static Storage Clone(StorageObject storageObject)
+        {
+            if (storageObject == default)
+                return new Storage();
+
+            var bytes = BinarySerialization.ToBinary(storageObject);
+            return BinarySerialization.Parse(bytes);
+        }
     }
 }

@@ -396,7 +396,7 @@ namespace Minerva.DataStorage.Tests
                         .Location("stats")
                         .Location("speeds");
 
-            Assert.That(q.Exist().ArrayOf<float>(out var arr), Is.True);
+            Assert.That(q.Exist().Array<float>(out var arr), Is.True);
             Assert.That(arr.Length, Is.EqualTo(3));
         }
 
@@ -410,7 +410,7 @@ namespace Minerva.DataStorage.Tests
             var q = root.Query()
                         .Location("stats");
 
-            Assert.That(q.Exist().ArrayOf<float>(out var arr), Is.False);
+            Assert.That(q.Exist().Array<float>(out var arr), Is.False);
             Assert.That(arr.IsDisposed, Is.True);
         }
 
@@ -880,7 +880,7 @@ namespace Minerva.DataStorage.Tests
 
             // Array checks
             var existArr = root.Query().Location("player").Location("inventory").Exist();
-            Assert.That(existArr.ArrayOf<int>(out var arr), Is.True);
+            Assert.That(existArr.Array<int>(out var arr), Is.True);
             Assert.That(arr.Length, Is.GreaterThanOrEqualTo(2));
 
             // Object(out) when missing returns false and out default
