@@ -102,6 +102,16 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => AsObject().GetMember(path);
         }
+        /// <summary>
+        /// Get a member in an array, if this member is an array.
+        /// </summary>
+        /// <param name="index"></param>
+        /// <returns></returns>
+        public StorageMember this[int index]
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => AsArray()[index];
+        }
 
 
         public readonly int Int
