@@ -1,4 +1,4 @@
-﻿#if UNITY_EDITOR
+#if UNITY_EDITOR
 
 using System;
 using System.Collections.Generic;
@@ -321,7 +321,7 @@ namespace Minerva.DataStorage
                     Kind = Item.NodeKind.Root,
                     Container = container,
                     GenerationSnapshot = container.Generation,
-                    displayName = $"Storage (ID={container.ID})"
+                    displayName = (string.IsNullOrEmpty(container.Name) ? $"Storage (ID={container.ID})" : $"Storage '{container.Name}' (ID={container.ID})")
                 };
             }
 
@@ -390,13 +390,13 @@ namespace Minerva.DataStorage
                     // Array field: either ref array or value-type array
                     if (TryGetInlineOrRefArray(container, i, out var arr))
                     {
-                        Container arrayContainer = arr.Container;
+                        Container arrayContainer = arr.Handle.Container;
                         fieldItem.displayName = fieldName + $" (ID={arrayContainer.ID})";
                         // string: dir draw
                         if (arr.IsString)
                         {
                             fieldItem.Container = arrayContainer;
-                            fieldItem.FieldIndex = 0;
+                            fieldItem.FieldIndex = arr.IsExternalArray ? 0 : fieldItem.FieldIndex;
                             fieldItem.GenerationSnapshot = arrayContainer.Generation;
                         }
                         // Ref array: spawn child containers
@@ -430,7 +430,7 @@ namespace Minerva.DataStorage
                                     id = _nextId++,
                                     Kind = Item.NodeKind.ArrayElement,
                                     Container = arrayContainer,
-                                    FieldIndex = i,
+                                    FieldIndex = arr.IsExternalArray ? 0 : fieldItem.FieldIndex,
                                     ArrayIndex = j,
                                     GenerationSnapshot = arrayContainer.Generation,
                                     displayName = $"{fieldName}[{j}]"
@@ -837,7 +837,7 @@ namespace Minerva.DataStorage
                 if (!header.IsRef) return false;
                 var r = container.GetFieldData<ContainerReference>(in header)[0];
                 if (!_snapshot.TryGetValue(r, out var child)) return false;
-                if (!child.IsArray) return false;
+                if (child.IsDisposed(child.Generation) || !child.IsArray) return false;
                 storageArray = new StorageArray(child);
                 return true;
             }
