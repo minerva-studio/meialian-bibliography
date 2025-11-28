@@ -87,7 +87,7 @@ namespace Minerva.DataStorage
             EnsureNoDispose();
             int index = EnsureFieldIndex();
             var _storageObject = new StorageObject(_handle.Container);
-            if (this._index >= 0) return _storageObject.GetArray(ref _handle)[_index];
+            if (this._index >= 0) return _storageObject.GetArray(ref _handle).Scalar[_index];
             return _storageObject.GetValueView(index);
         }
 

@@ -123,7 +123,7 @@ namespace Minerva.DataStorage.Tests
             // Read at -1
             try
             {
-                var _ = ia[-1];
+                var _ = ia.Scalar[-1];
                 Assert.Fail("Expected ArgumentOutOfRangeException for index -1.");
             }
             catch (ArgumentOutOfRangeException) { }
@@ -131,7 +131,7 @@ namespace Minerva.DataStorage.Tests
             // Read at 3
             try
             {
-                var _ = ia[3];
+                var _ = ia.Scalar[3];
                 Assert.Fail("Expected ArgumentOutOfRangeException for index 3.");
             }
             catch (ArgumentOutOfRangeException) { }
@@ -183,7 +183,7 @@ namespace Minerva.DataStorage.Tests
         {
             var res = new int[a.Length];
             for (int i = 0; i < a.Length; i++)
-                res[i] = ReadInt32(a[i]);
+                res[i] = ReadInt32(a.Scalar[i]);
             return res;
         }
 
@@ -192,7 +192,7 @@ namespace Minerva.DataStorage.Tests
         {
             var res = new float[a.Length];
             for (int i = 0; i < a.Length; i++)
-                res[i] = ReadFloat32(a[i]);
+                res[i] = ReadFloat32(a.Scalar[i]);
             return res;
         }
 

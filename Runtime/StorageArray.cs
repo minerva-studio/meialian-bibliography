@@ -140,6 +140,8 @@ namespace Minerva.DataStorage
             get => ref _handle.Container.GetFieldHeader(_handle.Index);
         }
 
+        internal readonly ScalarView Scalar => new(in _handle);
+
         internal WriteView Raw => new(ref this);
 
 
@@ -150,26 +152,13 @@ namespace Minerva.DataStorage
         /// </summary>
         /// <param name="index"></param>
         /// <returns></returns>
-        public ReadOnlyValueView this[int index]
+        public readonly StorageMember this[int index]
         {
-            readonly get
-            {
-                ref FieldHeader header = ref Header;
-                int elementSize = header.ElemSize;
-                var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
-                return new ValueView(span, header.Type);
-            }
-            set
-            {
-                int fieldIndex = _handle.EnsureNotDisposed();
-                ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
-                int elementSize = header.ElemSize;
-                var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
-                value.TryWriteTo(span, header.Type);
-
-                StorageEventRegistry.NotifyFieldWrite(_handle.Container, fieldIndex);
-            }
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => new(_handle, index);
         }
+
+
 
         /// <summary>Direct access to the underlying ID span (use with care).</summary>
         internal Span<ContainerReference> References
@@ -255,7 +244,7 @@ namespace Minerva.DataStorage
         }
 
 
-        public readonly T Read<T>(int index) where T : unmanaged => this[index].Read<T>();
+        public readonly T Read<T>(int index) where T : unmanaged => Scalar[index].Read<T>();
 
         public readonly bool TryRead<T>(int index, out T value) where T : unmanaged
         {
@@ -264,7 +253,7 @@ namespace Minerva.DataStorage
                 return false;
             if (index < 0 || index > Header.ElementCount)
                 return false;
-            return this[index].TryRead(out value, true);
+            return Scalar[index].TryRead(out value, true);
         }
 
 
@@ -318,15 +307,6 @@ namespace Minerva.DataStorage
             ContainerReference containerReference = references[index];
             return containerReference.TryGet(out child);
         }
-
-        /// <summary>
-        /// Get a member view of the array element
-        /// </summary>
-        /// <param name="array"></param>
-        /// <param name="index"></param>
-        /// <returns></returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly StorageMember GetMember(int index) => new(_handle, index);
 
 
 
@@ -579,7 +559,7 @@ namespace Minerva.DataStorage
                 return _index < _array.Header.ElementCount;
             }
 
-            public readonly StorageMember Current => _array.GetMember(_index);
+            public readonly StorageMember Current => _array[_index];
         }
 
         public struct Persistent : IEnumerable<StorageMember.Persistent>
@@ -594,13 +574,12 @@ namespace Minerva.DataStorage
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 get => new(_handle);
             }
-
             public readonly bool IsDisposed
             {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 get => _handle.Container == null || _handle.IsDisposed || _handle.Index < 0;
             }
-            public int Length
+            public readonly int Length
             {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 get
@@ -687,6 +666,42 @@ namespace Minerva.DataStorage
             public WriteView(ref StorageArray arr)
             {
                 _arr = arr;
+            }
+        }
+
+        public ref struct ScalarView
+        {
+            private FieldHandle _handle;
+
+            public ScalarView(in FieldHandle handle)
+            {
+                _handle = handle;
+            }
+
+            /// <summary>
+            /// Value
+            /// </summary>
+            /// <param name="index"></param>
+            /// <returns></returns>
+            public ReadOnlyValueView this[int index]
+            {
+                get
+                {
+                    ref FieldHeader header = ref _handle.Header;
+                    int elementSize = header.ElemSize;
+                    var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                    return new ValueView(span, header.Type);
+                }
+                set
+                {
+                    int fieldIndex = _handle.EnsureNotDisposed();
+                    ref FieldHeader header = ref _handle.Container.GetFieldHeader(fieldIndex);
+                    int elementSize = header.ElemSize;
+                    var span = _handle.Container.GetFieldData(in header).Slice(elementSize * index, elementSize);
+                    value.TryWriteTo(span, header.Type);
+
+                    StorageEventRegistry.NotifyFieldWrite(_handle.Container, fieldIndex);
+                }
             }
         }
     }
