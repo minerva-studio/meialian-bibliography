@@ -292,20 +292,23 @@ namespace Minerva.DataStorage.Serialization
         /// </returns>
         private static (Container, int) ReadContainer(Memory<byte> src, bool allocate = false)
         {
-            var span = src.Span;
-
             var idSize = Unsafe.SizeOf<ContainerReference>();
             var offset = idSize + ContainerHeader.LengthOffset;
-            var length = BitConverter.ToInt32(span[offset..(offset + ContainerHeader.LengthSize)]);
+            var length = BitConverter.ToInt32(src.Span[offset..(offset + ContainerHeader.LengthSize)]);
 
             Memory<byte> buffer = src.Slice(idSize, length);
             AllocatedMemory allocated = allocate ? AllocatedMemory.Create(buffer.Span) : new AllocatedMemory(buffer);
+            // Create container wrapping the allocated memory
+            Container container = Container.Registry.Shared.CreateWildWith(allocated);
+            // Assign a fresh ID and register the container
+            Container.Registry.Shared.AssignNewID(container);
+            Span<byte> span = allocated.Buffer.Span;
 
-            var view = new ContainerView(allocated.Buffer.Span);
+            ref var containerHeader = ref ContainerHeader.FromSpan(span);
             int totalConsumption = idSize + length;
-            for (int i = 0; i < view.Header.FieldCount; i++)
+            for (int i = 0; i < containerHeader.FieldCount; i++)
             {
-                ref var field = ref view.GetFieldHeader(i);
+                ref var field = ref FieldHeader.FromSpanAndFieldIndex(span, i);
                 if (!field.IsRef)
                     continue;
 
@@ -317,7 +320,8 @@ namespace Minerva.DataStorage.Serialization
                         continue;
 
                     // Deserialize child subtree starting right after the current container's bytes
-                    var (childContainer, consumption) = ReadContainer(src[totalConsumption..]);
+                    var (childContainer, consumption) = ReadContainer(src[totalConsumption..], allocate);
+                    Container.Registry.Shared.RegisterParent(childContainer, container);
                     // Rewrite reference to point at the newly created container
                     ids[i1] = childContainer.ID;
                     // Advance past the bytes consumed by the child subtree
@@ -325,9 +329,6 @@ namespace Minerva.DataStorage.Serialization
                 }
             }
 
-            Container container = Container.Registry.Shared.CreateWildWith(allocated);
-            // Assign a fresh ID and register the container
-            Container.Registry.Shared.AssignNewID(container);
             return (container, totalConsumption);
         }
 
@@ -353,6 +354,10 @@ namespace Minerva.DataStorage.Serialization
             var length = BitConverter.ToInt32(src[offset..(offset + ContainerHeader.LengthSize)]);
 
             AllocatedMemory allocated = AllocatedMemory.Create(src.Slice(idSize, length));
+            // Create container wrapping the allocated memory
+            Container container = Container.Registry.Shared.CreateWildWith(allocated);
+            // Assign a fresh ID and register the container
+            Container.Registry.Shared.AssignNewID(container);
             Span<byte> span = allocated.Buffer.Span;
 
             ref var containerHeader = ref ContainerHeader.FromSpan(span);
@@ -372,6 +377,7 @@ namespace Minerva.DataStorage.Serialization
 
                     // Deserialize child subtree starting right after the current container's bytes
                     var (childContainer, consumption) = ReadContainer(src[totalConsumption..]);
+                    Container.Registry.Shared.RegisterParent(childContainer, container);
                     // Rewrite reference to point at the newly created container
                     ids[i1] = childContainer.ID;
                     // Advance past the bytes consumed by the child subtree
@@ -379,9 +385,6 @@ namespace Minerva.DataStorage.Serialization
                 }
             }
 
-            Container container = Container.Registry.Shared.CreateWildWith(allocated);
-            // Assign a fresh ID and register the container
-            Container.Registry.Shared.AssignNewID(container);
             return (container, totalConsumption);
         }
     }
