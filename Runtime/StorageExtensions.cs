@@ -1057,16 +1057,17 @@ namespace Minerva.DataStorage
         /// For normal query, Do NOT reuse the same StorageQuery after calling Make()/Exist() (they dispose internal state);
         /// but after Expect()/Exist() you may keep chaining. 
         /// </remarks>
-        public static ExistStatement Exist<T>(this T query) where T : struct, IStorageQuery
+        public static ExistStatement Exist<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery
         {
             if (!query.Result)
             {
                 return default;
             }
-            using QueryImplicitDisposeContext<T> queryContext = new(query);
+            using QueryImplicitDisposeContext<TQuery> queryContext = new(query);
             var e = new ExistStatement(query.Root, query.PathSpan.ToString());
             return e;
         }
+        public static ExistStatement Exist<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Exist();
 
         /// <summary>
         /// Enter Make semantics (creation allowed).
@@ -1076,7 +1077,7 @@ namespace Minerva.DataStorage
         /// For normal query, Do NOT reuse the StorageQuery after calling Make()/Exist() (they dispose internal state);
         /// but after Expect()/Exist() you may keep chaining. 
         /// </remarks>
-        public static MakeStatement Make<T>(this T query) where T : struct, IStorageQuery
+        public static MakeStatement Make<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery
         {
             if (!query.Result)
             {
@@ -1084,10 +1085,11 @@ namespace Minerva.DataStorage
                 query.Result.ThrowIfFailed();
             }
 
-            using QueryImplicitDisposeContext<T> queryContext = new(query);
+            using QueryImplicitDisposeContext<TQuery> queryContext = new(query);
             var e = new MakeStatement(query.Root, query.PathSpan.ToString());
             return e;
         }
+        public static MakeStatement Make<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Make();
 
         /// <summary>
         /// Enter ensure semantics (creation allowed).
@@ -1103,6 +1105,7 @@ namespace Minerva.DataStorage
             var e = new EnsureStatement<TQuery>(query);
             return e;
         }
+        public static EnsureStatement<TQuery> Ensure<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Ensure();
 
         /// <summary>
         /// Begin the non-intrusive Expect DSL for the current accumulated path.  
@@ -1123,6 +1126,7 @@ namespace Minerva.DataStorage
             var exp = new ExpectStatement<TQuery>(query);
             return exp;
         }
+        public static ExpectStatement<TQuery> Expect<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Expect();
 
 
 
