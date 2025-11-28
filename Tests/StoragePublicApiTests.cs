@@ -1146,5 +1146,128 @@ namespace Minerva.DataStorage.Tests
 
         #endregion
         #endregion
+
+
+        #region Enumerate
+
+        [Test]
+        public void StorageObject_Enumerate_Members()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.Write("a", 1);
+            root.Write("b", 2f);
+            root.Write("c", "str");
+            root.GetObject("child").Write("hp", 10);
+
+            var names = new List<string>();
+            foreach (var m in root)
+            {
+                Assert.IsFalse(m.IsArrayMember);
+                names.Add(m.Name.ToString());
+            }
+
+            CollectionAssert.IsSubsetOf(new[] { "a", "b", "c", "child" }, names);
+            Assert.That(names.Count, Is.GreaterThanOrEqualTo(4));
+        }
+
+        [Test]
+        public void StorageArray_Enumerate_ValueArray_Members()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+            root.WriteArray("nums", new[] { 5, 6, 7 });
+
+            var arr = root.GetArray("nums");
+            var values = new List<int>();
+            var count = 0;
+
+            foreach (var m in arr)
+            {
+                Assert.IsTrue(m.IsArrayMember);
+                Assert.AreEqual(arr.Length, m.ArrayLength);
+                values.Add(m.Read<int>());
+                count++;
+            }
+
+            Assert.AreEqual(arr.Length, count);
+            CollectionAssert.AreEqual(new[] { 5, 6, 7 }, values);
+        }
+
+        [Test]
+        public void StorageArray_Enumerate_ObjectArray_Slots()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            var objArr = root.GetArrayByPath("entities".AsSpan(), TypeData.Ref, true);
+            objArr.EnsureLength(3);
+            objArr.GetObject(0).Write("hp", 10);
+            objArr.GetObject(2).Write("hp", 30);
+
+            var slotCount = 0;
+            var hps = new List<int>();
+
+            foreach (var slot in objArr)
+            {
+                Assert.IsTrue(slot.IsArrayMember);
+                Assert.AreEqual(objArr.Length, slot.ArrayLength);
+                slotCount++;
+
+                // Only populated slots will succeed in reading nested field.
+                var o = slot.AsObject();
+                if (!o.IsNull && o.TryRead<int>("hp", out var hp))
+                    hps.Add(hp);
+            }
+
+            Assert.AreEqual(objArr.Length, slotCount);
+            CollectionAssert.AreEquivalent(new[] { 10, 30 }, hps);
+        }
+
+        [Test]
+        public void StorageObject_Enumerate_After_TypeChanges()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.Write("v", 1);
+            root.Write("v", 2.5f); // size-stable change
+            root.Write("w", 9L);
+
+            var members = new List<(string name, ValueType vt)>();
+            foreach (var m in root)
+                members.Add((m.Name.ToString(), m.ValueType));
+
+            Assert.IsTrue(members.Exists(x => x.name == "v" && x.vt == ValueType.Float32));
+            Assert.IsTrue(members.Exists(x => x.name == "w" && x.vt == ValueType.Int64));
+        }
+
+        [Test]
+        public void StorageArray_Enumerate_ValueArray_ModifyDuringIteration()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.WriteArray("vals", new[] { 1, 2, 3, 4 });
+            var arr = root.GetArray("vals");
+
+            foreach (var m in arr)
+            {
+                var current = m.Read<int>();
+                m.Write(current * 2);
+            }
+
+            CollectionAssert.AreEqual(new[] { 2, 4, 6, 8 }, root.ReadArray<int>("vals"));
+
+            foreach (var m in arr)
+            {
+                m.Int *= 2;
+            }
+
+            CollectionAssert.AreEqual(new[] { 4, 8, 12, 16 }, root.ReadArray<int>("vals"));
+        }
+
+        #endregion
     }
 }

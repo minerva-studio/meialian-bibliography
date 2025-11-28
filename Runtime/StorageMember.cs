@@ -229,6 +229,9 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public readonly void Write<T>(T value) where T : unmanaged => AsScalar().Write(value);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly Persistent ToPersistent() => new(this);
+
 
 
         public static explicit operator StorageObject(StorageMember member) => member.AsObject();

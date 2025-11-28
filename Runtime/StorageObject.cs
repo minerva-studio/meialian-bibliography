@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -8,7 +10,7 @@ namespace Minerva.DataStorage
     /// Stack-only view of a container within a Storage tree.
     /// Cannot be persisted; exposes only read/write and navigation helpers.
     /// </summary>
-    public readonly struct StorageObject : IEquatable<StorageObject>
+    public readonly struct StorageObject : IEquatable<StorageObject>, IEnumerable<StorageMember.Persistent>
     {
         private const char DefaultPathSeparator = '.';
 
@@ -2025,6 +2027,56 @@ namespace Minerva.DataStorage
             ref var header = ref container.GetFieldHeader(newFieldName);
             var type = header.FieldType;
             StorageEventRegistry.NotifyFieldRename(container, fieldName, newFieldName, type);
+        }
+
+
+        public StorageObjectEnumerator GetEnumerator() => new StorageObjectEnumerator(this);
+        IEnumerator<StorageMember.Persistent> IEnumerable<StorageMember.Persistent>.GetEnumerator() => new StorageObjectEnumerator(this);
+        IEnumerator IEnumerable.GetEnumerator() => new StorageObjectEnumerator(this);
+
+        public struct StorageObjectEnumerator : IEnumerator<StorageMember.Persistent>
+        {
+            private readonly StorageObject _storageObject;
+            private readonly int _schemaVersion;
+            private int _currentIndex;
+
+            public StorageObjectEnumerator(StorageObject storageObject)
+            {
+                _storageObject = storageObject;
+                _schemaVersion = storageObject._container.SchemaVersion;
+                _currentIndex = -1;
+            }
+
+            public bool MoveNext()
+            {
+                if (_schemaVersion != _storageObject._container.SchemaVersion)
+                    ThrowHelper.ThrowInvalidOperation("Container schema has changed during enumeration.");
+                _currentIndex++;
+                return _currentIndex < _storageObject.FieldCount;
+            }
+
+            public void Reset()
+            {
+                if (_schemaVersion != _storageObject._container.SchemaVersion)
+                    ThrowHelper.ThrowInvalidOperation("Container schema has changed during enumeration.");
+                _currentIndex = -1;
+            }
+
+            public readonly void Dispose() { }
+
+            readonly object IEnumerator.Current => (StorageMember.Persistent)Current;
+            readonly StorageMember.Persistent IEnumerator<StorageMember.Persistent>.Current => (StorageMember.Persistent)Current;
+            public readonly StorageMember Current
+            {
+                get
+                {
+                    if (_schemaVersion != _storageObject._container.SchemaVersion)
+                        ThrowHelper.ThrowInvalidOperation("Container schema has changed during enumeration.");
+                    if (_currentIndex < 0 || _currentIndex >= _storageObject.FieldCount)
+                        ThrowHelper.ThrowIndexOutOfRange();
+                    return new StorageMember(_storageObject, _storageObject.Container.GetFieldName(_currentIndex).ToString());
+                }
+            }
         }
     }
 }
