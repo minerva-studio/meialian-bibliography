@@ -992,8 +992,11 @@ namespace Minerva.DataStorage
         }
         public static StorageQuery Index(this StorageArray root, int index) => Query(root, index);
         public static StorageQuery Query(this StorageObject root) => new StorageQuery(root);
+        public static StorageQuery Query(this Storage storage) => new StorageQuery(storage.Root);
         public static StorageQuery Query(this StorageObject root, string path) => new StorageQuery(root, path);
+        public static StorageQuery Query(this Storage storage, string path) => new StorageQuery(storage.Root, path);
         public static StorageQuery Location(this StorageObject root, string path) => new StorageQuery(root, path);
+        public static StorageQuery Location(this Storage storage, string path) => new StorageQuery(storage.Root, path);
         public static TQuery Location<TQuery>(this QueryResult<TQuery, StorageObject> queryResult, string path) where TQuery : struct, IStorageQuery<TQuery> => queryResult.Query.Location(path);
         public static TQuery Then<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery> => query.Previous();
         public static TQuery Then<TQuery, TValue>(this QueryResult<TQuery, TValue> result) where TQuery : struct, IStorageQuery<TQuery> => result.Query.Previous();
@@ -1001,7 +1004,9 @@ namespace Minerva.DataStorage
         public static ExistStatement Exist(this StorageObject root, string path = null) => new ExistStatement(root, path);
 
         public static EnsureStatement<StorageQuery> Ensure(this StorageObject root, string path) => new StorageQuery(root, path).Ensure();
+        public static EnsureStatement<StorageQuery> Ensure(this Storage storage, string path) => new StorageQuery(storage.Root, path).Ensure();
         public static ExpectStatement<StorageQuery> Expect(this StorageObject root, string path) => new StorageQuery(root, path).Expect();
+        public static ExpectStatement<StorageQuery> Expect(this Storage storage, string path) => new StorageQuery(storage.Root, path).Expect();
 
 
         internal static QueryResult<TQuery, TValue> CreateResult<TQuery, TValue>(this TQuery query, TValue value) where TQuery : struct, IStorageQuery<TQuery>
@@ -1166,5 +1171,9 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool TryRead<T>(this StorageQuery storageQuery, out T value) where T : unmanaged
             => storageQuery.Exist().Scalar(out value);
+
+        public static StorageObject GetObjectByPath(this Storage storage, string path, bool createIfMissing = true) => storage.Root.GetObjectByPath(path, createIfMissing);
+        public static T ReadPath<T>(this Storage storage, string path) where T : unmanaged => storage.Root.ReadPath<T>(path);
+        public static void WritePath<T>(this Storage storage, string path, T value) where T : unmanaged => storage.Root.WritePath<T>(path, value: value);
     }
 }
