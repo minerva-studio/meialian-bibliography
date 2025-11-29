@@ -1619,14 +1619,16 @@ namespace Minerva.DataStorage
 
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryGetObject(string fieldName, out StorageObject storageObject)
-        {
-            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
-            return TryGetObject(fieldName.AsSpan(), out storageObject);
-        }
+        public bool TryGetObject(string fieldName, out StorageObject storageObject) => TryGetObject(fieldName.AsSpan(), out storageObject, instantiate: true);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryGetObject(ReadOnlySpan<char> fieldName, out StorageObject storageObject)
+        public bool TryGetObject(string fieldName, out StorageObject storageObject, bool instantiate = true)
+        {
+            ThrowHelper.ThrowIfNull(fieldName, nameof(fieldName));
+            return TryGetObject(fieldName.AsSpan(), out storageObject, instantiate);
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryGetObject(ReadOnlySpan<char> fieldName, out StorageObject storageObject, bool instantiate = true)
         {
             _container.EnsureNotDisposed(_generation);
             if (!_container.TryGetRef(fieldName, out var containerReferences))
@@ -1634,8 +1636,7 @@ namespace Minerva.DataStorage
                 storageObject = default;
                 return false;
             }
-            //ref var idRef = ref _container.GetRefNoRescheme(fieldName);
-            storageObject = StorageObjectFactory.GetNoAllocate(containerReferences[0]);
+            storageObject = instantiate ? StorageObjectFactory.GetOrCreate(ref containerReferences[0], _container, ContainerLayout.Empty, fieldName) : StorageObjectFactory.GetNoAllocate(containerReferences[0]);
             return !storageObject.IsNull;
         }
 
@@ -1679,17 +1680,17 @@ namespace Minerva.DataStorage
         /// objects as needed. The last segment is treated as an object field.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryGetObjectByPath(string path, out StorageObject storageObject)
+        public bool TryGetObjectByPath(string path, out StorageObject storageObject, bool instantiate = false)
         {
             ThrowHelper.ThrowIfNull(path, nameof(path));
-            return TryGetObjectByPath(path.AsSpan(), out storageObject);
+            return TryGetObjectByPath(path.AsSpan(), out storageObject, instantiate);
         }
 
         /// <summary>
         /// Get a child object by dot-separated path, creating intermediate
         /// objects as needed. The last segment is treated as an object field.
         /// </summary>
-        public bool TryGetObjectByPath(ReadOnlySpan<char> path, out StorageObject storageObject, char separator = DefaultPathSeparator)
+        public bool TryGetObjectByPath(ReadOnlySpan<char> path, out StorageObject storageObject, bool instantiate = false, char separator = DefaultPathSeparator)
         {
             if (!TryNavigateToObject(path, separator, out var parent, out var fieldSegment, out var index))
             {
@@ -1698,11 +1699,11 @@ namespace Minerva.DataStorage
             }
             if (index < 0)
             {
-                return parent.TryGetObject(fieldSegment, out storageObject);
+                return parent.TryGetObject(fieldSegment, out storageObject, instantiate);
             }
             else if (parent.TryGetArray(fieldSegment, out var arr))
             {
-                return arr.TryGetObject(index, out storageObject);
+                return arr.TryGetObject(index, out storageObject, instantiate);
             }
             storageObject = default;
             return false;

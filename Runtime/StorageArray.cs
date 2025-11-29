@@ -295,7 +295,7 @@ namespace Minerva.DataStorage
         }
 
         /// <summary>Try get a child; returns false if slot is 0 or container is missing.</summary>
-        public bool TryGetObject(int index, out StorageObject child)
+        public bool TryGetObject(int index, out StorageObject child, bool instantiate = false)
         {
             Span<ContainerReference> references = References;
             if (references.Length <= index)
@@ -304,8 +304,9 @@ namespace Minerva.DataStorage
                 return false;
             }
 
-            ContainerReference containerReference = references[index];
-            return containerReference.TryGet(out child);
+            ContainerReference reference = references[index];
+            if (instantiate) return !(child = reference.TryGet(out var obj) ? obj : CreateObject(ref reference, index, ContainerLayout.Empty)).IsNull;
+            return reference.TryGet(out child);
         }
 
         /// <summary>

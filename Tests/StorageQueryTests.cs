@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using System;
+using System.Drawing;
 
 namespace Minerva.DataStorage.Tests
 {
@@ -666,7 +667,40 @@ namespace Minerva.DataStorage.Tests
             Assert.That(chained.Path, Is.EqualTo("player.stats"));
         }
 
+        [Test]
+        public void QueryResult_Index_Extension_Works()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            // create object array at world.entities
+            root.Query().Location("world").Location("entities").Make().ObjectArray(3);
+            var qr = root.Query().Location("world").Location("entities").Expect().ObjectArray();
+            var indexed = qr.Index(2);
+            Assert.That(indexed.Path, Is.EqualTo("world.entities[2]"));
+        }
 
+        [Test]
+        public void QueryResult_And_Extension_Works()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            var qr = root.Query().Location("config").Expect().Object();
+            var anded = qr.And();
+            Assert.That(anded.Path, Is.EqualTo(""));
+        }
+
+        [Test]
+        public void ObjectArrayQueryResult_ObjectElement_Extension_Works()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // create object array at items
+            root.Query().Make("items").ObjectArray(5);
+            var obj = root.Ensure("items").ObjectArray(5).Index(1).Make().Object();
+
+            Assert.Pass();
+        }
 
 
 

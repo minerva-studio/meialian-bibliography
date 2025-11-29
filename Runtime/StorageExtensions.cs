@@ -479,9 +479,9 @@ namespace Minerva.DataStorage
 
             /// <summary>Expect an object.</summary>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public QueryResult<TQuery, StorageObject> Object(bool strict = true)
+            public QueryResult<TQuery, StorageObject> Object(bool nullable = false, bool strict = true)
             {
-                TQuery next = Object(out var value, strict);
+                TQuery next = Object(out var value, nullable, strict);
                 return next.Result.Success
                     ? new QueryResult<TQuery, StorageObject>(next, value)
                     : new QueryResult<TQuery, StorageObject>(next, next.Result.ErrorMessage);
@@ -489,33 +489,32 @@ namespace Minerva.DataStorage
 
             /// <summary>Expect an object.</summary>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public TQuery Object(out StorageObject storageObject, bool strict = true)
+            public TQuery Object(out StorageObject storageObject, bool nullable = false, bool strict = true)
             {
                 storageObject = default;
                 if (!_query.Result.Success) return _query;
-                else if (!TryGetMember(out var m))
+                if (!TryGetMember(out var m))
                     return Fail($"Expectation failed: '{Path}' missing.", strict);
-                else if (!(m.ValueType == ValueType.Ref))
+                if (!(m.ValueType == ValueType.Ref))
                     return Fail($"Expect Object: '{Path}' not object.", strict);
-                else
-                {
-                    storageObject = m.AsObject();
-                    return Pass();
-                }
+                storageObject = m.AsObject();
+                if (!nullable && storageObject.IsNull)
+                    return Fail($"Expect Object: '{Path}' is null.", strict);
+                return Pass();
             }
 
             /// <summary>Expect object array element at index (requires Index() before Expect()).</summary>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public QueryResult<TQuery, StorageObject> ObjectElement(bool strict = true)
+            public QueryResult<TQuery, StorageObject> ObjectElement(bool nullable = false, bool strict = true)
             {
-                var next = ObjectElement(strict, out var storageObject);
+                var next = ObjectElement(out var storageObject, nullable, strict);
                 return next.Result.Success
                     ? new QueryResult<TQuery, StorageObject>(next, storageObject)
                     : new QueryResult<TQuery, StorageObject>(next, next.Result.ErrorMessage);
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public TQuery ObjectElement(bool strict, out StorageObject storageObject)
+            public TQuery ObjectElement(out StorageObject storageObject, bool nullable = false, bool strict = false)
             {
                 storageObject = default;
                 if (!_query.Result.Success) return _query;
@@ -537,7 +536,7 @@ namespace Minerva.DataStorage
                     return Fail($"Expect ObjectElement: index {index} out of range.", strict);
 
                 var arr = parent.AsArray();
-                if (!arr.TryGetObject(index, out storageObject) || storageObject.IsNull)
+                if (!nullable && !arr.TryGetObject(index, out storageObject, false))
                     return Fail($"Expect ObjectElement: element {index} is null.", strict);
 
                 return Pass();
@@ -748,7 +747,7 @@ namespace Minerva.DataStorage
                     if (targetType == member.Type)
                         return member.AsScalar<T>();
                     if (!allowOverride)
-                        throw new InvalidOperationException($"Ensure.Is<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible type '{member.Type}'.");
+                        throw new InvalidOperationException($"Make.Scalar<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible type '{member.Type}'.");
                     _root.WritePath(_path, default(T));
                     return default;
                 }
@@ -770,7 +769,7 @@ namespace Minerva.DataStorage
                         return;
                     }
                     if (!allowOverride)
-                        throw new InvalidOperationException($"Ensure.Is<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible type '{member.Type}'.");
+                        throw new InvalidOperationException($"Make.Scalar<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible type '{member.Type}'.");
                     _root.WritePath(_path, value);
                     return;
                 }
@@ -791,7 +790,7 @@ namespace Minerva.DataStorage
                     if (!arr.IsConvertibleTo<T>())
                     {
                         if (!allowOverride)
-                            throw new InvalidOperationException($"Ensure.IsArray<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible.");
+                            throw new InvalidOperationException($"Make.Array<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible.");
                         arr.Rescheme(TypeData.Of<T>(), minLength);
                     }
                     if (minLength > 0) arr.EnsureLength(minLength);
@@ -801,7 +800,7 @@ namespace Minerva.DataStorage
                 if (_root.TryGetMember(_path, out var member))
                 {
                     if (!allowOverride)
-                        throw new InvalidOperationException($"Ensure.IsArray<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible.");
+                        throw new InvalidOperationException($"Make.Array<{typeof(T).Name}> failed: '{_path.ToString()}' incompatible.");
                     member.ChangeFieldType(TypeData.Of<T>(), minLength);
                     arr = member.AsArray();
                     return arr;
@@ -815,13 +814,13 @@ namespace Minerva.DataStorage
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public StorageObject Object(bool allowOverride = false)
             {
-                if (_root.TryGetObjectByPath(_path, out var obj))
+                if (_root.TryGetObjectByPath(_path, out var obj, true))
                     return obj;
 
                 if (_root.TryGetMember(_path, out var member))
                 {
                     if (!allowOverride)
-                        throw new InvalidOperationException($"Ensure.IsObject failed: '{_path.ToString()}' exists but not object.");
+                        throw new InvalidOperationException($"Make.Object failed: '{_path.ToString()}' exists but not object.");
                     member.ChangeFieldType(TypeData.Ref, null);
                     return member.AsObject();
                 }
@@ -837,7 +836,7 @@ namespace Minerva.DataStorage
                     if (!arr.IsConvertibleTo(TypeData.Ref))
                     {
                         if (!allowOverride)
-                            ThrowHelper.ThrowInvalidOperation($"Ensure.IsArray<Object> failed: '{_path.ToString()}' incompatible.");
+                            ThrowHelper.ThrowInvalidOperation($"Make.Array<Object> failed: '{_path.ToString()}' incompatible.");
                         arr.Rescheme(TypeData.Ref, minLength);
                     }
                     if (minLength > 0) arr.EnsureLength(minLength);
@@ -847,7 +846,7 @@ namespace Minerva.DataStorage
                 if (_root.TryGetMember(_path, out var member))
                 {
                     if (!allowOverride)
-                        throw new InvalidOperationException($"Ensure.IsArray<Object> failed: '{_path.ToString()}' incompatible.");
+                        throw new InvalidOperationException($"MakeArray<Object> failed: '{_path.ToString()}' incompatible.");
                     member.ChangeFieldType(TypeData.Ref, minLength);
                     arr = member.AsArray();
                     return arr;
