@@ -24,9 +24,5 @@
 		<Compile Include="Editor\**\*.cs" />
 	</ItemGroup>
 
-	<ItemGroup>
-	  <Compile Include="Tests\StorageCloneTests.cs" />
-	</ItemGroup>
-
 </Project>
 

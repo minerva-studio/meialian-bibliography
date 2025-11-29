@@ -1047,7 +1047,7 @@ namespace Minerva.DataStorage.Tests
             using var s = new Storage();
             var root = s.Root;
             var m = root.GetMember("no.field");
-            Assert.IsFalse(m.Exist);
+            Assert.IsFalse(m.Exists);
             try
             {
                 m.Read<int>(true);
@@ -1131,7 +1131,7 @@ namespace Minerva.DataStorage.Tests
             root.Query().Location("player").Make().Object();
             root.Query().Location("player").Location("hp").Write(10);
             var q = root.Query().Location("player").Expect().Object().Location("hp").Expect().Scalar<int>();
-            Assert.IsTrue(q.Result.Success);
+            Assert.IsTrue(q.GetCurrentResult().Success);
         }
 
         [Test]
@@ -1141,7 +1141,7 @@ namespace Minerva.DataStorage.Tests
             var root = s.Root;
             root.Query().Location("data").Location("value").Write(5);
             var q = root.Query().Location("data").Location("value").Expect().Scalar<float>();
-            Assert.IsFalse(q.Result.Success);
+            Assert.IsFalse(q.GetCurrentResult().Success);
         }
 
         #endregion

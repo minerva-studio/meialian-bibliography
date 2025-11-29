@@ -1967,7 +1967,7 @@ namespace Minerva.DataStorage
             if (!obj.HasField(fieldName))
                 return false;
             member = new StorageMember(obj, fieldName, index);
-            return member.Exist;
+            return member.Exists;
         }
 
 

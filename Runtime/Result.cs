@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Minerva.DataStorage
 {
@@ -26,13 +26,14 @@ namespace Minerva.DataStorage
         public bool Equals(Result other) => Success == other.Success && ErrorMessage == other.ErrorMessage;
         public override bool Equals(object obj) => obj is Result other && Equals(other);
         public override int GetHashCode() => HashCode.Combine(Success, ErrorMessage);
-        public override string ToString() => Success ? "Success" : $"Failed: {ErrorMessage}";
+        public override string ToString() => Success ? "Success" : (string.IsNullOrEmpty(ErrorMessage) ? "Failed" : $"Failed: {ErrorMessage}");
         public static bool operator ==(Result left, Result right) => left.Equals(right);
         public static bool operator !=(Result left, Result right) => !(left == right);
         public static Result operator &(Result left, Result right) => !left.Success ? left : right;
         public static Result operator |(Result left, Result right) => left.Success ? left : right;
         public static bool operator true(Result result) => result.Success;
         public static bool operator false(Result result) => !result.Success;
+        public static Result operator !(Result result) => new Result(!result.Success, result.ErrorMessage);
 
         public static implicit operator bool(Result result) => result.Success;
 
@@ -40,6 +41,11 @@ namespace Minerva.DataStorage
         {
             if (!Success)
                 throw new InvalidOperationException(ErrorMessage ?? "Operation failed.");
+        }
+
+        public static Result From(bool result, string errorMessage = null)
+        {
+            return result ? Succeeded : Failed(errorMessage);
         }
     }
 

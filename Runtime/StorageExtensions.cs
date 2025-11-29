@@ -1,3 +1,4 @@
+using Newtonsoft.Json.Linq;
 using System;
 using System.Runtime.CompilerServices;
 using static Minerva.DataStorage.StorageQuery;
@@ -11,38 +12,44 @@ namespace Minerva.DataStorage
         T Previous();
     }
 
-    public interface IStorageQuery
+    public interface INonterminalExpression
+    {
+        /// <summary>
+        /// Result of the query.
+        /// </summary>
+        Result GetResult();
+
+        /// <summary>
+        /// The implicit finalizer called when the query is discarded without being Persist()ed.
+        /// </summary>
+        void ImplicitCallFinalizer();
+    }
+
+    public interface IStorageQuery : INonterminalExpression
     {
         internal StorageObject Root { get; }
-
         /// <summary>
         /// Path span
         /// </summary>
         ReadOnlySpan<char> PathSpan { get; }
         /// <summary>
-        /// Result of the query.
-        /// </summary>
-        Result Result { get; internal set; }
-        /// <summary>
         /// Is query disposed.
         /// </summary>
         bool IsDisposed { get; }
-
         /// <summary>
-        /// The implicit finalizer called when the query is discarded without being Persist()ed.
+        /// Result of the query.
         /// </summary>
-        internal void ImplicitCallFinalizer();
+        Result Result { get; internal set; }
 
-
-        public static bool operator true(IStorageQuery query) => query.Result;
-        public static bool operator false(IStorageQuery query) => !query.Result;
+        public static bool operator true(IStorageQuery query) => query.Result.Success;
+        public static bool operator false(IStorageQuery query) => !query.Result.Success;
     }
 
     /// <summary>
     /// Deferred path query DSL. Does NOT create or mutate automatically.
     /// Use Ensure()/Exist() terminal objects to apply creation or checks.
     /// </summary>
-    public struct StorageQuery : IStorageQuery<StorageQuery>, IStorageQuery, IDisposable
+    public struct StorageQuery : IStorageQuery<StorageQuery>, IStorageQuery, IDisposable, INonterminalExpression
     {
         private readonly StorageObject _root;
         private readonly TempString _segments;
@@ -83,9 +90,6 @@ namespace Minerva.DataStorage
         /// <summary> Is query disposed. </summary>
         public readonly bool IsDisposed => _segments.IsDisposed || _segments.Generation != _generation;
 
-        /// <summary> Result of query. </summary>
-        public readonly Result Result => _result;
-
         public readonly StorageQuery this[int index] => Index(index);
 
 
@@ -102,7 +106,7 @@ namespace Minerva.DataStorage
         /// </summary>
         public readonly StorageQuery Location(ReadOnlySpan<char> path)
         {
-            if (path.Length == 0) throw new ArgumentException("Segment cannot be empty", nameof(path));
+            if (path.Length == 0) return this;
             if (_segments.Length > 0) _segments.Append('.');
             _segments.Append(path);
             return this;
@@ -144,18 +148,19 @@ namespace Minerva.DataStorage
         /// <returns></returns>
         public readonly StorageQuery Previous()
         {
-            int lastDot = _segments.Span.LastIndexOf('.');
-            _segments.Length = lastDot >= 0 ? lastDot : 0;
+            MoveBack(_segments);
             return this;
         }
 
-
-
-
-
-        readonly void IStorageQuery.ImplicitCallFinalizer()
+        readonly void INonterminalExpression.ImplicitCallFinalizer()
         {
             Dispose();
+        }
+
+        /// <summary> Result of query. </summary>
+        public readonly Result GetResult()
+        {
+            return _result;
         }
 
         public readonly void Dispose()
@@ -164,7 +169,15 @@ namespace Minerva.DataStorage
         }
 
 
-        public readonly override string ToString() => $"Query({_segments})";
+        private static void MoveBack(TempString _segments)
+        {
+            int lastDot = _segments.Span.LastIndexOf('.');
+            int lastBracket = _segments.Span.LastIndexOf('[');
+            int lastSep = Math.Max(lastDot, lastBracket >= 0 && lastBracket > lastDot ? lastBracket - 1 : -1);
+            _segments.Length = lastSep >= 0 ? lastSep : 0;
+        }
+
+        public readonly override string ToString() => $"Query({_segments}:{_result})";
 
 
 
@@ -175,6 +188,77 @@ namespace Minerva.DataStorage
 
 
 
+
+        public struct NestedQuery<TQuery> : IStorageQuery<NestedQuery<TQuery>>, IDisposable where TQuery : struct, IStorageQuery<TQuery>
+        {
+            private readonly TQuery _parent;
+            private Result _result;
+            private TempString _segments;
+
+            public NestedQuery(TQuery query)
+            {
+                _parent = query;
+                _result = query.Result;
+                _segments = TempString.Create(query.PathSpan);
+            }
+
+            public NestedQuery(TQuery query, bool result)
+            {
+                _parent = query;
+                _result = result ? Result.Succeeded : Result.Failed("Failed");
+                _segments = TempString.Create(query.PathSpan);
+            }
+
+            public NestedQuery(TQuery query, Result result)
+            {
+                _parent = query;
+                _result = result;
+                _segments = TempString.Create(query.PathSpan);
+            }
+
+            public readonly TQuery MainQuery => _parent;
+            public readonly ReadOnlySpan<char> PathSpan => _segments.Span;
+            public readonly bool IsDisposed => _segments.IsDisposed;
+            StorageObject IStorageQuery.Root => _parent.Root;
+            Result IStorageQuery.Result { readonly get => _result; set => _result = value; }
+            public readonly Result GetResult()
+            {
+                return _result;
+            }
+
+            public readonly void Dispose() => _segments.Dispose();
+
+            readonly void INonterminalExpression.ImplicitCallFinalizer() => ImplicitCallFinalizer();
+            internal readonly void ImplicitCallFinalizer() => Dispose();
+
+            public readonly NestedQuery<TQuery> Index(int index)
+            {
+                _segments.Append('[');
+                Span<char> chars = stackalloc char[11];
+                index.TryFormat(chars, out int written);
+                _segments.Append(chars[..written]);
+                _segments.Append(']');
+                return this;
+            }
+
+            public readonly NestedQuery<TQuery> Location(ReadOnlySpan<char> path)
+            {
+                if (path.Length == 0) return this;
+                if (_segments.Length > 0) _segments.Append('.');
+                _segments.Append(path);
+                return this;
+            }
+
+            public readonly NestedQuery<TQuery> Previous()
+            {
+                MoveBack(_segments);
+                return this;
+            }
+
+
+
+            public readonly override string ToString() => $"{_parent} -> Nested({_segments}:{_result})";
+        }
 
 
         /// <summary>
@@ -213,10 +297,14 @@ namespace Minerva.DataStorage
             public readonly bool IsDisposed => _segments.IsDisposed || _segments.Generation != _generation;
 
             readonly StorageObject IStorageQuery.Root => _root;
-            Result IStorageQuery.Result { readonly get => _result; set => _result = _result && value; }
 
             /// <summary> Result of query. </summary>
-            public readonly Result Result => _result;
+            public readonly Result GetResult()
+            {
+                return _result;
+            }
+
+            Result IStorageQuery.Result { readonly get => _result; set => _result = _result && value; }
 
             public readonly Persistent this[int index] => Index(index);
 
@@ -228,7 +316,7 @@ namespace Minerva.DataStorage
             /// </summary>
             public readonly Persistent Location(ReadOnlySpan<char> path)
             {
-                if (path.Length == 0) throw new ArgumentException("Segment cannot be empty", nameof(path));
+                if (path.Length == 0) return this;
                 if (_segments.Length > 0) _segments.Append('.');
                 _segments.Append(path);
                 return this;
@@ -255,13 +343,12 @@ namespace Minerva.DataStorage
             /// <returns></returns>
             public readonly Persistent Previous()
             {
-                int lastDot = _segments.Span.LastIndexOf('.');
-                _segments.Length = lastDot >= 0 ? lastDot : 0;
+                MoveBack(_segments);
                 return this;
             }
 
 
-            readonly void IStorageQuery.ImplicitCallFinalizer()
+            readonly void INonterminalExpression.ImplicitCallFinalizer()
             {
                 // Nothing to do here
             }
@@ -276,8 +363,9 @@ namespace Minerva.DataStorage
             public static implicit operator bool(Persistent query) => query._result;
             public static bool operator true(Persistent query) => query._result;
             public static bool operator false(Persistent query) => !query._result;
-        }
 
+            public readonly override string ToString() => $"Persistent Query({_segments}:{_result})";
+        }
 
 
 
@@ -306,7 +394,7 @@ namespace Minerva.DataStorage
         /// - Exist : Read-only presence/type inspection; finalizes the query (returns ExistStatement). <br/>
         /// - Expect: Lightweight assertions, does NOT finalize; purely diagnostic. <br/>
         /// </summary>
-        public readonly struct ExpectStatement<TQuery> where TQuery : struct, IStorageQuery<TQuery>
+        public readonly struct ExpectStatement<TQuery> : INonterminalExpression where TQuery : struct, IStorageQuery<TQuery>
         {
             private readonly TQuery _query;
 
@@ -316,12 +404,16 @@ namespace Minerva.DataStorage
             }
 
             internal string Path => _query.PathSpan.ToString();
+            public readonly Result GetResult()
+            {
+                return _query.Result;
+            }
 
             // Helper: returns member for full path (may include [index] which is not a field)
             private bool TryGetMember(out StorageMember member)
             {
                 member = default;
-                if (!_query.Result) return false;
+                if (!_query.Result.Success) return false;
                 return _query.Root.TryGetMember(_query.PathSpan, out member);
             }
 
@@ -344,7 +436,7 @@ namespace Minerva.DataStorage
             {
                 TQuery next;
                 TValue value = default;
-                if (!_query.Result) next = _query;
+                if (!_query.Result.Success) next = _query;
                 else if (!TryGetMember(out var m))
                     next = Fail($"Expectation failed: '{Path}' missing.", strict);
                 else if (m.IsArray || m.ValueType == ValueType.Ref)
@@ -371,7 +463,7 @@ namespace Minerva.DataStorage
             {
                 TQuery next;
                 string value = default;
-                if (!_query.Result) next = _query;
+                if (!_query.Result.Success) next = _query;
                 else if (!TryGetMember(out var m))
                     next = Fail($"Expectation failed: '{Path}' missing.", strict);
                 else if (!m.IsArray)
@@ -400,7 +492,7 @@ namespace Minerva.DataStorage
             public TQuery Object(out StorageObject storageObject, bool strict = true)
             {
                 storageObject = default;
-                if (!_query.Result) return _query;
+                if (!_query.Result.Success) return _query;
                 else if (!TryGetMember(out var m))
                     return Fail($"Expectation failed: '{Path}' missing.", strict);
                 else if (!(m.ValueType == ValueType.Ref))
@@ -426,7 +518,7 @@ namespace Minerva.DataStorage
             public TQuery ObjectElement(bool strict, out StorageObject storageObject)
             {
                 storageObject = default;
-                if (!_query.Result) return _query;
+                if (!_query.Result.Success) return _query;
                 int index = ReadIndex();
                 if (index < 0)
                     return Fail("Expect ObjectElement requires index.", strict);
@@ -460,7 +552,7 @@ namespace Minerva.DataStorage
             public TQuery ObjectArray(out StorageArray storageArray, bool strict = true)
             {
                 storageArray = default;
-                if (!_query.Result) return _query;
+                if (!_query.Result.Success) return _query;
                 if (!TryGetMember(out var m))
                     return Fail($"Expectation failed: '{Path}' missing.", strict);
 
@@ -479,7 +571,7 @@ namespace Minerva.DataStorage
             public TQuery ValueArray<TValue>(out StorageArray storageArray, bool strict = true) where TValue : unmanaged
             {
                 storageArray = default;
-                if (!_query.Result) return _query;
+                if (!_query.Result.Success) return _query;
                 if (!TryGetMember(out var m))
                     return Fail($"Expectation failed: '{Path}' missing.", strict);
 
@@ -518,12 +610,14 @@ namespace Minerva.DataStorage
             /// <returns></returns>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public ExistStatement A() => _query.Exist();
+
+            void INonterminalExpression.ImplicitCallFinalizer() => _query.ImplicitCallFinalizer();
         }
 
         /// <summary>
         /// Ensure semantics: create if missing; optionally override if existing type mismatches.
         /// </summary>
-        public readonly struct EnsureStatement<TQuery> where TQuery : struct, IStorageQuery<TQuery>
+        public readonly struct EnsureStatement<TQuery> : INonterminalExpression where TQuery : struct, IStorageQuery<TQuery>
         {
             private readonly TQuery _query;
 
@@ -532,6 +626,10 @@ namespace Minerva.DataStorage
                 _query = query;
             }
 
+            public readonly Result GetResult()
+            {
+                return _query.Result;
+            }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public QueryResult<TQuery, T> Scalar<T>(bool allowOverride = false) where T : unmanaged
@@ -613,6 +711,9 @@ namespace Minerva.DataStorage
             /// <returns></returns>
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public MakeStatement Is() => _query.Make();
+
+
+            void INonterminalExpression.ImplicitCallFinalizer() => _query.ImplicitCallFinalizer();
 
             public override string ToString() => $"Ensure({_query.PathSpan.ToString()})";
         }
@@ -771,7 +872,7 @@ namespace Minerva.DataStorage
             /// <summary>
             /// Is exist in early-fail state (invalid root or path).
             /// </summary>
-            private readonly bool Failed => _root.IsNull || _path == null;
+            private readonly Result Failed => Result.From(_root.IsNull || _path == null, "Object is null");
 
             internal ExistStatement(StorageObject root, string path)
             {
@@ -779,106 +880,148 @@ namespace Minerva.DataStorage
                 _path = path ?? string.Empty;
             }
 
-            public bool Has => !Failed && _root.TryGetMember(_path, out _);
+            public Result Has => !Failed && Result.From(_root.TryGetMember(_path, out _));
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool Object() => !Failed && _root.TryGetMember(_path, out var m) && m.ValueType == ValueType.Ref;
+            public Result Object() => !Failed && Result.From(_root.TryGetMember(_path, out var m) && m.ValueType == ValueType.Ref);
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool Object(out StorageObject storageObject)
+            public Result Object(out StorageObject storageObject)
             {
-                if (Failed)
-                {
-                    storageObject = default;
-                    return false;
-                }
-                return _root.TryGetObjectByPath(_path.AsSpan(), out storageObject);
+                storageObject = default;
+                return !Failed && Result.From(_root.TryGetObjectByPath(_path.AsSpan(), out storageObject));
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool Scalar<T>(bool exact = false) where T : unmanaged =>
-                !Failed && _root.TryGetMember(_path, out var m) && m.Type.CanCastTo(TypeUtil<T>.Type, exact);
+            public Result Scalar<T>(bool exact = false) where T : unmanaged =>
+                !Failed && Result.From(_root.TryGetMember(_path, out var m) && m.Type.CanCastTo(TypeUtil<T>.Type, exact));
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool Scalar<T>(out T value, bool exact = false) where T : unmanaged
+            public Result Scalar<T>(out T value, bool exact = false) where T : unmanaged
             {
                 value = default;
                 if (Failed)
-                    return false;
+                    return Failed;
                 if (!_root.TryGetMember(_path, out var m))
-                    return false;
+                    return Result.Failed("path not exist");
                 if (!m.Type.CanCastTo(TypeUtil<T>.Type, exact))
-                    return false;
+                    return Result.Failed("type mismatch");
                 value = m.Read<T>();
-                return true;
+                return Result.Succeeded;
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool String(out string value)
+            public Result String(out string value)
             {
                 value = default;
-                if (!Array<char>(out var arr))
-                    return false;
+                var r = !Array<char>(out var arr);
+                if (!r) return r;
                 value = arr.AsString();
-                return true;
+                return Result.Succeeded;
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool Array<T>(out StorageArray array) where T : unmanaged
+            public Result Array<T>(out StorageArray array) where T : unmanaged
             {
-                if (Failed)
-                {
-                    array = default;
-                    return false;
-                }
-                return _root.TryGetArrayByPath<T>(_path.AsSpan(), out array);
+                array = default;
+                return !Failed && Result.From(_root.TryGetArrayByPath<T>(_path.AsSpan(), out array));
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool Array(TypeData? type, out StorageArray array)
+            public Result Array(TypeData? type, out StorageArray array)
             {
-                if (Failed)
-                {
-                    array = default;
-                    return false;
-                }
-                return _root.TryGetArrayByPath(_path.AsSpan(), type, out array);
+                array = default;
+                return !Failed && Result.From(_root.TryGetArrayByPath(_path.AsSpan(), type, out array));
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool ObjectArray(out StorageArray array)
+            public Result ObjectArray(out StorageArray array)
             {
-                if (Failed)
-                {
-                    array = default;
-                    return false;
-                }
-                return _root.TryGetArrayByPath(_path.AsSpan(), TypeData.Ref, out array);
+                array = default;
+                return !Failed && Result.From(_root.TryGetArrayByPath(_path.AsSpan(), TypeData.Ref, out array));
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool Array(out StorageArray storageArray)
+            public Result Array(out StorageArray array)
             {
-                if (Failed)
-                {
-                    storageArray = default;
-                    return false;
-                }
-                return _root.TryGetArrayByPath(_path.AsSpan(), null, out storageArray);
+                array = default;
+                return !Failed && Result.From(_root.TryGetArrayByPath(_path.AsSpan(), null, out array));
+
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool As<T>(bool exact = false) where T : unmanaged
+            public Result As<T>(bool exact = false) where T : unmanaged
             {
-                if (Failed) return false;
+                if (Failed) return Failed;
                 if (!_root.TryGetMember(_path, out var member))
-                    return false;
+                    return Result.Failed("path not exist");
                 var typeData = TypeData.Of<T>();
-                return member.Type.CanCastTo(typeData, exact);
+                return Result.From(member.Type.CanCastTo(typeData, exact));
             }
 
             public override string ToString() => $"Exist({_path})";
             public static implicit operator bool(ExistStatement exist) => exist.Has;
+        }
+
+        public readonly ref struct DoStatement
+        {
+            private readonly StorageObject _root;
+            private readonly string _path;
+
+            /// <summary>
+            /// Is exist in early-fail state (invalid root or path).
+            /// </summary>
+            private readonly bool Failed => _root.IsNull || _path == null;
+
+            internal DoStatement(StorageObject root, string path)
+            {
+                _root = root;
+                _path = path ?? string.Empty;
+            }
+
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public Result Delete(string fieldName)
+            {
+                if (Failed) return Result.Failed($"Delete failed: object does not exist");
+                if (!_root.TryGetMember(fieldName, out var member))
+                {
+                    return Result.Failed($"Delete failed: field {fieldName} does not exist");
+                }
+                try
+                {
+                    member.StorageObject.Delete(fieldName);
+                    return Result.Succeeded;
+                }
+                catch (Exception e)
+                {
+                    return Result.Failed($"Delete failed: {e.Message}");
+                }
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public Result Rename(string source, string destination)
+            {
+                if (Failed) return Result.Failed($"MoveField failed: object does not exist");
+
+                if (!_root.TryGetMember(source, out var member))
+                {
+                    return Result.Failed($"MoveField failed: field {source} does not exist");
+                }
+                try
+                {
+                    member.StorageObject.Move(source, destination);
+                    return Result.Succeeded;
+                }
+                catch (Exception e)
+                {
+                    return Result.Failed($"MoveField failed: {e.Message}");
+                }
+            }
+
+
+            public MakeStatement Make() => new(_root, _path);
+            public ExistStatement Exist() => new(_root, _path);
         }
     }
 
@@ -903,29 +1046,40 @@ namespace Minerva.DataStorage
     /// </summary>
     /// <typeparam name="TQuery"></typeparam>
     /// <typeparam name="TResult"></typeparam>
-    public readonly ref struct QueryResult<TQuery, TResult>
+    public readonly struct QueryResult<TQuery, TResult> : INonterminalExpression
         where TQuery : struct, IStorageQuery<TQuery>
     {
         public readonly TQuery Query;
-        public readonly Result<TResult> Result;
+        private readonly Result<TResult> result;
+
 
         public QueryResult(TQuery query, TResult value) : this()
         {
             Query = query;
-            Result = value;
+            result = value;
         }
 
         public QueryResult(TQuery query, Result<TResult> value) : this()
         {
             Query = query;
-            Result = value;
+            result = value;
         }
 
         public QueryResult(TQuery query, string error) : this()
         {
             Query = query;
-            Result = DataStorage.Result.Failed<TResult>(error);
+            result = DataStorage.Result.Failed<TResult>(error);
         }
+
+        public readonly Result<TResult> End()
+        {
+            Query.ImplicitCallFinalizer();
+            return result;
+        }
+        public readonly Result<TResult> GetCurrentResult() => result;
+        readonly Result INonterminalExpression.GetResult() => result;
+        void INonterminalExpression.ImplicitCallFinalizer() => Query.ImplicitCallFinalizer();
+
 
         /// <summary>
         /// Retrieves the value from the query result and implicitly finalizes the query when the method returns.
@@ -948,7 +1102,7 @@ namespace Minerva.DataStorage
         public TResult ExistOrThrow(bool suppress = false)
         {
             using QueryImplicitDisposeContext<TQuery> queryContext = new(Query);
-            return suppress ? Result.Value : Result.GetValueOrThrow();
+            return suppress ? GetCurrentResult().Value : GetCurrentResult().GetValueOrThrow();
         }
 
         /// <summary>
@@ -968,9 +1122,9 @@ namespace Minerva.DataStorage
         public bool Exist(out TResult value)
         {
             using QueryImplicitDisposeContext<TQuery> queryContext = new(Query);
-            if (Result.Success)
+            if (GetCurrentResult().Success)
             {
-                value = Result.Value;
+                value = GetCurrentResult().Value;
                 return true;
             }
             value = default;
@@ -998,8 +1152,8 @@ namespace Minerva.DataStorage
         public static StorageQuery Location(this StorageObject root, string path) => new StorageQuery(root, path);
         public static StorageQuery Location(this Storage storage, string path) => new StorageQuery(storage.Root, path);
         public static TQuery Location<TQuery>(this QueryResult<TQuery, StorageObject> queryResult, string path) where TQuery : struct, IStorageQuery<TQuery> => queryResult.Query.Location(path);
-        public static TQuery Then<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery> => query.Previous();
-        public static TQuery Then<TQuery, TValue>(this QueryResult<TQuery, TValue> result) where TQuery : struct, IStorageQuery<TQuery> => result.Query.Previous();
+        public static TQuery And<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery> => query.Previous();
+        public static TQuery And<TQuery, TValue>(this QueryResult<TQuery, TValue> result) where TQuery : struct, IStorageQuery<TQuery> => result.Query.Previous();
         public static MakeStatement Make(this StorageObject root, string path) => new MakeStatement(root, path);
         public static ExistStatement Exist(this StorageObject root, string path = null) => new ExistStatement(root, path);
 
@@ -1039,11 +1193,10 @@ namespace Minerva.DataStorage
             if (query.Result && query.Root.TryGetMember(query.PathSpan, out member))
             {
                 member = new StorageMember(member.StorageObject, member.Name.ToArray(), member.ArrayIndex);
-                return true;
+                return member.Exists;
             }
             else return false;
         }
-
 
 
 
@@ -1059,7 +1212,7 @@ namespace Minerva.DataStorage
         /// </remarks>
         public static ExistStatement Exist<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery
         {
-            if (!query.Result)
+            if (!query.Result.Success)
             {
                 return default;
             }
@@ -1079,7 +1232,7 @@ namespace Minerva.DataStorage
         /// </remarks>
         public static MakeStatement Make<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery
         {
-            if (!query.Result)
+            if (!query.Result.Success)
             {
                 query.ImplicitCallFinalizer();
                 query.Result.ThrowIfFailed();
@@ -1096,7 +1249,7 @@ namespace Minerva.DataStorage
         /// </summary> 
         public static EnsureStatement<TQuery> Ensure<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery>
         {
-            if (!query.Result)
+            if (!query.Result.Success)
             {
                 query.ImplicitCallFinalizer();
                 query.Result.ThrowIfFailed();
@@ -1128,6 +1281,60 @@ namespace Minerva.DataStorage
         }
         public static ExpectStatement<TQuery> Expect<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Expect();
 
+        /// <summary>
+        /// Begin the Do statement for the current accumulated path.
+        /// </summary>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <param name="query"></param>
+        /// <returns></returns>
+        public static DoStatement Do<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            if (!query.Result.Success)
+            {
+                query.ImplicitCallFinalizer();
+                query.Result.ThrowIfFailed();
+            }
+            var d = new DoStatement(query.Root, query.PathSpan.ToString());
+            return d;
+        }
+        public static DoStatement Do<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Do();
+
+
+
+        /// <summary>
+        /// exist shortcut.
+        /// </summary>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <param name="query"></param>
+        /// <returns></returns>
+        public static Result Exists<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery => query.Exist().Has;
+        /// <summary>
+        /// Determines whether a storage location specified by the given path exists within the query context.
+        /// </summary>
+        /// <typeparam name="TQuery">The type of the storage query context. Must be a value type implementing <see
+        /// cref="IStorageQuery{TQuery}"/>.</typeparam>
+        /// <param name="root">The storage query context in which to check for the existence of the location.</param>
+        /// <param name="path">The relative or absolute path of the storage location to check. Cannot be null.</param>
+        /// <returns>A <see cref="Result"/> indicating whether the specified storage location exists. The <c>Has</c> property
+        /// will be <see langword="true"/> if the location exists; otherwise, <see langword="false"/>.</returns>
+        public static Result Exists<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Exist().Has;
+
+        /// <summary>
+        /// Return an always-succeeded result to the parent query.
+        /// </summary>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <param name="query"></param>
+        /// <returns></returns>
+        public static TQuery Regardless<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            TQuery mainQuery = query;
+            mainQuery.Result = Result.Succeeded;
+            return mainQuery;
+        }
+
+
+
+
 
 
         /// <summary>Subscribe to writes for this path.</summary>
@@ -1150,7 +1357,284 @@ namespace Minerva.DataStorage
         }
 
 
+        /// <summary>
+        /// Return to the parent query, setting its Result to the current nested query result.
+        /// </summary>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <param name="query"></param>
+        /// <returns></returns>
+        public static TQuery Return<TQuery>(this NestedQuery<TQuery> query) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            TQuery mainQuery = query.MainQuery;
+            mainQuery.Result = query.GetResult();
+            return mainQuery;
+        }
 
+        /// <summary>
+        /// End the current expression, returning its result.
+        /// </summary>
+        /// <typeparam name="TExpression"></typeparam>
+        /// <param name="expr"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Result End<TExpression>(this TExpression expr) where TExpression : INonterminalExpression
+        {
+            expr.ImplicitCallFinalizer();
+            return expr.GetResult();
+        }
+
+        /// <summary>
+        /// Return to the parent query, discarding the current nested query result.
+        /// </summary>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <param name="query"></param>
+        /// <returns></returns>
+        public static TQuery End<TQuery>(this NestedQuery<TQuery> query) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            query.ImplicitCallFinalizer();
+            return query.MainQuery;
+        }
+
+
+
+
+
+        #region If Else
+
+        public static TQuery If<TQuery, TResult1, TResult2, TResult3>(this TQuery query, Func<NestedQuery<TQuery>, TResult1> @if, Func<NestedQuery<TQuery>, TResult2> then = null, Func<NestedQuery<TQuery>, TResult3> @else = null)
+            where TQuery : struct, IStorageQuery<TQuery>
+            where TResult1 : struct, INonterminalExpression
+            where TResult2 : struct, INonterminalExpression
+            where TResult3 : struct, INonterminalExpression
+            => query.If(@if).Then(then).Else(@else);
+
+        public static TQuery If<TQuery, TResult1, TResult2, TResult3>(this TQuery query, string path, Func<NestedQuery<TQuery>, TResult1> @if, Func<NestedQuery<TQuery>, TResult2> then = null, Func<NestedQuery<TQuery>, TResult3> @else = null)
+            where TQuery : struct, IStorageQuery<TQuery>
+            where TResult1 : struct, INonterminalExpression
+            where TResult2 : struct, INonterminalExpression
+            where TResult3 : struct, INonterminalExpression
+            => query.If(path, @if).Then(then).Else(@else);
+
+        public static TQuery If<TQuery>(this TQuery query, Func<NestedQuery<TQuery>, Result> @if, Func<NestedQuery<TQuery>, Result> then = null, Func<NestedQuery<TQuery>, Result> @else = null)
+            where TQuery : struct, IStorageQuery<TQuery>
+            => query.If(@if).Then(then).Else(@else);
+
+        public static TQuery If<TQuery>(this TQuery query, string path, Func<NestedQuery<TQuery>, Result> @if, Func<NestedQuery<TQuery>, Result> then = null, Func<NestedQuery<TQuery>, Result> @else = null)
+            where TQuery : struct, IStorageQuery<TQuery>
+            => query.If(path, @if).Then(then).Else(@else);
+
+
+
+
+        public static NestedQuery<TQuery> If<TQuery, TResult>(this TQuery query, Func<NestedQuery<TQuery>, TResult> @if)
+            where TQuery : struct, IStorageQuery<TQuery>
+            where TResult : struct, INonterminalExpression
+            => query.If(null, @if);
+
+        public static NestedQuery<TQuery> If<TQuery, TResult>(this TQuery query, string path, Func<NestedQuery<TQuery>, TResult> @if)
+            where TQuery : struct, IStorageQuery<TQuery>
+            where TResult : struct, INonterminalExpression
+        {
+            using NestedQuery<TQuery> arg = new(query);
+            return new NestedQuery<TQuery>(query, @if(arg.Location(path)).End());
+        }
+
+        public static NestedQuery<TQuery> If<TQuery>(this TQuery query, Func<NestedQuery<TQuery>, Result> @if) where TQuery : struct, IStorageQuery<TQuery>
+            => query.If(null, @if);
+
+        public static NestedQuery<TQuery> If<TQuery>(this TQuery query, string path, Func<NestedQuery<TQuery>, Result> @if) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            using NestedQuery<TQuery> arg = new(query);
+            return new NestedQuery<TQuery>(query, @if(arg.Location(path)));
+        }
+
+
+
+
+        public static NestedQuery<TQuery> Then<TQuery>(this NestedQuery<TQuery> query, Func<NestedQuery<TQuery>, Result> then)
+            where TQuery : struct, IStorageQuery<TQuery>
+            => query.Then(null, then);
+
+        public static NestedQuery<TQuery> Then<TQuery>(this NestedQuery<TQuery> query, string path, Func<NestedQuery<TQuery>, Result> then)
+            where TQuery : struct, IStorageQuery<TQuery>
+        {
+            if (!query.GetResult())
+                return query;
+
+            var result = then.Invoke(new NestedQuery<TQuery>(query.MainQuery).Location(path));
+            return new NestedQuery<TQuery>(query.MainQuery, result);
+        }
+
+        public static NestedQuery<TQuery> Then<TQuery, TResult>(this NestedQuery<TQuery> query, Func<NestedQuery<TQuery>, TResult> then)
+            where TQuery : struct, IStorageQuery<TQuery>
+            where TResult : INonterminalExpression
+            => query.Then(null, then);
+
+        public static NestedQuery<TQuery> Then<TQuery, TResult>(this NestedQuery<TQuery> query, string path, Func<NestedQuery<TQuery>, TResult> then)
+            where TQuery : struct, IStorageQuery<TQuery>
+            where TResult : INonterminalExpression
+        {
+            if (!query.GetResult())
+                return query;
+
+            var result = then.Invoke(new NestedQuery<TQuery>(query.MainQuery).Location(path));
+            return new NestedQuery<TQuery>(query.MainQuery, result.End());
+        }
+
+
+
+        /// <summary>
+        /// Construct a reversed result of the current nested query.
+        /// </summary>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <param name="query"></param>
+        /// <returns></returns>
+        public static NestedQuery<TQuery> Else<TQuery>(this NestedQuery<TQuery> query) where TQuery : struct, IStorageQuery<TQuery>
+            => new NestedQuery<TQuery>(query.MainQuery, !query.GetResult());
+        /// <summary>
+        /// Construct a reversed result of the current nested query.
+        /// </summary>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <param name="query"></param>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        public static NestedQuery<TQuery> Else<TQuery>(this NestedQuery<TQuery> query, string path) where TQuery : struct, IStorageQuery<TQuery>
+            => new NestedQuery<TQuery>(query.MainQuery, !query.GetResult()).Location(path);
+
+
+        public static TQuery Else<TQuery>(this NestedQuery<TQuery> query, Func<NestedQuery<TQuery>, Result> @else)
+            where TQuery : struct, IStorageQuery<TQuery>
+            => query.Else().Then(@else).MainQuery;
+        public static TQuery Else<TQuery>(this NestedQuery<TQuery> query, string path, Func<NestedQuery<TQuery>, Result> @else)
+            where TQuery : struct, IStorageQuery<TQuery>
+            => query.Else(path).Then(@else).MainQuery;
+        public static TQuery Else<TQuery, TResult>(this NestedQuery<TQuery> query, Func<NestedQuery<TQuery>, TResult> @else)
+            where TQuery : struct, IStorageQuery<TQuery>
+            where TResult : INonterminalExpression
+            => query.Else().Then(@else).MainQuery;
+        public static TQuery Else<TQuery, TResult>(this NestedQuery<TQuery> query, string path, Func<NestedQuery<TQuery>, TResult> @else)
+            where TQuery : struct, IStorageQuery<TQuery>
+            where TResult : INonterminalExpression
+        {
+            if (query.GetResult())
+                return query.MainQuery;
+
+            var result = @else(query.Else(path)).End();
+            TQuery mainQuery = query.MainQuery;
+            mainQuery.Result = result;
+            return mainQuery;
+        }
+
+
+
+
+
+
+
+        /// <summary>
+        /// Else if branch, combined with If()/Then()/Else() DSL.
+        /// </summary>
+        /// <remarks>
+        /// If(a).ElseIf(b) can be used as If(a or b)
+        /// </remarks>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <typeparam name="TResult"></typeparam>
+        /// <param name="query"></param>
+        /// <param name="elseif"></param>
+        /// <returns></returns>
+        public static NestedQuery<TQuery> ElseIf<TQuery, TResult>(this NestedQuery<TQuery> query, Func<NestedQuery<TQuery>, TResult> elseif)
+            where TQuery : struct, IStorageQuery<TQuery>
+            where TResult : struct, INonterminalExpression
+            => query.ElseIf(null, elseif);
+
+        /// <summary>
+        /// Else if branch, combined with If()/Then()/Else() DSL.
+        /// </summary>
+        /// <remarks>
+        /// If(a).ElseIf(b) can be used as If(a or b)
+        /// </remarks>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <typeparam name="TResult"></typeparam>
+        /// <param name="query"></param>
+        /// <param name="elseif"></param>
+        /// <returns></returns>
+        public static NestedQuery<TQuery> ElseIf<TQuery, TResult>(this NestedQuery<TQuery> query, string path, Func<NestedQuery<TQuery>, TResult> elseif)
+            where TQuery : struct, IStorageQuery<TQuery>
+            where TResult : struct, INonterminalExpression
+        {
+            if (query.GetResult())
+                return query;
+
+            using NestedQuery<TQuery> arg = new(query.MainQuery);
+            return new NestedQuery<TQuery>(query.MainQuery, elseif(arg.Location(path)).End());
+        }
+
+        /// <summary>
+        /// Else if branch, combined with If()/Then()/Else() DSL.
+        /// </summary>
+        /// <remarks>
+        /// If(a).ElseIf(b) can be used as If(a or b)
+        /// </remarks>
+        /// <typeparam name="TQuery"></typeparam> 
+        /// <param name="query"></param>
+        /// <param name="elseif"></param>
+        /// <returns></returns>
+        public static NestedQuery<TQuery> ElseIf<TQuery>(this NestedQuery<TQuery> query, Func<NestedQuery<TQuery>, bool> elseif) where TQuery : struct, IStorageQuery<TQuery>
+            => query.ElseIf(null, elseif);
+
+        /// <summary>
+        /// Else if branch, combined with If()/Then()/Else() DSL.
+        /// </summary>
+        /// <remarks>
+        /// If(a).ElseIf(b) can be used as If(a or b)
+        /// </remarks>
+        /// <typeparam name="TQuery"></typeparam> 
+        /// <param name="query"></param>
+        /// <param name="elseif"></param>
+        /// <returns></returns>
+        public static NestedQuery<TQuery> ElseIf<TQuery>(this NestedQuery<TQuery> query, string path, Func<NestedQuery<TQuery>, bool> elseif) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            if (query.GetResult())
+                return query;
+
+            var result = elseif(new NestedQuery<TQuery>(query.MainQuery).Location(path));
+            return new NestedQuery<TQuery>(query.MainQuery, result);
+        }
+
+        /// <summary>
+        /// Else if branch, combined with If()/Then()/Else() DSL.
+        /// </summary>
+        /// <remarks>
+        /// If(a).ElseIf(b) can be used as If(a or b)
+        /// </remarks>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <param name="query"></param>
+        /// <param name="elseif"></param>
+        /// <returns></returns>
+        public static NestedQuery<TQuery> ElseIf<TQuery>(this NestedQuery<TQuery> query, Func<NestedQuery<TQuery>, Result> elseif) where TQuery : struct, IStorageQuery<TQuery>
+            => query.ElseIf(null, elseif);
+
+        /// <summary>
+        /// Else if branch, combined with If()/Then()/Else() DSL.
+        /// </summary>
+        /// <remarks>
+        /// If(a).ElseIf(b) can be used as If(a or b)
+        /// </remarks>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <param name="query"></param>
+        /// <param name="elseif"></param>
+        /// <returns></returns>
+        public static NestedQuery<TQuery> ElseIf<TQuery>(this NestedQuery<TQuery> query, string path, Func<NestedQuery<TQuery>, Result> elseif) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            if (query.GetResult())
+                return query;
+
+            var result = elseif(new NestedQuery<TQuery>(query.MainQuery).Location(path));
+            return new NestedQuery<TQuery>(query.MainQuery, result);
+        }
+
+
+        #endregion
 
 
 

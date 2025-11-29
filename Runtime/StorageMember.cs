@@ -23,7 +23,7 @@ namespace Minerva.DataStorage
         /// <summary>
         /// Whether the member exists.
         /// </summary>
-        public bool Exist
+        public bool Exists
         {
             get => !_handle.IsDisposed && _handle.Index >= 0;
         }

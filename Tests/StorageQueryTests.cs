@@ -90,7 +90,7 @@ namespace Minerva.DataStorage.Tests
                              .Exist()
                              .Has;
 
-            Assert.That(exists, Is.False);
+            Assert.That(exists.Success, Is.False);
         }
 
         [Test]
@@ -105,7 +105,7 @@ namespace Minerva.DataStorage.Tests
                         .Location("player").Expect().Object()
                         .Location("stats").Expect().Object();
 
-            Assert.That(!q.Result.Success, Is.False);
+            Assert.That(!q.GetCurrentResult().Success, Is.False);
         }
 
         [Test]
@@ -120,8 +120,8 @@ namespace Minerva.DataStorage.Tests
                         .Location("scores")
                         .Expect().ObjectArray(); // should fail
 
-            Assert.That(!q.Result.Success, Is.True);
-            Assert.That(q.Result.ErrorMessage, Is.Not.Null.And.Contains("not object array"));
+            Assert.That(!q.GetResult().Success, Is.True);
+            Assert.That(q.GetResult().ErrorMessage, Is.Not.Null.And.Contains("not object array"));
         }
 
         [Test]
@@ -151,8 +151,8 @@ namespace Minerva.DataStorage.Tests
                         .Index(2).Expect().ObjectElement()
                         .Location("hp").Expect().Scalar<int>();
 
-            Assert.That(q.Result.Success, Is.True);
-            Assert.That(q.Result.Value, Is.EqualTo(10));
+            Assert.That(q.GetCurrentResult().Success, Is.True);
+            Assert.That(q.GetCurrentResult().Value, Is.EqualTo(10));
         }
 
         [Test]
@@ -174,8 +174,8 @@ namespace Minerva.DataStorage.Tests
                          .Index(5)
                          .Expect().ObjectElement();
 
-            Assert.That(q1.Result.Success, Is.False);
-            Assert.That(q1.Result.ErrorMessage, Is.Not.Null.And.Contains("out of range"));
+            Assert.That(q1.GetCurrentResult().Success, Is.False);
+            Assert.That(q1.GetCurrentResult().ErrorMessage, Is.Not.Null.And.Contains("out of range"));
 
             // index 1 exists but null element should fail
             var q2 = root.Query()
@@ -184,8 +184,8 @@ namespace Minerva.DataStorage.Tests
                          .Index(1)
                          .Expect().ObjectElement();
 
-            Assert.That(q2.Result.Success, Is.False);
-            Assert.That(q2.Result.ErrorMessage, Is.Not.Null.And.Contains("is null"));
+            Assert.That(q2.GetCurrentResult().Success, Is.False);
+            Assert.That(q2.GetCurrentResult().ErrorMessage, Is.Not.Null.And.Contains("is null"));
         }
 
         [Test]
@@ -200,8 +200,8 @@ namespace Minerva.DataStorage.Tests
                         .Location("value").Expect().Object()  // should fail
                         .Location("anything").Expect().Scalar<int>(); // should be ignored
 
-            Assert.That(!q.Result.Success, Is.True);
-            Assert.That(q.Result.ErrorMessage, Is.Not.Null.And.Contains("not object"));
+            Assert.That(!q.GetCurrentResult().Success, Is.True);
+            Assert.That(q.GetCurrentResult().ErrorMessage, Is.Not.Null.And.Contains("not object"));
         }
 
         [Test]
@@ -216,11 +216,11 @@ namespace Minerva.DataStorage.Tests
             // non-strict check should not record failure even if it fails
             var q = root.Query()
                         .Location("x").Expect().Object(strict: false)
-                        .Then()
+                        .And()
                         .Location("x").Expect().Scalar<int>(); // still succeeds
 
-            Assert.That(q.Result.Success, Is.True);
-            Assert.That(q.Result.Value, Is.EqualTo(42));
+            Assert.That(q.GetCurrentResult().Success, Is.True);
+            Assert.That(q.GetCurrentResult().Value, Is.EqualTo(42));
         }
 
         [Test]
@@ -246,7 +246,7 @@ namespace Minerva.DataStorage.Tests
             UnityEngine.Debug.Log(ok.Result);
 #endif
 
-            Assert.That(ok.Result.Success, Is.True);
+            Assert.That(ok.GetCurrentResult().Success, Is.True);
 
             // failure on non-char16 array
             root.WritePath("meta.count", 3);
@@ -255,8 +255,8 @@ namespace Minerva.DataStorage.Tests
                           .Location("count")
                           .Expect().String();
 
-            Assert.That(!bad.Result.Success, Is.True);
-            Assert.That(bad.Result.ErrorMessage, Is.Not.Null.And.Contains("not an array"));
+            Assert.That(!bad.GetCurrentResult().Success, Is.True);
+            Assert.That(bad.GetCurrentResult().ErrorMessage, Is.Not.Null.And.Contains("not an array"));
         }
 
         [Test]
@@ -311,7 +311,7 @@ namespace Minerva.DataStorage.Tests
                         .Location("value");
 
             Assert.That(q.Path, Is.EqualTo("a.b.c[2].value"));
-            Assert.That(q.ToString(), Is.EqualTo("Query(a.b.c[2].value)"));
+            Assert.That(q.ToString(), Is.EqualTo("Query(a.b.c[2].value:Success)"));
         }
 
         [Test]
@@ -378,10 +378,10 @@ namespace Minerva.DataStorage.Tests
                             .Location("hp")
                             .Exist();
 
-            Assert.That(exist.Has, Is.True);
-            Assert.That(exist.As<int>(exact: true), Is.True);
-            Assert.That(exist.As<float>(exact: false), Is.True); // implicit conversion
-            Assert.That(exist.As<float>(exact: true), Is.False); // exact mismatch
+            Assert.That(exist.Has.Success, Is.True);
+            Assert.That(exist.As<int>(exact: true).Success, Is.True);
+            Assert.That(exist.As<float>(exact: false).Success, Is.True); // implicit conversion
+            Assert.That(exist.As<float>(exact: true).Success, Is.False); // exact mismatch
         }
 
         [Test]
@@ -396,7 +396,7 @@ namespace Minerva.DataStorage.Tests
                         .Location("stats")
                         .Location("speeds");
 
-            Assert.That(q.Exist().Array<float>(out var arr), Is.True);
+            Assert.That(q.Exist().Array<float>(out var arr).Success, Is.True);
             Assert.That(arr.Length, Is.EqualTo(3));
         }
 
@@ -410,7 +410,7 @@ namespace Minerva.DataStorage.Tests
             var q = root.Query()
                         .Location("stats");
 
-            Assert.That(q.Exist().Array<float>(out var arr), Is.False);
+            Assert.That(q.Exist().Array<float>(out var arr).Success, Is.False);
             Assert.That(arr.IsDisposed, Is.True);
         }
 
@@ -468,7 +468,7 @@ namespace Minerva.DataStorage.Tests
                          .Ensure()
                          .Scalar<int>(42);
 
-            var qParent = qr.Then(); // Previous(): cfg
+            var qParent = qr.And(); // Previous(): cfg
             Assert.That(qParent.Path, Is.EqualTo("cfg"));
 
             qParent.Location("name").Ensure().Is().String("v1");
@@ -553,16 +553,6 @@ namespace Minerva.DataStorage.Tests
         }
 
         [Test]
-        public void Location_Throws_OnEmptySegment()
-        {
-            using var storage = new Storage(ContainerLayout.Empty);
-            var root = storage.Root;
-
-            var q = root.Query();
-            Assert.Throws<ArgumentException>(() => q.Location("")); // ReadOnlySpan overload
-        }
-
-        [Test]
         public void Index_Throws_WhenNoSegmentOrNegative()
         {
             using var storage = new Storage(ContainerLayout.Empty);
@@ -590,9 +580,6 @@ namespace Minerva.DataStorage.Tests
             // persistent holds path
             Assert.That(p.IsDisposed, Is.False);
             Assert.That(p.PathSpan.ToString(), Is.EqualTo("player.name"));
-
-            // Persistent.Location empty throws
-            Assert.Throws<ArgumentException>(() => p.Location(""));
 
             p.Dispose();
             Assert.That(p.IsDisposed, Is.True);
@@ -625,7 +612,7 @@ namespace Minerva.DataStorage.Tests
             var q = root.Query().Location("score");
             Assert.IsTrue(q.TryGetMember(out var member));
             // member should exist and read back correct scalar
-            Assert.IsTrue(member.Exist);
+            Assert.IsTrue(member.Exists);
             Assert.AreEqual(123, member.AsScalar<int>().Value);
         }
 
@@ -702,17 +689,17 @@ namespace Minerva.DataStorage.Tests
 
             // Act & Assert: scalar expectation returns QueryResult with value
             var qrHp = root.Query().Location("player").Location("stats").Location("hp").Expect().Scalar<int>();
-            Assert.That(qrHp.Result.Success, Is.True);
-            Assert.That(qrHp.Result.Value, Is.EqualTo(100));
+            Assert.That(qrHp.GetCurrentResult().Success, Is.True);
+            Assert.That(qrHp.GetCurrentResult().Value, Is.EqualTo(100));
 
             // Act & Assert: string expectation
             var qrTitle = root.Query().Location("player").Location("meta").Location("title").Expect().String();
-            Assert.That(qrTitle.Result.Success, Is.True);
+            Assert.That(qrTitle.GetCurrentResult().Success, Is.True);
 
             // Act & Assert: value array expectation and out storageArray
             var q = root.Query().Location("player").Location("speeds").Expect();
             Assert.DoesNotThrow(() => q.ValueArray<float>());
-            Assert.DoesNotThrow(() => q.ValueArray<float>().Result.ThrowIfFailed());
+            Assert.DoesNotThrow(() => q.ValueArray<float>().GetResult().ThrowIfFailed());
             Assert.DoesNotThrow(() =>
             {
                 q.ValueArray<float>(out StorageArray arr);
@@ -732,8 +719,8 @@ namespace Minerva.DataStorage.Tests
 
             // Act: Expect.ObjectArray should fail on scalar
             var fail = root.Query().Location("scores").Expect().ObjectArray();
-            Assert.That(fail.Result.Success, Is.False);
-            Assert.That(fail.Result.ErrorMessage, Does.Contain("not object array"));
+            Assert.That(fail.GetResult().Success, Is.False);
+            Assert.That(fail.GetResult().ErrorMessage, Does.Contain("not object array"));
 
             // Act: object element expects index; missing index should error
             var qNoIndex = root.Query().Location("scores").Expect();
@@ -742,8 +729,8 @@ namespace Minerva.DataStorage.Tests
             // Create an object array with limited length and test out-of-range
             root.Query().Location("world").Location("entities").Make().ObjectArray(1);
             var qOut = root.Query().Location("world").Location("entities").Index(5).Expect().ObjectElement();
-            Assert.That(qOut.Result.Success, Is.False);
-            Assert.That(qOut.Result.ErrorMessage, Does.Contain("out of range"));
+            Assert.That(qOut.GetCurrentResult().Success, Is.False);
+            Assert.That(qOut.GetCurrentResult().ErrorMessage, Does.Contain("out of range"));
         }
 
         [Test]
@@ -757,12 +744,12 @@ namespace Minerva.DataStorage.Tests
             // Act: soft object check should not set Result.Failed
             var q = root.Query()
                         .Location("x").Expect().Object(strict: false)
-                        .Then()
+                        .And()
                         .Location("x").Expect().Scalar<int>();
 
             // Assert
-            Assert.That(q.Result.Success, Is.True);
-            Assert.That(q.Result.Value, Is.EqualTo(42));
+            Assert.That(q.GetCurrentResult().Success, Is.True);
+            Assert.That(q.GetCurrentResult().Value, Is.EqualTo(42));
         }
 
         // ---------------------------
@@ -778,7 +765,7 @@ namespace Minerva.DataStorage.Tests
 
             // Act: ensure scalar with explicit value
             var qr = root.Query().Location("cfg").Location("max").Ensure().Scalar<int>(99);
-            Assert.That(qr.Result.Success, Is.True);
+            Assert.That(qr.GetCurrentResult().Success, Is.True);
 
             // Ensure default create (no value provided)
             Assert.DoesNotThrow(() =>
@@ -789,7 +776,7 @@ namespace Minerva.DataStorage.Tests
 
             // Ensure string creation
             var qrStr = root.Query().Location("meta").Location("title").Ensure().String("Hello");
-            Assert.That(qrStr.Result.Success, Is.True);
+            Assert.That(qrStr.GetCurrentResult().Success, Is.True);
             Assert.That(root.ReadStringPath("meta.title"), Is.EqualTo("Hello"));
 
             // Ensure array creation (value array)
@@ -874,17 +861,17 @@ namespace Minerva.DataStorage.Tests
 
             // Has & As checks
             var existHp = root.Query().Location("player").Location("stats").Location("hp").Exist();
-            Assert.That(existHp.Has, Is.True);
-            Assert.That(existHp.As<int>(exact: true), Is.True);
-            Assert.That(existHp.As<float>(exact: false), Is.True);
+            Assert.That(existHp.Has.Success, Is.True);
+            Assert.That(existHp.As<int>(exact: true).Success, Is.True);
+            Assert.That(existHp.As<float>(exact: false).Success, Is.True);
 
             // Array checks
             var existArr = root.Query().Location("player").Location("inventory").Exist();
-            Assert.That(existArr.Array<int>(out var arr), Is.True);
+            Assert.That(existArr.Array<int>(out var arr).Success, Is.True);
             Assert.That(arr.Length, Is.GreaterThanOrEqualTo(2));
 
             // Object(out) when missing returns false and out default
-            Assert.That(root.Query().Location("missing").Exist().Object(out StorageObject so), Is.False);
+            Assert.That(root.Query().Location("missing").Exist().Object(out StorageObject so).Success, Is.False);
             Assert.That(so.IsNull, Is.True);
         }
 
@@ -900,7 +887,7 @@ namespace Minerva.DataStorage.Tests
             // After exist statement created, original query's buffer should be disposed (finalized)
             Assert.That(q.IsDisposed, Is.True);
             // Using the ExistStatement still works for presence check
-            Assert.That(exist.Has, Is.False);
+            Assert.That(exist.Has.Success, Is.False);
         }
 
         // ---------------------------
@@ -925,10 +912,416 @@ namespace Minerva.DataStorage.Tests
 
             // Ensure using Then() on a QueryResult goes back to parent
             var created = root.Query().Location("cfg").Location("ver").Ensure().Scalar<int>(1);
-            var parent = created.Then();
+            var parent = created.And();
             Assert.That(parent.Path, Is.EqualTo("cfg"));
 
             p.Dispose();
         }
+
+
+        #region If Else
+
+
+        [Test]
+        public void If_True_Then_Runs_Else_Not_RootLevel()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("flag", 1); // condition true
+
+            // If(path, ...) supplies a nested query whose path = "flag"
+            root.Query()
+                .If("flag",
+                    // condition: evaluate root directly (no path mutation)
+                    q => Result.From(root.HasField("flag")),
+                    then: q => { root.Write("thened", 1); return Result.Succeeded; },
+                    @else: q => { root.Write("elsed", 1); return Result.Succeeded; });
+
+            Assert.That(root.HasField("thened"), Is.True);
+            Assert.That(root.HasField("elsed"), Is.False);
+            Assert.That(root.Read<int>("thened"), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void If_False_Else_Runs_RootLevel()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.Query()
+                .If("flag",
+                    q => Result.From(root.HasField("flag")), // false
+                    then: q => { root.Write("thened", 1); return Result.Succeeded; },
+                    @else: q => { root.Write("elsed", 2); return Result.Succeeded; });
+
+            Assert.That(root.HasField("thened"), Is.False);
+            Assert.That(root.HasField("elsed"), Is.True);
+            Assert.That(root.Read<int>("elsed"), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void If_Expect_Object_Fails_Else_Creates_Object()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.Query()
+                .If("player",
+                    q => Result.Failed("missing"),
+                    then: q => { root.GetObject("player"); return Result.Succeeded; },
+                    @else: q => { root.GetObject("player"); return Result.Succeeded; });
+
+            Assert.That(root.TryGetObject("player", out var obj), Is.True);
+            Assert.That(obj.IsNull, Is.False);
+        }
+
+        [Test]
+        public void ElseIf_SecondBranchTriggers()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("b", 1);
+
+            root.Query()
+                .If("a", q => q.Exists())
+                .ElseIf("b", q => q.Exists())
+                .Then(q => { root.Write("b", 2); return Result.Succeeded; })
+                .Else(q => { root.Write("c", 3); return Result.Succeeded; })
+                .End();
+
+            Assert.That(root.Read<int>("b"), Is.EqualTo(2));
+            Assert.That(root.HasField("c"), Is.False);
+        }
+
+        [Test]
+        public void ElseIf_SecondBranchTriggers_Equivalence()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("b", 1);
+
+            root.Query()
+                .If("a", q => q.Exists())
+                .Else().If("b", q => q.Exists())
+                    .Then(q => { root.Write("b", 2); return Result.Succeeded; })
+                    .End()
+                .Else(q => { root.Write("c", 3); return Result.Succeeded; })
+                .End();
+
+            Assert.That(root.Read<int>("b"), Is.EqualTo(2));
+            Assert.That(root.HasField("c"), Is.False);
+        }
+
+        [Test]
+        public void ElseIf_SecondBranchTriggers_SwitchOrder()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("b", 1);
+
+            root.Query()
+                .If("b", q => q.Exists())
+                .ElseIf("a", q => q.Exists())
+                .Then(q => { root.Write("b", 2); return Result.Succeeded; })
+                .Else(q => { root.Write("c", 3); return Result.Succeeded; })
+                .End();
+
+            Assert.That(root.HasField("c"), Is.False);
+            Assert.That(root.Read<int>("b"), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void ElseIf_SecondBranchTriggers_SwitchOrder_Equivalence()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.Write("b", 1);
+
+            /**
+             * if (b exist)
+             *      none
+             * else 
+             *      if (a exist)
+             *          b = 2
+             *      ifend
+             * else // else else -> if (!!condition)
+             *      c = 3
+             * 
+             * since b exists, first if is true, then first else is skipped, second else would behave like if (!!condtion)
+             * 
+             */
+
+            root.Query()
+                .If("b", q => q.Exists())
+                .Else()
+                    .If("a", q => q.Exists())
+                        .Then(q => { root.Write("c", 3); return Result.Succeeded; })
+                    .End()
+                .Else(q => { root.Write("b", 2); return Result.Succeeded; })
+                .End();
+
+            Assert.That(root.HasField("c"), Is.False);
+            Assert.That(root.Read<int>("b"), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void If_With_Path_Prefix_Writes_Under_Prefix()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Force false so Else executes
+            root.Query()
+                .Location("player.stats")
+                .If(q => Result.Failed("force"))
+                .Then("hp", q => q.Ensure().Scalar<int>(100))
+                .Else("hp", q => q.Ensure().Scalar<int>(200));
+
+            Assert.That(root.ReadPath<int>("player.stats.hp"), Is.EqualTo(200));
+            Assert.That(root.HasField("hp"), Is.False); // not root-level
+        }
+
+        [Test]
+        public void Then_Returns_OriginalQuery_For_Chaining()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            var q = root.Query()
+                        .Location("cfg")
+                        .If("ver", q => Result.Succeeded)
+                        .Then("ver", q => { q.Ensure().Scalar<int>(1); return Result.Succeeded; })
+                        .Else("unused", q => Result.Succeeded);
+
+            // q now is NestedQuery; get MainQuery via Else(...).But extension returns TQuery (original)
+            // We can continue with original path "cfg"
+            q.Location("name").Ensure().Is().String("v1");
+
+            Assert.That(root.ReadPath<int>("cfg.ver"), Is.EqualTo(1));
+            Assert.That(root.ReadStringPath("cfg.name"), Is.EqualTo("v1"));
+        }
+
+        [Test]
+        public void If_Result_Overload_Then_Else_SideEffects_RootLevel()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.Query()
+                .If(q => Result.Succeeded,
+                    then: q => { root.Write("x", 10); return Result.Succeeded; },
+                    @else: q => { root.Write("y", 20); return Result.Succeeded; });
+
+            Assert.That(root.HasField("x"), Is.True);
+            Assert.That(root.HasField("y"), Is.False);
+            Assert.That(root.Read<int>("x"), Is.EqualTo(10));
+        }
+
+        [Test]
+        public void ElseIf_Bool_Overload_TakesTrueBranch()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.Query()
+                .If(q => Result.Failed("no"))
+                .ElseIf(q => true)
+                .Then(q => { root.Write("z", 9); return Result.Succeeded; })
+                .Else(q => { root.Write("w", 8); return Result.Succeeded; });
+
+            Assert.That(root.HasField("z"), Is.True);
+            Assert.That(root.HasField("w"), Is.False);
+            Assert.That(root.Read<int>("z"), Is.EqualTo(9));
+        }
+
+        [Test]
+        public void ElseIf_Path_FallbackElseExecutes()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            root.Query()
+                .If("a", q => Result.From(root.HasField("a")))
+                .ElseIf("b", q => Result.From(root.HasField("b")))
+                .Else("c", q => { root.Write("c", 7); return Result.Succeeded; });
+
+            Assert.That(root.Read<int>("c"), Is.EqualTo(7));
+            Assert.That(root.HasField("a"), Is.False);
+            Assert.That(root.HasField("b"), Is.False);
+        }
+
+        [Test]
+        public void If_Path_Prefix_Then_Writes_Under_Prefix()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+            root.WritePath("ns.flag", 1);
+
+            root.Query()
+                .If("ns.flag", q => Result.From(root.ReadPath<int>("ns.flag") == 1))
+                .Then("ns", q => q.Location("value").Ensure().Scalar<int>(5))
+                .Else("ns", q => q.Location("value").Ensure().Scalar<int>(9))
+            .End();
+
+            Assert.That(root.ReadPath<int>("ns.value"), Is.EqualTo(5));
+            Assert.That(root.HasField("value"), Is.False);
+        }
+
+        [Test]
+        public void Complex_If_Then_ElseIf_Then_ElseIf_Then_Else_OnlyThirdBranchFires()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Prepare: only 'c' exists -> third elseif should fire
+            root.Write("c", 1);
+
+            root.Query()
+                .If("a", q => q.Exists())
+                    .Then(q => { root.Write("hit_a", 1); return Result.Succeeded; })
+                .ElseIf("b", q => q.Exists())
+                    .Then(q => { root.Write("hit_b", 1); return Result.Succeeded; })
+                .ElseIf("c", q => q.Exists())
+                    .Then(q => { root.Write("hit_c", 1); return Result.Succeeded; })
+                .Else(q => { root.Write("hit_else", 1); return Result.Succeeded; })
+            .End();
+
+            Assert.That(root.HasField("hit_c"), Is.True);
+            Assert.That(root.HasField("hit_a"), Is.False);
+            Assert.That(root.HasField("hit_b"), Is.False);
+            Assert.That(root.HasField("hit_else"), Is.False);
+        }
+
+        [Test]
+        public void Complex_If_Then_Else_If_Then_Else_If_Then_Else_OnlyThirdBranchFires_Equivalence()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Prepare: only 'c' exists -> third nested if should fire
+            root.Write("c", 1);
+
+            /*
+             * Pseudo structure:
+             * if (a)        -> then hit_a
+             * else {
+             *    if (b)     -> then hit_b
+             *    else {
+             *       if (c)  -> then hit_c   // EXPECTED branch
+             *       else    -> hit_else
+             *    }
+             * }
+             */
+
+            root.Query()
+                .If("a", q => q.Exists())
+                    .Then(q => { root.Write("hit_a", 1); return Result.Succeeded; })
+                .Else() // enters nested level #1
+                    .If("b", q => q.Exists())
+                        .Then(q => { root.Write("hit_b", 1); return Result.Succeeded; })
+                    .Else() // enters nested level #2
+                        .If("c", q => q.Exists())
+                            .Then(q => { root.Write("hit_c", 1); return Result.Succeeded; })
+                        .Else(q => { root.Write("hit_else", 1); return Result.Succeeded; })
+                        .End()  // end inner-most (c) if-else
+                    .End()      // end (b) if-else
+                .End();         // end outer (a) if-else
+
+            Assert.That(root.HasField("hit_c"), Is.True);
+            Assert.That(root.HasField("hit_a"), Is.False);
+            Assert.That(root.HasField("hit_b"), Is.False);
+            Assert.That(root.HasField("hit_else"), Is.False);
+        }
+
+        [Test]
+        public void Else_Chain_Repeated_Inversion_Even_Odd()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            // Start with true condition
+            var qTrue = root.Query()
+                .If(q => Result.Succeeded); // true
+
+            // Apply 1 Else -> false, 2 Else -> true, 3 Else -> false, 4 Else -> true
+            bool after1 = qTrue.Else().GetResult().Success;
+            bool after2 = qTrue.Else().Else().GetResult().Success;
+            bool after3 = qTrue.Else().Else().Else().GetResult().Success;
+            bool after4 = qTrue.Else().Else().Else().Else().GetResult().Success;
+
+            Assert.That(after1, Is.False, "Single Else should invert true -> false");
+            Assert.That(after2, Is.True, "Two Else calls invert twice -> back to true");
+            Assert.That(after3, Is.False, "Three Else calls -> false");
+            Assert.That(after4, Is.True, "Four Else calls -> true again");
+        }
+
+        [Test]
+        public void Else_Chain_FinalState_Controls_Then_Execution()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            int executed = 0;
+
+            // Condition true, even number of Else keeps true so Then executes
+            root.Query()
+                .If(q => Result.Succeeded)      // true
+                .Else()                         // false
+                .Else()                         // true
+                .Then(q =>
+                {
+                    executed++;
+                    return Result.Succeeded;
+                })
+                .End()
+            .End();
+
+            Assert.That(executed, Is.EqualTo(1), "Even number of Else inversions should allow Then to run.");
+
+            executed = 0;
+            // Odd number of Else => final false => Then skipped
+            root.Query()
+                .If(q => Result.Succeeded)      // true
+                .Else()                         // false
+                .Then(q =>
+                {
+                    executed++;
+                    return Result.Succeeded;
+                })
+                .End()
+            .End();
+
+            Assert.That(executed, Is.EqualTo(0), "Odd number of Else inversions should stop Then from running.");
+        }
+
+        [Test]
+        public void Then_Chain_Should_Stop_On_FailedResult_FutureBehavior()
+        {
+            using var storage = new Storage(ContainerLayout.Empty);
+            var root = storage.Root;
+
+            int hit = 0;
+
+            root.Query()
+                .If(q => Result.Succeeded)
+                .Then(q =>
+                {
+                    hit++; return Result.Succeeded;
+                })
+                .Then(q =>
+                {
+                    hit++; return Result.Failed("Stop here");
+                })
+                .Then(q =>
+                {
+                    hit++; return Result.Succeeded;
+                })
+                .End()
+            .End();
+
+            Assert.That(hit, Is.EqualTo(2));
+        }
+
+        #endregion
     }
 }
