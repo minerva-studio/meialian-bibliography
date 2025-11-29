@@ -69,6 +69,19 @@ namespace Minerva.DataStorage
             set => Container.Version = value;
         }
 
+        /// <summary> Name of the object </summary>
+        /// <remarks>
+        /// - For non-array members, the name of the field is returned. <br/>
+        /// - For array members, the name of the array field and its index is returned.
+        /// ie: "ArrayField[3]" <br/
+        /// - If the object is null, an empty string is returned. <br/>
+        /// </remarks>
+        public string Name
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => IsNull ? string.Empty : Container.Name;
+        }
+
         /// <summary>
         /// DO NOT EXPOSE THIS PROPERTY OUTSIDE THE ASSEMBLY, INTERNAL USE ONLY (AND FOR DEBUGGING ONLY)
         /// </summary>
