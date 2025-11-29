@@ -12,6 +12,7 @@ namespace Minerva.DataStorage.Serialization
     public static class JsonSerialization
     {
         public const string BlobName = "$blob";
+        public const string VersionName = "$version";
 
         public static ReadOnlySpan<char> ToJson(this Storage storage)
         {
@@ -22,6 +23,12 @@ namespace Minerva.DataStorage.Serialization
 
         private static void WriteJsonTo(this in StorageObject storage, IBufferWriter<char> writer)
         {
+            if (storage.Version != 0)
+            {
+                writer.Write($"\"{VersionName}\": ");
+                WriteScalar(ValueType.UInt32, MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref Unsafe.AsRef(storage.Version), 1)), writer);
+            }
+
             // --- special case: Object Array --------------------------
             if (storage.IsArray())
             {
@@ -423,7 +430,8 @@ namespace Minerva.DataStorage.Serialization
                     Expect(':');
                     SkipWhitespace();
 
-                    ReadValueIntoField(target, name, depth);
+                    if (name == VersionName) ReadVersion(target);
+                    else ReadValueIntoField(target, name, depth);
 
                     SkipWhitespace();
                     char c = Peek();
@@ -440,6 +448,17 @@ namespace Minerva.DataStorage.Serialization
 
                     throw new InvalidOperationException($"Expected ',' or '}}' in object, found '{c}'.");
                 }
+            }
+
+            private void ReadVersion(StorageObject target)
+            {
+                bool v;
+                long i;
+                double f;
+                try { v = ReadNumber(out i, out f); }
+                catch (Exception) { throw new InvalidOperationException("Invalid version number in JSON."); }
+                if (v) target.Version = (int)i;
+                else target.Version = (int)f; // just truncate in case of 1.0
             }
 
             /// <summary>
