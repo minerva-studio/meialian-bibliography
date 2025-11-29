@@ -1019,9 +1019,152 @@ namespace Minerva.DataStorage
                 }
             }
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public Result Write<T>(T value) where T : unmanaged
+            {
+                if (Failed) return Result.Failed($"Write failed: object does not exist");
+                try
+                {
+                    _root.WritePath(_path, value);
+                    return Result.Succeeded;
+                }
+                catch (Exception e)
+                {
+                    return Result.Failed($"Write failed: {e.Message}");
+                }
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public Result Read<T>(out T value) where T : unmanaged
+            {
+                value = default;
+                if (Failed) return Result.Failed($"Read failed: object does not exist");
+                try
+                {
+                    value = _root.ReadPath<T>(_path);
+                    return Result.Succeeded;
+                }
+                catch (Exception e)
+                {
+                    return Result.Failed($"Read failed: {e.Message}");
+                }
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public Result Write(string value)
+            {
+                if (Failed) return Result.Failed($"Write failed: object does not exist");
+                try
+                {
+                    _root.WritePath(_path, value);
+                    return Result.Succeeded;
+                }
+                catch (Exception e)
+                {
+                    return Result.Failed($"Write failed: {e.Message}");
+                }
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public Result Read(out string value)
+            {
+                value = default;
+                if (Failed) return Result.Failed($"Read failed: object does not exist");
+                try
+                {
+                    value = _root.ReadStringPath(_path);
+                    return Result.Succeeded;
+                }
+                catch (Exception e)
+                {
+                    return Result.Failed($"Read failed: {e.Message}");
+                }
+            }
+
 
             public MakeStatement Make() => new(_root, _path);
             public ExistStatement Exist() => new(_root, _path);
+
+
+            public readonly ref struct ArrayContext
+            {
+                private readonly StorageArray _array;
+
+                internal ArrayContext(StorageArray array)
+                {
+                    _array = array;
+                }
+
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public Result Resize(int newSize)
+                {
+                    try
+                    {
+                        _array.Resize(newSize);
+                        return Result.Succeeded;
+                    }
+                    catch (Exception e)
+                    {
+                        return Result.Failed($"Resize failed: {e.Message}");
+                    }
+                }
+
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public Result<int> EnsureLength(int minLength)
+                {
+                    try
+                    {
+                        _array.EnsureLength(minLength);
+                        return new Result<int>(_array.Length);
+                    }
+                    catch (Exception e)
+                    {
+                        return Result.Failed<int>($"EnsureLength failed: {e.Message}");
+                    }
+                }
+
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public Result<int> GetLength()
+                {
+                    try
+                    {
+                        var length = _array.Length;
+                        return new Result<int>(length);
+                    }
+                    catch (Exception e)
+                    {
+                        return Result.Failed<int>($"GetLength failed: {e.Message}");
+                    }
+                }
+
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public Result<T> GetElement<T>(int index) where T : unmanaged
+                {
+                    try
+                    {
+                        var value = _array.GetValue<T>(index);
+                        return new Result<T>(value);
+                    }
+                    catch (Exception e)
+                    {
+                        return Result.Failed<T>($"GetElement failed: {e.Message}");
+                    }
+                }
+
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public Result SetElement<T>(int index, T value) where T : unmanaged
+                {
+                    try
+                    {
+                        _array.SetValue(index, value);
+                        return Result.Succeeded;
+                    }
+                    catch (Exception e)
+                    {
+                        return Result.Failed($"SetElement failed: {e.Message}");
+                    }
+                }
+            }
         }
     }
 
@@ -1154,8 +1297,7 @@ namespace Minerva.DataStorage
         public static TQuery Location<TQuery>(this QueryResult<TQuery, StorageObject> queryResult, string path) where TQuery : struct, IStorageQuery<TQuery> => queryResult.Query.Location(path);
         public static TQuery And<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery> => query.Previous();
         public static TQuery And<TQuery, TValue>(this QueryResult<TQuery, TValue> result) where TQuery : struct, IStorageQuery<TQuery> => result.Query.Previous();
-        public static MakeStatement Make(this StorageObject root, string path) => new MakeStatement(root, path);
-        public static ExistStatement Exist(this StorageObject root, string path = null) => new ExistStatement(root, path);
+
 
         public static EnsureStatement<StorageQuery> Ensure(this StorageObject root, string path) => new StorageQuery(root, path).Ensure();
         public static EnsureStatement<StorageQuery> Ensure(this Storage storage, string path) => new StorageQuery(storage.Root, path).Ensure();
@@ -1173,6 +1315,12 @@ namespace Minerva.DataStorage
         /// <summary>Get member view for this path.</summary>
         /// <remarks>A finalizer</remarks>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static StorageMember GetMember<TQuery>(this TQuery query, string path, bool createIfMissing = true) where TQuery : struct, IStorageQuery<TQuery>
+            => query.Location(path).GetMember(createIfMissing);
+
+        /// <summary>Get member view for this path.</summary>
+        /// <remarks>A finalizer</remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static StorageMember GetMember<TQuery>(this TQuery query, bool createIfMissing = true) where TQuery : struct, IStorageQuery<TQuery>
         {
             query.EnsureRootValid();
@@ -1181,6 +1329,10 @@ namespace Minerva.DataStorage
             var reslut = createIfMissing ? query.Root.GetMember(path) : (query.Root.TryGetMember(path, out var m) ? m : default);
             return new StorageMember(reslut.StorageObject, reslut.Name.ToArray(), reslut.ArrayIndex);
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool TryGetMember<TQuery>(this TQuery query, string path, out StorageMember member) where TQuery : struct, IStorageQuery<TQuery>
+            => query.Location(path).TryGetMember(out member);
 
         /// <summary>Try get member view (non-creating).</summary>
         /// <remarks>A finalizer</remarks>
@@ -1201,6 +1353,74 @@ namespace Minerva.DataStorage
 
 
 
+        /// <summary>
+        /// Creates a new context for performing operations on the specified storage array using a 'do' statement.
+        /// </summary>
+        /// <param name="array">The storage array to operate on. Cannot be null.</param>
+        /// <returns>An ArrayContext instance that provides methods for executing operations on the given storage array.</returns>
+        public static DoStatement.ArrayContext Do(this StorageArray array) => new DoStatement.ArrayContext(array);
+        public static DoStatement.ArrayContext Do(this StorageArray.Persistent array) => new DoStatement.ArrayContext(array);
+        public static DoStatement.ArrayContext Do<TQuery>(this QueryResult<TQuery, StorageArray.Persistent> root) where TQuery : struct, IStorageQuery<TQuery>
+            => Do<TQuery>(root, out _);
+        public static DoStatement.ArrayContext Do<TQuery>(this QueryResult<TQuery, StorageArray.Persistent> root, out StorageArray array) where TQuery : struct, IStorageQuery<TQuery>
+    => new DoStatement.ArrayContext(array = root.ExistOrThrow());
+        public static DoStatement.ArrayContext ArrayDo<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery>
+            => ArrayDo<TQuery>(query, out _);
+        public static DoStatement.ArrayContext ArrayDo<TQuery>(this TQuery query, out StorageArray array) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            array = default;
+            if (!query.Result.Success)
+            {
+                query.ImplicitCallFinalizer();
+                query.Result.ThrowIfFailed();
+            }
+            var d = new DoStatement.ArrayContext(query.GetMember().AsArray());
+            return d;
+        }
+        public static DoStatement.ArrayContext ArrayDo<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery>
+            => ArrayDo(root.Root, path);
+        public static DoStatement.ArrayContext ArrayDo<TQuery>(this TQuery root, string path, out StorageArray array) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            array = root.GetMember(path).AsArray();
+            var d = new DoStatement.ArrayContext(array);
+            return d;
+        }
+        public static DoStatement.ArrayContext ArrayDo<TQuery>(this TQuery root, int index) where TQuery : struct, IStorageQuery<TQuery>
+            => root.ArrayDo(index, out _);
+        public static DoStatement.ArrayContext ArrayDo<TQuery>(this TQuery root, int index, out StorageArray array) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            array = root.GetMember()[index].AsArray();
+            var d = new DoStatement.ArrayContext(array);
+            return d;
+        }
+        public static DoStatement.ArrayContext ArrayDo(this StorageObject root, string path) => root.ArrayDo(path, out _);
+        public static DoStatement.ArrayContext ArrayDo(this StorageObject root, string path, out StorageArray array)
+        {
+            array = root.GetArrayByPath(path.AsSpan(), null);
+            var d = new DoStatement.ArrayContext(array);
+            return d;
+        }
+
+
+        /// <summary>
+        /// Begin the Do statement for the current accumulated path.
+        /// </summary>
+        /// <typeparam name="TQuery"></typeparam>
+        /// <param name="query"></param>
+        /// <returns></returns>
+        public static DoStatement Do<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery>
+        {
+            if (!query.Result.Success)
+            {
+                query.ImplicitCallFinalizer();
+                query.Result.ThrowIfFailed();
+            }
+            var d = new DoStatement(query.Root, query.PathSpan.ToString());
+            return d;
+        }
+        public static DoStatement Do<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Do();
+        public static DoStatement Do<TQuery>(this TQuery root, int index) where TQuery : struct, IStorageQuery<TQuery> => root.Index(index).Do();
+        public static DoStatement Do(this StorageObject root, string path) => new DoStatement(root, path);
 
         /// <summary>
         /// Enter exist semantics (no creation).
@@ -1221,6 +1441,8 @@ namespace Minerva.DataStorage
             return e;
         }
         public static ExistStatement Exist<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Exist();
+        public static ExistStatement Exist<TQuery>(this TQuery root, int index) where TQuery : struct, IStorageQuery<TQuery> => root.Index(index).Exist();
+        public static ExistStatement Exist(this StorageObject root, string path = null) => new ExistStatement(root, path);
 
         /// <summary>
         /// Enter Make semantics (creation allowed).
@@ -1243,6 +1465,8 @@ namespace Minerva.DataStorage
             return e;
         }
         public static MakeStatement Make<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Make();
+        public static MakeStatement Make<TQuery>(this TQuery root, int index) where TQuery : struct, IStorageQuery<TQuery> => root.Index(index).Make();
+        public static MakeStatement Make(this StorageObject root, string path) => new MakeStatement(root, path);
 
         /// <summary>
         /// Enter ensure semantics (creation allowed).
@@ -1259,6 +1483,7 @@ namespace Minerva.DataStorage
             return e;
         }
         public static EnsureStatement<TQuery> Ensure<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Ensure();
+        public static EnsureStatement<TQuery> Ensure<TQuery>(this TQuery root, int index) where TQuery : struct, IStorageQuery<TQuery> => root.Index(index).Ensure();
 
         /// <summary>
         /// Begin the non-intrusive Expect DSL for the current accumulated path.  
@@ -1280,24 +1505,7 @@ namespace Minerva.DataStorage
             return exp;
         }
         public static ExpectStatement<TQuery> Expect<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Expect();
-
-        /// <summary>
-        /// Begin the Do statement for the current accumulated path.
-        /// </summary>
-        /// <typeparam name="TQuery"></typeparam>
-        /// <param name="query"></param>
-        /// <returns></returns>
-        public static DoStatement Do<TQuery>(this TQuery query) where TQuery : struct, IStorageQuery<TQuery>
-        {
-            if (!query.Result.Success)
-            {
-                query.ImplicitCallFinalizer();
-                query.Result.ThrowIfFailed();
-            }
-            var d = new DoStatement(query.Root, query.PathSpan.ToString());
-            return d;
-        }
-        public static DoStatement Do<TQuery>(this TQuery root, string path) where TQuery : struct, IStorageQuery<TQuery> => root.Location(path).Do();
+        public static ExpectStatement<TQuery> Expect<TQuery>(this TQuery root, int index) where TQuery : struct, IStorageQuery<TQuery> => root.Index(index).Expect();
 
 
 

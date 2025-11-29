@@ -617,6 +617,46 @@ namespace Minerva.DataStorage
         }
 
         /// <summary>
+        /// Try to read a scalar field by path without allocating intermediate
+        /// objects. Returns false if any segment or field is missing.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryWritePath<T>(string path, T value) where T : unmanaged
+        {
+            ThrowHelper.ThrowIfNull(path, nameof(path));
+            return TryWritePath(path.AsSpan(), value);
+        }
+
+        /// <summary>
+        /// Try to read a scalar field by path without allocating intermediate
+        /// objects. Returns false if any segment or field is missing.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool TryWritePath<T>(ReadOnlySpan<char> path, T value, char separator = DefaultPathSeparator) where T : unmanaged
+        {
+            value = default;
+            try
+            {
+                var container = NavigateToObject(path, separator, createIfMissing: false, out var fieldSegment, out var index);
+                if (container.IsNull || fieldSegment.Length == 0)
+                    return false;
+                if (index >= 0)
+                {
+                    return container.GetArray(fieldSegment).TryWrite<T>(index, value);
+                }
+                return container.TryWrite<T>(fieldSegment, value);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Read a scalar field located by a dot-separated path.
         /// Does not create missing fields; throws if any segment or field is missing.
         /// </summary>

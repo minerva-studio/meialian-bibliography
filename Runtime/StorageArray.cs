@@ -309,6 +309,39 @@ namespace Minerva.DataStorage
         }
 
         /// <summary>
+        /// Retrieves the value of type <typeparamref name="T"/> at the specified index from the scalar field.
+        /// </summary>
+        /// <remarks>This method throws an exception if the field is a reference field. The caller must
+        /// ensure that the index is within the valid range of the scalar field.</remarks>
+        /// <typeparam name="T">The unmanaged value type to retrieve from the field.</typeparam>
+        /// <param name="index">The zero-based index of the value to retrieve within the scalar field.</param>
+        /// <returns>The value of type <typeparamref name="T"/> at the specified index.</returns>
+        public T GetValue<T>(int index) where T : unmanaged
+        {
+            ref FieldHeader header = ref Header;
+            if (header.IsRef)
+                ThrowHelper.ThrowInvalidOperation("Cannot get value from a ref field.");
+            return this.Scalar[index].Read<T>();
+        }
+
+        /// <summary>
+        /// Sets the value of the field at the specified index.
+        /// </summary>
+        /// <remarks>Throws an exception if the field at the specified index is a reference field. This
+        /// method notifies listeners of the field write operation after the value is set.</remarks>
+        /// <typeparam name="T">The type of value to set. Must be an unmanaged type.</typeparam>
+        /// <param name="index">The zero-based index of the field to set.</param>
+        /// <param name="value">The value to assign to the field at the specified index.</param>
+        public void SetValue<T>(int index, T value) where T : unmanaged
+        {
+            ref FieldHeader header = ref Header;
+            if (header.IsRef)
+                ThrowHelper.ThrowInvalidOperation("Cannot set value to a ref field.");
+            this.Raw[index].Write(value);
+            StorageEventRegistry.NotifyFieldWrite(_handle.Container, _handle.Index);
+        }
+
+        /// <summary>
         /// Retrieves the storage member at the specified index.
         /// </summary>
         /// <param name="index">The zero-based index of the member to retrieve. Must be within the valid range of available members.</param>
