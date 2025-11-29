@@ -40,6 +40,11 @@ namespace Minerva.DataStorage.Serialization
         /// </summary> 
         public void Serialize(in JsonSerializationContext<Storage> context, Storage value)
         {
+            if (value == null)
+            {
+                context.Writer.WriteNull();
+                return;
+            }
             context.Writer.WriteValueLiteral(value.ToJson().ToString());
         }
 
