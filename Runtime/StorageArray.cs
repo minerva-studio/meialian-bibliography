@@ -304,9 +304,8 @@ namespace Minerva.DataStorage
                 return false;
             }
 
-            ContainerReference reference = references[index];
-            if (instantiate) return !(child = reference.TryGet(out var obj) ? obj : CreateObject(ref reference, index, ContainerLayout.Empty)).IsNull;
-            return reference.TryGet(out child);
+            if (instantiate) return !(child = references[index].TryGet(out var obj) ? obj : CreateObject(ref references[index], index, ContainerLayout.Empty)).IsNull;
+            return references[index].TryGet(out child);
         }
 
         /// <summary>
