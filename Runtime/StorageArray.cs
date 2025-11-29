@@ -308,6 +308,26 @@ namespace Minerva.DataStorage
             return containerReference.TryGet(out child);
         }
 
+        /// <summary>
+        /// Retrieves the storage member at the specified index.
+        /// </summary>
+        /// <param name="index">The zero-based index of the member to retrieve. Must be within the valid range of available members.</param>
+        /// <returns>A <see cref="StorageMember"/> representing the member at the specified index.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly StorageMember GetMember(int index) => new(_handle, index);
+
+        /// <summary>
+        /// Creates a persistent member representation for the specified field index.
+        /// </summary>
+        /// <param name="index">The zero-based index of the field to retrieve. Must be greater than or equal to zero and within the bounds
+        /// of the available fields.</param>
+        /// <returns>A <see cref="StorageMember.Persistent"/> instance representing the persistent member at the specified index.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly StorageMember.Persistent GetPersistentMember(int index) => new(new FieldHandle.Persistent(_handle), index);
+
+
+
+
 
 
 
@@ -588,6 +608,11 @@ namespace Minerva.DataStorage
                     return _handle.Header.ElementCount;
                 }
             }
+            internal readonly FieldHandle Handle
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => _handle;
+            }
 
             public readonly StorageMember.Persistent this[int index]
             {
@@ -598,6 +623,24 @@ namespace Minerva.DataStorage
             public readonly Enumerator GetEnumerator() => new(this);
             readonly IEnumerator<StorageMember.Persistent> IEnumerable<StorageMember.Persistent>.GetEnumerator() => new Enumerator(this);
             readonly IEnumerator IEnumerable.GetEnumerator() => new Enumerator(this);
+
+
+            /// <summary>
+            /// Retrieves the storage member at the specified index.
+            /// </summary>
+            /// <param name="index">The zero-based index of the member to retrieve. Must be within the valid range of available members.</param>
+            /// <returns>A <see cref="StorageMember"/> representing the member at the specified index.</returns>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly StorageMember GetMember(int index) => new(_handle, index);
+
+            /// <summary>
+            /// Creates a persistent member representation for the specified field index.
+            /// </summary>
+            /// <param name="index">The zero-based index of the field to retrieve. Must be greater than or equal to zero and within the bounds
+            /// of the available fields.</param>
+            /// <returns>A <see cref="StorageMember.Persistent"/> instance representing the persistent member at the specified index.</returns>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public readonly StorageMember.Persistent GetPersistentMember(int index) => new(_handle, index);
 
 
             public static implicit operator StorageArray(Persistent member) => new(member._handle);
