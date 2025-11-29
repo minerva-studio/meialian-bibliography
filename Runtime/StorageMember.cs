@@ -60,6 +60,12 @@ namespace Minerva.DataStorage
             get => _index < 0 && _storageObject.IsArray(EnsureFieldIndex());
         }
 
+        public bool IsObject
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => ValueType == ValueType.Ref;
+        }
+
         public bool IsArrayMember
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
