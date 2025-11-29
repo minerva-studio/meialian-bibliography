@@ -2030,17 +2030,17 @@ namespace Minerva.DataStorage
         }
 
 
-        public StorageObjectEnumerator GetEnumerator() => new StorageObjectEnumerator(this);
-        IEnumerator<StorageMember.Persistent> IEnumerable<StorageMember.Persistent>.GetEnumerator() => new StorageObjectEnumerator(this);
-        IEnumerator IEnumerable.GetEnumerator() => new StorageObjectEnumerator(this);
+        public Enumerator GetEnumerator() => new Enumerator(this);
+        IEnumerator<StorageMember.Persistent> IEnumerable<StorageMember.Persistent>.GetEnumerator() => new Enumerator(this);
+        IEnumerator IEnumerable.GetEnumerator() => new Enumerator(this);
 
-        public struct StorageObjectEnumerator : IEnumerator<StorageMember.Persistent>
+        public struct Enumerator : IEnumerator<StorageMember.Persistent>
         {
             private readonly StorageObject _storageObject;
             private readonly int _schemaVersion;
             private int _currentIndex;
 
-            public StorageObjectEnumerator(StorageObject storageObject)
+            public Enumerator(StorageObject storageObject)
             {
                 _storageObject = storageObject;
                 _schemaVersion = storageObject._container.SchemaVersion;
