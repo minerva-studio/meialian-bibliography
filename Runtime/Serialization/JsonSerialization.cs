@@ -16,8 +16,14 @@ namespace Minerva.DataStorage.Serialization
 
         public static ReadOnlySpan<char> ToJson(this Storage storage)
         {
+            StorageObject root = storage.Root;
+            return ToJson(root);
+        }
+
+        public static ReadOnlySpan<char> ToJson(this StorageObject root)
+        {
             var writer = new ArrayBufferWriter<char>();
-            storage.Root.WriteJsonTo(writer);
+            root.WriteJsonTo(writer);
             return writer.WrittenSpan;
         }
 

@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 
+using Minerva.DataStorage.Serialization;
 using System;
 using System.Collections.Generic;
 using UnityEditor;
@@ -149,6 +150,25 @@ namespace Minerva.DataStorage
                 _treeView = new StorageTreeView(_treeViewState, header);
                 _treeView.SetSnapshot(_snapshot);
                 _treeView.Reload();
+            }
+        }
+        private static void CopyContainerJson(Container container)
+        {
+            if (container == null || container.ID == 0UL)
+            {
+                EditorUtility.DisplayDialog("Copy Failed", "Copy Failed：Container is not registerd or empty", "OK");
+                return;
+            }
+
+            try
+            {
+                string json = JsonSerialization.ToJson(new StorageObject(container)).ToString();
+                EditorGUIUtility.systemCopyBuffer = json;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                EditorUtility.DisplayDialog("Copy Failed", $"Encounter exception when serializing container：{ex.Message}", "OK");
             }
         }
 
@@ -474,6 +494,44 @@ namespace Minerva.DataStorage
                     CenterRectUsingSingleLineHeight(ref cellRect);
                     DrawCell(cellRect, item, column, ref args);
                 }
+
+                // Right-click context menu
+                if (Event.current.type == EventType.ContextClick)
+                {
+                    var rowRect = args.rowRect;
+                    if (rowRect.Contains(Event.current.mousePosition))
+                    {
+                        ShowContextMenu(item);
+                        Event.current.Use();
+                    }
+                }
+            }
+
+            private void ShowContextMenu(Item item)
+            {
+                var menu = new GenericMenu();
+                bool live = TryGetLiveContainer(item, out var container);
+
+                if (item.Kind == Item.NodeKind.Root && live && container != null)
+                {
+                    menu.AddItem(new GUIContent("Copy JSON..."), false, () =>
+                    {
+                        CopyContainerJson(container);
+                    });
+                }
+                else if (item.Kind == Item.NodeKind.Field && live && container != null)
+                {
+                    menu.AddItem(new GUIContent("Copy Container JSON..."), false, () =>
+                    {
+                        CopyContainerJson(container);
+                    });
+                }
+                else
+                {
+                    menu.AddDisabledItem(new GUIContent("Copy JSON..."));
+                }
+
+                menu.ShowAsContext();
             }
 
             private void DrawCell(Rect cellRect, Item item, ColumnId column, ref RowGUIArgs args)

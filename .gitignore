@@ -77,3 +77,4 @@ obj/
 Backup/
 bin/
 Program.cs
+/UnityEngine

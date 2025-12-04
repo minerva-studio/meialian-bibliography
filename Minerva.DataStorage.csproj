@@ -24,5 +24,26 @@
 		<Compile Include="Editor\**\*.cs" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <Reference Include="UnityEditor">
+	    <HintPath>UnityEngine\UnityEditor.dll</HintPath>
+	  </Reference>
+	  <Reference Include="UnityEditor.CoreModule">
+	    <HintPath>UnityEngine\UnityEditor.CoreModule.dll</HintPath>
+	  </Reference>
+	  <Reference Include="UnityEngine">
+	    <HintPath>UnityEngine\UnityEngine.dll</HintPath>
+	  </Reference>
+	  <Reference Include="UnityEngine.CoreModule">
+	    <HintPath>UnityEngine\UnityEngine.CoreModule.dll</HintPath>
+	  </Reference>
+	  <Reference Include="UnityEngine.IMGUIModule">
+	    <HintPath>UnityEngine\UnityEngine.IMGUIModule.dll</HintPath>
+	  </Reference>
+	  <Reference Include="UnityEngine.TextRenderingModule">
+	    <HintPath>UnityEngine\UnityEngine.TextRenderingModule.dll</HintPath>
+	  </Reference>
+	</ItemGroup>
+
 </Project>
 
