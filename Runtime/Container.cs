@@ -328,7 +328,7 @@ namespace Minerva.DataStorage
 
         /// <summary>Get UTF-16 field name by index without allocations.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ReadOnlySpan<char> GetFieldName(in FieldHeader header) => MemoryMarshal.Cast<byte, char>(Span.Slice(header.NameOffset, header.NameLength * sizeof(char)));
+        public ReadOnlySpan<char> GetFieldName(in FieldHeader header) => MemoryMarshal.Cast<byte, char>(Span.Slice(header.NameOffset, header.NameLength));
 
 
 

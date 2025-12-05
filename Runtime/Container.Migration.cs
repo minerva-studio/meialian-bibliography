@@ -116,7 +116,7 @@ namespace Minerva.DataStorage
                         // Moved field goes here with new name length
                         ref var srcMoved = ref FieldHeader.FromSpanAndFieldIndex(oldSpan, fieldIndex);
                         newFh = srcMoved;
-                        newFh.NameLength = (short)newFieldName.Length;
+                        newFh.NameLength = (short)(newFieldName.Length * sizeof(char));
                     }
                     else
                     {
@@ -129,7 +129,7 @@ namespace Minerva.DataStorage
                     newFh.NameOffset = nameOffset;
                     newFh.DataOffset += nameLengthByteDelta;
 
-                    nameOffset += newFh.NameLength * sizeof(char);
+                    nameOffset += newFh.NameLength;
                     dataOffset += newFh.Length;
                 }
 
@@ -137,7 +137,7 @@ namespace Minerva.DataStorage
                 for (int i = 0; i < fieldCount; i++)
                 {
                     ref var newFh = ref FieldHeader.FromSpanAndFieldIndex(newSpan, i);
-                    Span<byte> dstName = newMemory.AsSpan(newFh.NameOffset, newFh.NameLength * sizeof(char));
+                    Span<byte> dstName = newMemory.AsSpan(newFh.NameOffset, newFh.NameLength);
                     Span<byte> dstData = newMemory.AsSpan(newFh.DataOffset, newFh.Length);
 
                     if (i == targetIndex)
@@ -460,14 +460,14 @@ namespace Minerva.DataStorage
                     // match insertion
                     if (i == targetIndex)
                     {
-                        f.NameLength = (short)fieldName.Length;
+                        f.NameLength = (short)(fieldName.Length * sizeof(char));
                         f.Length = newDataLength;
                         f.ElemSize = (short)elementSize;
                         f.FieldType = newFieldType;
                         f.NameOffset = nameOffset;
                         f.DataOffset = dataOffset;
                         // name
-                        fieldName.CopyTo(MemoryMarshal.Cast<byte, char>(next.AsSpan(nameOffset, f.NameLength * sizeof(char))));
+                        fieldName.CopyTo(MemoryMarshal.Cast<byte, char>(next.AsSpan(nameOffset, f.NameLength)));
                         // data
                         next.AsSpan(dataOffset, f.Length).Clear();
                         if (!isNewField)
@@ -488,12 +488,12 @@ namespace Minerva.DataStorage
                         f.NameOffset = nameOffset;
                         f.DataOffset = dataOffset;
                         // name
-                        GetFieldName(in currentFieldHeader).CopyTo(MemoryMarshal.Cast<byte, char>(next.AsSpan(nameOffset, f.NameLength * sizeof(char))));
+                        GetFieldName(in currentFieldHeader).CopyTo(MemoryMarshal.Cast<byte, char>(next.AsSpan(nameOffset, f.NameLength)));
                         // data
                         GetFieldData(in currentFieldHeader).CopyTo(next.AsSpan(dataOffset, f.Length));
                     }
 
-                    nameOffset += f.NameLength * sizeof(char);
+                    nameOffset += f.NameLength;
                     dataOffset += f.Length;
                 }
 
@@ -589,7 +589,7 @@ namespace Minerva.DataStorage
             _memory.AsSpan(oldHeader.ContainerNameOffset, oldHeader.ContainerNameLength).CopyTo(allocatedMemory.AsSpan(newHeader.ContainerNameOffset, newHeader.ContainerNameLength));
             // write array field header
             ref FieldHeader fieldHeader = ref FieldHeader.FromSpanAndFieldIndex(allocatedMemory.Buffer.Span, 0);
-            fieldHeader.NameLength = (short)(nameBytes.Length / sizeof(char));
+            fieldHeader.NameLength = (short)nameBytes.Length;
             fieldHeader.NameOffset = newHeader.ContainerNameOffset + newHeader.ContainerNameLength;
             fieldHeader.DataOffset = dataOffset;
             fieldHeader.Length = dataLength;

@@ -162,7 +162,7 @@ namespace Minerva.DataStorage.Tests
             for (int i = 0; i < view.FieldCount; i++)
             {
                 var fh = view.Fields[i];
-                var slice = ns.Slice(fh.NameOffset - view.Header.NameOffset, fh.NameLength * sizeof(char));
+                var slice = ns.Slice(fh.NameOffset - view.Header.NameOffset, fh.NameLength);
                 var s = MemoryMarshal.Cast<byte, char>(slice).ToString();
                 Assert.AreEqual(view.GetFieldName(i).ToString(), s);
             }

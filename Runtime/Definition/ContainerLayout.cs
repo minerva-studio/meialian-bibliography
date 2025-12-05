@@ -80,8 +80,8 @@ namespace Minerva.DataStorage
                 var selfFieldHeader = Fields[i];
                 ref var fieldHeader = ref Unsafe.As<byte, FieldHeader>(ref headersSegment[ContainerHeader.Size + i * FieldHeader.Size]);
                 if (fieldHeader.FieldType != selfFieldHeader.FieldType) return false;
-                var fieldName = headerBlob.AsSpan(fieldHeader.NameOffset, fieldHeader.NameLength * sizeof(char));
-                var selfFieldName = headerBlob.AsSpan(selfFieldHeader.NameOffset, selfFieldHeader.NameLength * sizeof(char));
+                var fieldName = headerBlob.AsSpan(fieldHeader.NameOffset, fieldHeader.NameLength);
+                var selfFieldName = headerBlob.AsSpan(selfFieldHeader.NameOffset, selfFieldHeader.NameLength);
                 if (!fieldName.SequenceEqual(selfFieldName)) return false;
             }
             return true;
@@ -221,7 +221,7 @@ namespace Minerva.DataStorage
             }
         }
 
-        public ReadOnlySpan<char> Name => MemoryMarshal.Cast<byte, char>(bytes.Slice(Header.NameOffset, Header.NameLength * sizeof(char)));
+        public ReadOnlySpan<char> Name => MemoryMarshal.Cast<byte, char>(bytes.Slice(Header.NameOffset, Header.NameLength));
         /// <summary>
         /// Logical Length of the data
         /// </summary>

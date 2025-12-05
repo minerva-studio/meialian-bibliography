@@ -21,7 +21,7 @@ namespace Minerva.DataStorage
         /// </summary>
         public int NameOffset;
         /// <summary>
-        /// Length of name, in char count
+        /// Length of name, in byte
         /// </summary>
         public short NameLength;
         /// <summary>

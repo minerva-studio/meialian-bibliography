@@ -136,7 +136,7 @@ namespace Minerva.DataStorage
         public ReadOnlySpan<char> GetFieldName(int index)
         {
             var fh = Fields[index];
-            var bytes = Span.Slice(fh.NameOffset, fh.NameLength * sizeof(char));
+            var bytes = Span.Slice(fh.NameOffset, fh.NameLength);
             return MemoryMarshal.Cast<byte, char>(bytes);
         }
 
@@ -144,7 +144,7 @@ namespace Minerva.DataStorage
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlySpan<char> GetFieldName(in FieldHeader fieldHeader)
         {
-            var bytes = Span.Slice(fieldHeader.NameOffset, fieldHeader.NameLength * sizeof(char));
+            var bytes = Span.Slice(fieldHeader.NameOffset, fieldHeader.NameLength);
             return MemoryMarshal.Cast<byte, char>(bytes);
         }
 

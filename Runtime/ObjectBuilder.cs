@@ -429,7 +429,7 @@ namespace Minerva.DataStorage
                 {
                     NameHash = ReadOnlyMemoryComparer.GetHashCode(name),
                     NameOffset = nameStart + nameOffset,   // absolute
-                    NameLength = (short)name.Length,
+                    NameLength = (short)(name.Length * sizeof(char)),
                     FieldType = e.Type,
                     Reserved = 0,
                     DataOffset = running,                  // absolute (== start of this field payload)
