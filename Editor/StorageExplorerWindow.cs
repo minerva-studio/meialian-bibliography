@@ -537,12 +537,20 @@ namespace Minerva.DataStorage
                     {
                         CopyContainerJson(container);
                     });
+                    menu.AddItem(new GUIContent("Copy Base64..."), false, () =>
+                    {
+                        CopyContainerBase64(container);
+                    });
                 }
                 else if (item.Kind == Item.NodeKind.Field && live && container != null)
                 {
                     menu.AddItem(new GUIContent("Copy Container JSON..."), false, () =>
                     {
                         CopyContainerJson(container);
+                    });
+                    menu.AddItem(new GUIContent("Copy Container Base64..."), false, () =>
+                    {
+                        CopyContainerBase64(container);
                     });
                 }
                 else
