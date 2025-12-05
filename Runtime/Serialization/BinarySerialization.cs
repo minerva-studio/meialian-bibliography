@@ -60,6 +60,21 @@ namespace Minerva.DataStorage.Serialization
         public static string ToBase64(this Storage storage) => Convert.ToBase64String(ToBinary(storage));
 
         /// <summary>
+        /// Serializes the entire <see cref="Storage"/> tree into a Base64-encoded string.
+        /// </summary>
+        /// <remarks>
+        /// This is a thin wrapper over <see cref="BinarySerialization.WriteBinaryTo(StorageObject, Buffers.IBufferWriter{byte})"/>.
+        /// It first writes the binary payload into an <see cref="ArrayBufferWriter{T}"/> and then
+        /// converts the written bytes to a Base64 string.
+        /// </remarks>
+        /// <param name="storage">The storage instance to serialize.</param>
+        /// <returns>
+        /// A Base64-encoded string representing the full container tree rooted at
+        /// <see cref="Storage.Root"/>.
+        /// </returns>
+        public static string ToBase64(StorageObject storage) => Convert.ToBase64String(ToBinary(storage));
+
+        /// <summary>
         /// Serializes the entire <see cref="Storage"/> tree rooted at <see cref="Storage.Root"/>
         /// into a contiguous binary blob.
         /// </summary>

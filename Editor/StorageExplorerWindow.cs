@@ -172,6 +172,25 @@ namespace Minerva.DataStorage
             }
         }
 
+        private static void CopyContainerBase64(Container container)
+        {
+            if (container == null || container.ID == 0UL)
+            {
+                EditorUtility.DisplayDialog("Copy Failed", "Copy Failed：Container is not registerd or empty", "OK");
+                return;
+            }
+            try
+            {
+                string base64 = BinarySerialization.ToBase64(new StorageObject(container));
+                EditorGUIUtility.systemCopyBuffer = base64;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                EditorUtility.DisplayDialog("Copy Failed", $"Encounter exception when serializing container：{ex.Message}", "OK");
+            }
+        }
+
         // =========================
         // TreeView Implementation
         // =========================
