@@ -29,12 +29,6 @@ namespace Minerva.DataStorage.Serialization
 
         private static void WriteJsonTo(this in StorageObject storage, IBufferWriter<char> writer)
         {
-            if (storage.Version != 0)
-            {
-                writer.Write($"\"{VersionName}\": ");
-                WriteScalar(ValueType.UInt32, MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref Unsafe.AsRef(storage.Version), 1)), writer);
-            }
-
             // --- special case: Object Array --------------------------
             if (storage.IsArray())
             {
@@ -57,8 +51,16 @@ namespace Minerva.DataStorage.Serialization
                 return;
             }
 
-            writer.Write("{");
             int fieldCount = storage.FieldCount;
+
+            writer.Write("{");
+            if (storage.Version != 0)
+            {
+                writer.Write($"\"{VersionName}\": ");
+                WriteScalar(ValueType.UInt32, MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref Unsafe.AsRef(storage.Version), 1)), writer);
+                if (fieldCount > 0) writer.Write(",");
+            }
+
             for (int i = 0; i < fieldCount; i++)
             {
                 ref var field = ref storage._container.GetFieldHeader(i);
