@@ -188,7 +188,9 @@ namespace Minerva.DataStorage
             layout[referenceHeader.NameOffset..referenceHeader.DataOffset].CopyTo(dst[(newContainerNameOffset + nameByte.Length)..]);
 
             newHeader.Length = dst.Length;  // believe new length is dst length
-            newHeader.ContainerNameLength = checked((short)nameByte.Length); // preserve old name length
+            short nameLength = checked((short)nameByte.Length);
+            newHeader.ContainerNameLength = nameLength; // preserve old name length
+            newHeader.DataOffset += nameLength; // data bytes move back due to inserting container name
             // fix offset
             for (int i = 0; i < referenceHeader.FieldCount; i++)
             {

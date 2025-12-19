@@ -1269,5 +1269,488 @@ namespace Minerva.DataStorage.Tests
         }
 
         #endregion
+
+
+        #region Delete Tests 
+        [Test]
+        public void Storage_Delete_Then_GetObject_Should_Create_New()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            // Create an object with a field
+            var obj1 = root.GetObject("player");
+            obj1.Write("hp", 100);
+            var id1 = obj1.ID;
+
+            // Delete the object field
+            Assert.That(root.Delete("player"), Is.True);
+            Assert.That(root.HasField("player"), Is.False);
+
+            // Getting the object again should create a new one with a different ID
+            var obj2 = root.GetObject("player");
+            Assert.That(obj2.IsNull, Is.False);
+            Assert.That(obj2.ID, Is.Not.EqualTo(id1), "Recreated object should have a new ID.");
+
+            // New object should not have old data
+            Assert.That(obj2.HasField("hp"), Is.False);
+        }
+
+        [Test]
+        public void Storage_Delete_Scalar_Field_Returns_True()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.Write("score", 123);
+            Assert.That(root.HasField("score"), Is.True);
+
+            bool deleted = root.Delete("score");
+            Assert.That(deleted, Is.True);
+            Assert.That(root.HasField("score"), Is.False);
+        }
+
+        [Test]
+        public void Storage_Delete_Missing_Field_Returns_False()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            bool deleted = root.Delete("nonexistent");
+            Assert.That(deleted, Is.False);
+        }
+
+        [Test]
+        public void Storage_Delete_Multiple_Fields()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.Write("a", 1);
+            root.Write("b", 2);
+            root.Write("c", 3);
+
+            int removed = root.Delete("a", "c");
+            Assert.That(removed, Is.EqualTo(2));
+            Assert.That(root.HasField("a"), Is.False);
+            Assert.That(root.HasField("b"), Is.True);
+            Assert.That(root.HasField("c"), Is.False);
+        }
+
+        [Test]
+        public void Storage_Delete_String_Field_Unregisters_Internal_Container()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.Write("title", "Hello");
+            var strObj = root.GetObject("title");
+            var strId = strObj.ID;
+
+            root.Delete("title");
+
+            // Internal string container should be unregistered
+            Assert.That(Container.Registry.Shared.GetContainer(strId), Is.Null);
+        }
+
+        [Test]
+        public void Storage_Delete_Object_Unregisters_Child()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            var player = root.GetObject("player");
+            player.Write("hp", 50);
+            var childId = player.ID;
+
+            root.Delete("player");
+
+            // Child object should be unregistered
+            Assert.That(Container.Registry.Shared.GetContainer(childId), Is.Null);
+            Assert.That(root.HasField("player"), Is.False);
+        }
+
+        [Test]
+        public void Storage_Delete_ObjectArray_Unregisters_All_Elements()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            var arr = root.GetArrayByPath("items".AsSpan(), TypeData.Ref, true);
+            arr.EnsureLength(3);
+            arr.GetObject(0).Write("id", 1);
+            arr.GetObject(1).Write("id", 2);
+            arr.GetObject(2).Write("id", 3);
+
+            var ids = new ulong[3];
+            for (int i = 0; i < 3; i++)
+                ids[i] = arr.GetObject(i).ID;
+
+            root.Delete("items");
+
+            // All elements should be unregistered
+            foreach (var id in ids)
+                Assert.That(Container.Registry.Shared.GetContainer(id), Is.Null);
+
+            Assert.That(root.HasField("items"), Is.False);
+        }
+
+        [Test]
+        public void Storage_Delete_ValueArray_Succeeds()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.WriteArray("values", new[] { 1, 2, 3 });
+            Assert.That(root.HasField("values"), Is.True);
+
+            bool deleted = root.Delete("values");
+            Assert.That(deleted, Is.True);
+            Assert.That(root.HasField("values"), Is.False);
+        }
+
+        [Test]
+        public void Storage_Delete_Then_Rewrite_Creates_Fresh_Field()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.Write("count", 100);
+            root.Delete("count");
+            root.Write("count", 200);
+
+            Assert.That(root.Read<int>("count"), Is.EqualTo(200));
+        }
+
+        [Test]
+        public void Storage_Delete_Triggers_Delete_Event()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.Write("temp", 1);
+
+            var events = new List<StorageEventArgs>();
+            using var sub = root.Subscribe((in StorageEventArgs e) => events.Add(e));
+
+            root.Delete("temp");
+
+            Assert.That(events.Count, Is.GreaterThanOrEqualTo(1));
+            var deleteEvent = events.Find(e => e.Event == StorageEvent.Delete);
+            Assert.That(deleteEvent.Path, Is.EqualTo("temp"));
+        }
+
+        [Test]
+        public void Storage_Delete_Field_Subscriber_Notified_Then_Unsubscribed()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.Write("hp", 100);
+
+            var events = new List<StorageEventArgs>();
+            using var sub = root.Subscribe("hp", (in StorageEventArgs e) => events.Add(e));
+
+            root.Delete("hp");
+
+            // Field subscriber should receive delete event
+            Assert.That(events.Count, Is.GreaterThanOrEqualTo(1));
+            Assert.That(events[0].Event, Is.EqualTo(StorageEvent.Delete));
+
+            events.Clear();
+
+            // Recreate and write should not notify old subscription (field was deleted)
+            root.Write("hp", 200);
+            Assert.That(events.Count, Is.EqualTo(0), "Old field subscription should not fire after delete+recreate.");
+        }
+
+        [Test]
+        public void Storage_Delete_Path_Removes_Nested_Field()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.WritePath("player.stats.hp", 100);
+            Assert.That(root.ReadPath<int>("player.stats.hp"), Is.EqualTo(100));
+
+            // Delete nested field via path
+            var stats = root.GetObjectByPath("player.stats");
+            stats.Delete("hp");
+
+            Assert.That(stats.HasField("hp"), Is.False);
+            Assert.Throws<InvalidOperationException>(() => root.ReadPath<int>("player.stats.hp"));
+        }
+
+        [Test]
+        public void Storage_Delete_Parent_Object_Cascades_To_Children()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            var player = root.GetObject("player");
+            var stats = player.GetObject("stats");
+            stats.Write("hp", 100);
+            stats.Write("mp", 50);
+
+            var playerId = player.ID;
+            var statsId = stats.ID;
+
+            // Delete parent
+            root.Delete("player");
+
+            // Both parent and nested child should be unregistered
+            Assert.That(Container.Registry.Shared.GetContainer(playerId), Is.Null);
+            Assert.That(Container.Registry.Shared.GetContainer(statsId), Is.Null);
+        }
+
+        [Test]
+        public void Storage_Delete_Mixed_Types_Partial_Success()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            root.Write("a", 1);
+            root.Write("c", 3);
+
+            int removed = root.Delete("a", "b", "c"); // b does not exist
+            Assert.That(removed, Is.EqualTo(2)); // only a and c deleted
+            Assert.That(root.HasField("a"), Is.False);
+            Assert.That(root.HasField("c"), Is.False);
+        }
+
+        [Test]
+        public void Storage_Delete_Recreate_Multiple_Cycles_Object_Field()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            // Cycle 1: create -> delete
+            var obj1 = root.GetObject("entity");
+            obj1.Write("hp", 10);
+            var id1 = obj1.ID;
+            root.Delete("entity");
+            Assert.That(Container.Registry.Shared.GetContainer(id1), Is.Null);
+
+            // Cycle 2: recreate -> delete
+            var obj2 = root.GetObject("entity");
+            obj2.Write("hp", 20);
+            var id2 = obj2.ID;
+            Assert.That(id2, Is.Not.EqualTo(id1), "Second cycle should have new ID.");
+            Assert.That(obj2.Read<int>("hp"), Is.EqualTo(20));
+            root.Delete("entity");
+            Assert.That(Container.Registry.Shared.GetContainer(id2), Is.Null);
+
+            // Cycle 3: recreate -> delete
+            var obj3 = root.GetObject("entity");
+            obj3.Write("hp", 30);
+            var id3 = obj3.ID;
+            Assert.That(id3, Is.Not.EqualTo(id2), "Third cycle should have new ID.");
+            Assert.That(obj3.Read<int>("hp"), Is.EqualTo(30));
+            root.Delete("entity");
+            Assert.That(Container.Registry.Shared.GetContainer(id3), Is.Null);
+
+            // Cycle 4: final recreate and verify clean state
+            var obj4 = root.GetObject("entity");
+            Assert.That(obj4.HasField("hp"), Is.False, "Fourth cycle should start fresh with no old data.");
+        }
+
+        [Test]
+        public void Storage_Delete_Recreate_Scalar_Then_Object_Same_Name()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            // Create scalar field
+            root.Write("field", 100);
+            Assert.That(root.Read<int>("field"), Is.EqualTo(100));
+
+            // Delete and recreate as object
+            root.Delete("field");
+            var obj = root.GetObject("field");
+            obj.Write("sub", 200);
+            Assert.That(obj.Read<int>("sub"), Is.EqualTo(200));
+
+            // Delete and recreate as scalar again
+            root.Delete("field");
+            root.Write("field", 300);
+            Assert.That(root.Read<int>("field"), Is.EqualTo(300));
+        }
+
+        [Test]
+        public void Storage_Delete_Object_Then_GetArray_Same_Name()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            // Create object field
+            var obj = root.GetObject("data");
+            obj.Write("x", 1);
+            var objId = obj.ID;
+
+            // Delete and recreate as array
+            root.Delete("data");
+            Assert.That(Container.Registry.Shared.GetContainer(objId), Is.Null);
+
+            var arr = root.GetArray("data".AsSpan(), TypeData.Of<int>(), createIfMissing: true, overrideExisting: true);
+            arr.EnsureLength(3);
+            arr.Write(0, 10);
+            arr.Write(1, 20);
+            CollectionAssert.AreEqual(new[] { 10, 20, 0 }, root.ReadArray<int>("data"));
+
+            // Delete array and recreate as object
+            root.Delete("data");
+            var obj2 = root.GetObject("data");
+            obj2.Write("y", 2);
+            Assert.That(obj2.Read<int>("y"), Is.EqualTo(2));
+            Assert.That(obj2.HasField("x"), Is.False, "Recreated object should not have old object data.");
+        }
+
+        [Test]
+        public void Storage_Delete_ObjectArray_Then_GetObject_Same_Name()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            // Create object array
+            var arr = root.GetArrayByPath("items".AsSpan(), TypeData.Ref, true);
+            arr.EnsureLength(2);
+            arr.GetObject(0).Write("id", 1);
+            arr.GetObject(1).Write("id", 2);
+
+            var elem0Id = arr.GetObject(0).ID;
+            var elem1Id = arr.GetObject(1).ID;
+            var holderId = root.GetObject("items").ID;
+
+            // Delete array field
+            root.Delete("items");
+
+            // Verify all unregistered
+            Assert.That(Container.Registry.Shared.GetContainer(elem0Id), Is.Null);
+            Assert.That(Container.Registry.Shared.GetContainer(elem1Id), Is.Null);
+            Assert.That(Container.Registry.Shared.GetContainer(holderId), Is.Null);
+
+            // Recreate as simple object (not array)
+            var obj = root.GetObject("items");
+            obj.Write("count", 99);
+            Assert.That(obj.Read<int>("count"), Is.EqualTo(99));
+            Assert.That(obj.IsArray(), Is.False, "Recreated as object should not be array.");
+        }
+
+        [Test]
+        public void Storage_Delete_String_Then_GetObject_Same_Name()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            // Create string (internally an object/array)
+            root.Write("name", "Alice");
+            var strObjId = root.GetObject("name").ID;
+
+            // Delete string field
+            root.Delete("name");
+            Assert.That(Container.Registry.Shared.GetContainer(strObjId), Is.Null);
+
+            // Recreate as plain object
+            var obj = root.GetObject("name");
+            obj.Write("first", "Bob");
+            Assert.That(obj.ReadString("first"), Is.EqualTo("Bob"));
+            Assert.That(obj.IsString, Is.False, "Recreated object should not be string type.");
+        }
+
+        [Test]
+        public void Storage_Delete_Nested_Object_Multiple_Cycles()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            // Cycle 1: create nested player.stats
+            root.WritePath("player.stats.hp", 100);
+            var stats1 = root.GetObjectByPath("player.stats");
+            var statsId1 = stats1.ID;
+            Assert.That(stats1.Read<int>("hp"), Is.EqualTo(100));
+
+            // Delete stats, recreate
+            var player = root.GetObject("player");
+            Assert.That(player.Delete("stats"));
+            TestContext.WriteLine(stats1.ID);
+            Assert.That(Container.Registry.Shared.GetContainer(statsId1), Is.Null, "stats1 should be unregistered after delete.");
+
+            var stats2 = player.GetObject("stats");
+            stats2.Write("hp", 200);
+            Assert.That(stats2.Read<int>("hp"), Is.EqualTo(200));
+            Assert.That(stats2.HasField("hp"), Is.True, "stats2 should have hp field.");
+
+            // Cycle 2: delete and recreate again
+            var statsId2 = stats2.ID;
+            Assert.That(player.Delete("stats"));
+            TestContext.WriteLine(stats2.ID);
+            Assert.That(Container.Registry.Shared.GetContainer(statsId2), Is.Null, "stats2 should be unregistered after second delete.");
+
+            var stats3 = player.GetObject("stats");
+            stats3.Write("hp", 300);
+            Assert.That(stats3.Read<int>("hp"), Is.EqualTo(300));
+            Assert.That(stats3.HasField("hp"), Is.True, "stats3 should have hp field.");
+
+            // Verify old data does not exist in new object
+            stats3.Delete("hp");
+            stats3.Write("mp", 50);
+            Assert.That(stats3.HasField("mp"), Is.True);
+            Assert.That(stats3.HasField("hp"), Is.False, "After deleting hp, stats3 should not have hp field.");
+        }
+
+        [Test]
+        public void Storage_Delete_Then_WritePath_Creates_Fresh_Nested_Structure()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            // Create nested path
+            root.WritePath("a.b.c", 1);
+            var aId = root.GetObject("a").ID;
+            var bId = root.GetObject("a").GetObject("b").ID;
+
+            // Delete top-level 'a'
+            root.Delete("a");
+            Assert.That(Container.Registry.Shared.GetContainer(aId), Is.Null);
+            Assert.That(Container.Registry.Shared.GetContainer(bId), Is.Null);
+
+            // Recreate via path - should create new containers
+            root.WritePath("a.b.c", 2);
+            var newAId = root.GetObject("a").ID;
+            var newBId = root.GetObject("a").GetObject("b").ID;
+
+            Assert.That(newAId, Is.Not.EqualTo(aId), "Recreated 'a' should have new ID.");
+            Assert.That(newBId, Is.Not.EqualTo(bId), "Recreated 'b' should have new ID.");
+            Assert.That(root.ReadPath<int>("a.b.c"), Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Storage_Delete_Interleaved_With_Subscription_NoStaleNotifications()
+        {
+            using var s = new Storage();
+            var root = s.Root;
+
+            // Create and write
+            root.Write("item", 1);
+
+            var events = new List<StorageEventArgs>();
+            using var sub = root.Subscribe("item", (in StorageEventArgs e) => events.Add(e));
+            Assert.That(events.Count, Is.EqualTo(0));
+
+            events.Clear();
+
+            // Delete field
+            root.Delete("item");
+            Assert.That(events.Count, Is.GreaterThanOrEqualTo(1)); // delete event
+            Assert.That(events[^1].Event, Is.EqualTo(StorageEvent.Delete));
+
+            events.Clear();
+
+            // Recreate and write - old subscription should NOT fire
+            root.Write("item", 2);
+            Assert.That(events.Count, Is.EqualTo(0), "Old subscription should not fire after delete+recreate.");
+        }
+
+        #endregion
     }
 }

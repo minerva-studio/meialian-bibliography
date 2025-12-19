@@ -129,6 +129,22 @@ namespace Minerva.DataStorage
 
         public ref AllocatedMemory Memory => ref _memory;
 
+        public FieldInfo[] Fields
+        {
+            get
+            {
+                EnsureNotDisposed();
+                int fieldCount = FieldCount;
+                FieldInfo[] fields = new FieldInfo[fieldCount];
+                for (int i = 0; i < fieldCount; i++)
+                {
+                    ref var header = ref GetFieldHeader(i);
+                    fields[i] = new FieldInfo(GetFieldName(in header), header);
+                }
+                return fields;
+            }
+        }
+
 
 
 
@@ -606,24 +622,22 @@ namespace Minerva.DataStorage
         public override string ToString()
         {
             StringBuilder sb = new();
-            sb.Append("{");
+            sb.Append('{');
             for (int i = 0; i < FieldCount; i++)
             {
                 ref var field = ref GetFieldHeader(i);
                 var valueView = GetValueView(i);
-                sb.AppendLine();
-                sb.Append("\"");
+                sb.Append('"');
                 sb.Append(GetFieldName(in field));
-                sb.Append("\"");
+                sb.Append('"');
                 sb.Append(": ");
                 sb.Append(valueView.ToString());
-                sb.Append(",");
+                sb.Append(',');
             }
             if (sb.Length > 1)
                 sb.Length--;
 
-            sb.AppendLine();
-            sb.AppendLine("}");
+            sb.Append('}');
             return sb.ToString();
         }
     }

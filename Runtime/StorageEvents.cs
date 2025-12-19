@@ -520,12 +520,13 @@ namespace Minerva.DataStorage
             buffer!.Add(new Entry(r, fieldType, isFieldDlete));
         }
 
-        public readonly void Add(ReadOnlySpan<ContainerReference> rs, bool isArray, bool isFieldDlete = false)
+        public readonly void Add(ReadOnlySpan<ContainerReference> rs, bool isArray, bool isFieldDelete = false)
         {
             for (int i = 0; i < rs.Length; i++)
             {
                 if (rs[i] == Container.Registry.ID.Empty) continue;
-                buffer!.Add(new Entry(rs[i], isArray ? TypeUtil<ContainerReference>.ArrayFieldType : TypeUtil<ContainerReference>.ScalarFieldType, isFieldDlete));
+                FieldType fieldType = isArray ? TypeUtil<ContainerReference>.ArrayFieldType : TypeUtil<ContainerReference>.ScalarFieldType;
+                buffer!.Add(new Entry(rs[i], fieldType, isFieldDelete));
             }
         }
 

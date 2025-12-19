@@ -109,7 +109,7 @@ namespace Minerva.DataStorage
         /// int value = obj.Int["fieldName"];
         /// </code> 
         /// </summary> 
-        public IAccessor<int> Int
+        public readonly IAccessor<int> Int
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
@@ -183,6 +183,17 @@ namespace Minerva.DataStorage
                 return _container;
             }
         }
+
+        /// <summary>
+        /// Get all fields in the object
+        /// </summary>
+        public readonly FieldInfo[] Fields
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _container.Fields;
+        }
+
+
 
 
 
