@@ -81,6 +81,11 @@ namespace Minerva.DataStorage.Serialization
             SerializedValueView value,
             int depth)
         {
+            if (fieldName == JsonSerialization.VersionName)
+            {
+                target.Version = (int)value.AsPrimitiveView().AsInt64();
+                return;
+            }
             switch (value.Type)
             {
                 case TokenType.Object:
