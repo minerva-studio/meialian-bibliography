@@ -232,6 +232,9 @@ namespace Minerva.DataStorage
                 /// Used to detect pooled reuse and stale items.
                 /// </summary>
                 public int GenerationSnapshot;
+
+                public Container ReferencedContainer;
+                public int ReferencedGenerationSnapshot;
             }
 
             public StorageTreeView(TreeViewState state, MultiColumnHeader header)
@@ -382,9 +385,6 @@ namespace Minerva.DataStorage
                 if (container == null)
                     return;
 
-                if (!IsContainerLive(container, parent.GenerationSnapshot))
-                    return;
-
                 if (!pathVisited.Add(container.ID))
                 {
                     var info = new Item
@@ -442,7 +442,9 @@ namespace Minerva.DataStorage
                         else if (arr.Type == ValueType.Ref)
                         {
                             var refs = arr.References;
-                            for (int j = 0; j < arr.Length; j++)
+                            var count = arr.Length;
+
+                            for (int j = 0; j < count; j++)
                             {
                                 ulong id = refs[j];
                                 if (id == 0UL ||
@@ -454,7 +456,7 @@ namespace Minerva.DataStorage
                                     continue;
 
                                 var childItem = CreateContainerItem(child);
-                                childItem.displayName = $"{fieldName}[{j}] (ID={arrayContainer.ID})";
+                                childItem.displayName = $"{fieldName}[{j}] (ID={child.ID})";
                                 fieldItem.AddChild(childItem);
                                 BuildContainerChildrenRecursive(child, childItem, pathVisited);
                             }
@@ -486,15 +488,16 @@ namespace Minerva.DataStorage
                             continue;
 
                         ulong id = refs[0];
-                        if (id == 0UL ||
-                            id == Container.Registry.ID.Empty ||
-                            id == Container.Registry.ID.Wild)
+                        if (id == Container.Registry.ID.Empty || id == Container.Registry.ID.Wild)
                             continue;
 
                         if (!_snapshot.TryGetValue(id, out var child) || child == null)
                             continue;
 
                         fieldItem.displayName = $"{fieldName} (ID={child.ID})";
+                        fieldItem.ReferencedContainer = child;
+                        fieldItem.ReferencedGenerationSnapshot = child.Generation;
+
                         BuildContainerChildrenRecursive(child, fieldItem, pathVisited);
                     }
                 }
@@ -933,6 +936,13 @@ namespace Minerva.DataStorage
             /// </summary>
             private static bool TryGetLiveContainer(Item item, out Container container)
             {
+                if (item.Kind == Item.NodeKind.Field && item.ReferencedContainer != null)
+                {
+                    container = item.Container;
+                    return IsContainerLive(container, item.GenerationSnapshot)
+                        && IsContainerLive(item.ReferencedContainer, item.ReferencedGenerationSnapshot);
+                }
+
                 container = item.Container;
                 if (container == null)
                     return false;
