@@ -23,7 +23,7 @@ namespace Minerva.DataStorage
         public readonly bool IsDisposed
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => Container.IsDisposed(Generation);
+            get => Container == null || Container.IsDisposed(Generation);
         }
 
         public int Index
