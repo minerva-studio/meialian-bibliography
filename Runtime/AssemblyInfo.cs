@@ -11,12 +11,8 @@ namespace Minerva.DataStorage
 {
     public class AssemblyInfo
     {
-        /// <summary>
-        /// The game revision <br/>
-        /// Only need to change when want to publish a same version name but with changes on save/load
-        /// </summary> 
         public const string VisionRevision = "0";
-        public const string Version = "0.3.0";
+        public const string Version = "0.3.1";
         public const string FileVersion = Version + "." + VisionRevision;
     }
 }
