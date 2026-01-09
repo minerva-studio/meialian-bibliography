@@ -210,7 +210,21 @@ namespace Minerva.DataStorage
             private Dictionary<ulong, Container> _snapshot;
             private int _nextId;
 
-            private readonly GUIStyle _rightAlignMini;
+            private GUIStyle _rightAlignMini;
+            private GUIStyle RightAlignMini
+            {
+                get
+                {
+                    if (_rightAlignMini == null || EditorStyles.miniLabel == null)
+                    {
+                        _rightAlignMini = new GUIStyle(EditorStyles.miniLabel ?? GUIStyle.none)
+                        {
+                            alignment = TextAnchor.MiddleRight
+                        };
+                    }
+                    return _rightAlignMini;
+                }
+            }
 
             private sealed class Item : TreeViewItem
             {
@@ -243,11 +257,6 @@ namespace Minerva.DataStorage
                 showBorder = true;
                 showAlternatingRowBackgrounds = true;
                 rowHeight = EditorGUIUtility.singleLineHeight + 4f;
-
-                _rightAlignMini = new GUIStyle(EditorStyles.miniLabel)
-                {
-                    alignment = TextAnchor.MiddleRight
-                };
             }
 
             public void SetSnapshot(Dictionary<ulong, Container> snapshot)
@@ -638,11 +647,11 @@ namespace Minerva.DataStorage
                                 if (TryGetLiveContainer(item, out var c))
                                 {
                                     ref var header = ref c.GetFieldHeader(item.FieldIndex);
-                                    EditorGUI.LabelField(cellRect, header.ElemSize.ToString(), _rightAlignMini);
+                                    EditorGUI.LabelField(cellRect, header.ElemSize.ToString(), RightAlignMini);
                                 }
                                 else
                                 {
-                                    EditorGUI.LabelField(cellRect, "-", _rightAlignMini);
+                                    EditorGUI.LabelField(cellRect, "-", RightAlignMini);
                                 }
                             }
                             else if (item.Kind == Item.NodeKind.Field && item.FieldIndex >= 0)
@@ -658,22 +667,22 @@ namespace Minerva.DataStorage
                                         length = $"({value?.Length ?? ContainerReference.Size})";
                                     }
                                     else length = header.Length.ToString();
-                                    EditorGUI.LabelField(cellRect, length, _rightAlignMini);
+                                    EditorGUI.LabelField(cellRect, length, RightAlignMini);
                                 }
                                 else
                                 {
-                                    EditorGUI.LabelField(cellRect, "-", _rightAlignMini);
+                                    EditorGUI.LabelField(cellRect, "-", RightAlignMini);
                                 }
                             }
                             else if (item.Kind == Item.NodeKind.Root)
                             {
                                 if (TryGetLiveContainer(item, out var c))
                                 {
-                                    EditorGUI.LabelField(cellRect, $"\"{c.Length}\"", _rightAlignMini);
+                                    EditorGUI.LabelField(cellRect, $"\"{c.Length}\"", RightAlignMini);
                                 }
                                 else
                                 {
-                                    EditorGUI.LabelField(cellRect, "-", _rightAlignMini);
+                                    EditorGUI.LabelField(cellRect, "-", RightAlignMini);
                                 }
                             }
                             break;
@@ -687,11 +696,11 @@ namespace Minerva.DataStorage
                                 {
                                     ref var header = ref c.GetFieldHeader(item.FieldIndex);
                                     int offset = header.DataOffset + item.ArrayIndex * header.ElemSize;
-                                    EditorGUI.LabelField(cellRect, offset.ToString(), _rightAlignMini);
+                                    EditorGUI.LabelField(cellRect, offset.ToString(), RightAlignMini);
                                 }
                                 else
                                 {
-                                    EditorGUI.LabelField(cellRect, "-", _rightAlignMini);
+                                    EditorGUI.LabelField(cellRect, "-", RightAlignMini);
                                 }
                             }
                             else if (item.Kind == Item.NodeKind.Field && item.FieldIndex >= 0)
@@ -699,11 +708,11 @@ namespace Minerva.DataStorage
                                 if (TryGetLiveContainer(item, out var c))
                                 {
                                     ref var header = ref c.GetFieldHeader(item.FieldIndex);
-                                    EditorGUI.LabelField(cellRect, header.DataOffset.ToString(), _rightAlignMini);
+                                    EditorGUI.LabelField(cellRect, header.DataOffset.ToString(), RightAlignMini);
                                 }
                                 else
                                 {
-                                    EditorGUI.LabelField(cellRect, "-", _rightAlignMini);
+                                    EditorGUI.LabelField(cellRect, "-", RightAlignMini);
                                 }
                             }
                             break;
@@ -716,7 +725,7 @@ namespace Minerva.DataStorage
                                 var idText = item.Container.ID == 0UL
                                     ? "0 (unregistered)"
                                     : item.Container.ID.ToString();
-                                EditorGUI.LabelField(cellRect, idText, _rightAlignMini);
+                                EditorGUI.LabelField(cellRect, idText, RightAlignMini);
                             }
                             break;
                         }
