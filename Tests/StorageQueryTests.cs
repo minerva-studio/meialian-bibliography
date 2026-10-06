@@ -243,10 +243,6 @@ namespace Minerva.DataStorage.Tests
                          .Location("title")
                          .Expect().String();
 
-#if UNITY_EDITOR
-            UnityEngine.Debug.Log(ok.GetCurrentResult());
-#endif
-
             Assert.That(ok.GetCurrentResult().Success, Is.True);
 
             // failure on non-char16 array
