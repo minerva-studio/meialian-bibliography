@@ -244,7 +244,7 @@ namespace Minerva.DataStorage.Tests
                          .Expect().String();
 
 #if UNITY_EDITOR
-            UnityEngine.Debug.Log(ok.Result);
+            UnityEngine.Debug.Log(ok.GetCurrentResult());
 #endif
 
             Assert.That(ok.GetCurrentResult().Success, Is.True);
