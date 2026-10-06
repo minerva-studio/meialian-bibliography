@@ -1,5 +1,11 @@
 #if UNITY_EDITOR
 
+#if UNITY_6000_2_OR_NEWER
+// Unity 6.2 deprecated the non-generic TreeView types (compile errors from Unity 6.7). Item ids are local row counters, not object ids, so int identifiers are sufficient.
+using TreeView = UnityEditor.IMGUI.Controls.TreeView<int>;
+using TreeViewItem = UnityEditor.IMGUI.Controls.TreeViewItem<int>;
+using TreeViewState = UnityEditor.IMGUI.Controls.TreeViewState<int>;
+#endif
 using Minerva.DataStorage.Serialization;
 using System;
 using System.Collections.Generic;
